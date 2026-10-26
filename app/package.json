@@ -1,0 +1,36 @@
+{
+  "name": "maestri-proprio",
+  "productName": "Maestri Próprio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Quadro infinito para orquestrar agentes de código",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit",
+    "autoteste": "electron-vite build && electron . --autoteste"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-webgl": "0.19.0",
+    "@xterm/xterm": "6.0.0",
+    "node-pty": "1.1.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "44.9.3",
+    "electron-vite": "6.0.0",
+    "typescript": "6.0.3",
+    "vite": "8.3.4"
+  },
+  "allowScripts": {
+    "node-pty@1.1.0": true
+  }
+}

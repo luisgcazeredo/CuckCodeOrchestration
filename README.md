@@ -16,3 +16,14 @@ peça no quadro, ao lado de post-its e desenhos, e os agentes conversam entre si
 ## Stack
 
 Electron · React · TypeScript · xterm.js · node-pty — Windows 11 x64 primeiro.
+
+## Rodar
+
+Precisa de Node 24.
+
+```powershell
+cd app
+npm install
+npm run dev        # abre o app com recarga automática
+npm run autoteste  # abre, digita um comando no terminal, confere a resposta e fecha (0 = passou)
+```

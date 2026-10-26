@@ -1,0 +1,90 @@
+/* Tokens de cor medidos da janela de referência (ver VISUAL.md). Tema claro entra no passo 3. */
+:root {
+  --quadro-fundo: #1e1e1e;
+  --terminal-cabecalho: #38383a;
+  --terminal-corpo: #1a1a1e;
+  --terminal-borda: #232325;
+  --texto-suave: #a0a0a4;
+  --destaque: #007aff;
+  --fonte-interface: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#raiz {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--quadro-fundo);
+  color: #e6e6e6;
+  font-family: var(--fonte-interface);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.quadro {
+  height: 100%;
+  padding: 32px;
+  display: flex;
+}
+
+.cartao-terminal {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--terminal-borda);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--terminal-corpo);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.cartao-cabecalho,
+.cartao-rodape {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  background: var(--terminal-cabecalho);
+  user-select: none;
+}
+
+.cartao-cabecalho {
+  height: 24px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.cartao-rodape {
+  height: 20px;
+  font-size: 11px;
+  color: var(--texto-suave);
+}
+
+.cartao-corpo {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 0 0 6px;
+}
+
+.ponto {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--texto-suave);
+}
+
+.ponto-rodando {
+  background: #34c759;
+}
+
+.ponto-encerrado {
+  background: #ff3b30;
+}
