@@ -1,4 +1,4 @@
-# cuckcodeconductor
+# CuckCodeOrchestration
 
 Um quadro infinito para orquestrar agentes de código. Cada terminal (Claude Code, Codex ou um shell comum) é uma
 peça no quadro, ao lado de post-its e desenhos, e os agentes conversam entre si pelas ligações que você desenha.
