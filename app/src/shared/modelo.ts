@@ -19,6 +19,10 @@ interface NoBase {
   /** Ordem de empilhamento: maior fica por cima. */
   z: number
   criadoEm: string
+  /** Cor do cartão (destaque no terminal e nos cartões; cor do texto no texto solto; tom do post-it). */
+  cor?: string
+  /** Travado: não move, não redimensiona e não apaga até destravar. */
+  travado?: boolean
 }
 
 export interface NoTerminal extends NoBase {
@@ -85,6 +89,8 @@ export interface Corda {
 }
 
 export type FerramentaDesenho = 'lapis' | 'retangulo' | 'seta'
+/** O que a barra de desenho escolhe: uma forma ou a borracha (que apaga traços). */
+export type PincelDesenho = FerramentaDesenho | 'borracha'
 
 export interface Desenho {
   id: string
@@ -102,7 +108,35 @@ export interface Camera {
   zoom: number
 }
 
-export interface Espaco {
+/** O conteúdo de um nível do quadro: o térreo (o próprio espaço) e cada andar têm o seu. */
+export interface Plano {
+  camera: Camera
+  nos: No[]
+  cordas: Corda[]
+  desenhos: Desenho[]
+}
+
+export type EstadoAndar = 'trabalhando' | 'travado' | 'revisao' | 'pronto'
+
+/**
+ * Andar: um nível dentro do espaço, com quadro próprio. Com git, ganha um ramo e uma pasta isolada
+ * (git worktree) para mexer sem tocar no projeto principal; depois é "pousado" (juntado) ou apagado.
+ */
+export interface Andar extends Plano {
+  id: string
+  nome: string
+  criadoEm: string
+  git: null | {
+    ramo: string
+    /** Pasta do worktree, onde os terminais deste andar abrem. */
+    pasta: string
+    /** Ramo do projeto principal quando o andar nasceu. */
+    ramoBase: string
+  }
+  status?: { texto: string; estado: EstadoAndar }
+}
+
+export interface Espaco extends Plano {
   versao: 1
   id: string
   nome: string
@@ -112,10 +146,16 @@ export interface Espaco {
   icone: string
   criadoEm: string
   abertoEm: string
-  camera: Camera
-  nos: No[]
-  cordas: Corda[]
-  desenhos: Desenho[]
+  andares: Andar[]
+  /** Andar à mostra; null = térreo. */
+  andarAtivo: string | null
+}
+
+export interface ResumoAndar {
+  id: string
+  nome: string
+  ramo: string | null
+  estado?: EstadoAndar
 }
 
 export interface ResumoEspaco {
@@ -125,6 +165,28 @@ export interface ResumoEspaco {
   icone: string
   pasta: string
   terminais: number
+  andares: ResumoAndar[]
+}
+
+/** Situação do git de um andar, lida na hora (não fica salva). */
+export interface SituacaoAndar {
+  /** Commits do andar que o principal ainda não tem. */
+  commitsAFrente: number
+  /** Arquivos mudados no andar e ainda fora de commit. */
+  alterados: number
+  /** Arquivos mudados no projeto principal e ainda fora de commit (atrapalham juntar). */
+  alteradosNoPrincipal: number
+  ramoPrincipal: string
+  /** Ramo de onde o andar nasceu. */
+  ramoBase: string
+  /** O principal está sem ramo aberto (HEAD solto): juntar fica bloqueado. */
+  destacado: boolean
+}
+
+export interface ResultadoGit {
+  ok: boolean
+  mensagem: string
+  arquivos?: string[]
 }
 
 export type Tema = 'escuro' | 'claro'

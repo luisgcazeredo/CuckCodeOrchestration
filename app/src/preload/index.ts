@@ -1,9 +1,23 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { CANAIS, CANAIS_APP, CANAIS_DADOS, type ApiDados, type ApiMaestri } from '../shared/api'
+import {
+  CANAIS,
+  CANAIS_ANDARES,
+  CANAIS_APP,
+  CANAIS_DADOS,
+  type ApiAndares,
+  type ApiDados,
+  type ApiMaestri
+} from '../shared/api'
 
-const dados = Object.fromEntries(
-  Object.entries(CANAIS_DADOS).map(([nome, canal]) => [nome, (...args: unknown[]) => ipcRenderer.invoke(canal, ...args)])
-) as unknown as ApiDados
+/** Cada canal vira uma função que chama o processo principal e devolve a resposta. */
+function chamadas<T>(canais: Record<string, string>): T {
+  return Object.fromEntries(
+    Object.entries(canais).map(([nome, canal]) => [nome, (...args: unknown[]) => ipcRenderer.invoke(canal, ...args)])
+  ) as T
+}
+
+const dados = chamadas<ApiDados>(CANAIS_DADOS)
+const andares = chamadas<ApiAndares>(CANAIS_ANDARES)
 
 // Um ouvinte de IPC por canal, repassando só para o cartão daquele terminal:
 // com muitos terminais, a saída de um não acorda os outros.
@@ -34,6 +48,7 @@ const api: ApiMaestri = {
     aoSair: distribuidor<number>(CANAIS.saida)
   },
   dados,
+  andares,
   aoPedirFechar: (salvar) => {
     ipcRenderer.on(CANAIS_APP.vaiFechar, async () => {
       const gravou = await salvar().catch(() => false)

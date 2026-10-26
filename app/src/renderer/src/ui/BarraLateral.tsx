@@ -1,7 +1,11 @@
 import { useState } from 'react'
-import { Folder, FolderOpen, Plus, Search, SquareTerminal } from 'lucide-react'
-import { abrirEspaco, criarEspaco, renomearEspaco, usarLoja } from '../estado/loja'
+import { Folder, FolderOpen, GitBranch, Layers, Plus, Search, SquareTerminal } from 'lucide-react'
+import type { ResumoEspaco } from '../../../shared/modelo'
+import { abrirEspaco, criarEspaco, lerEstado, renomearEspaco, usarLoja } from '../estado/loja'
+import { COR_ESTADO } from './Andares'
 import { Dialogo } from './Dialogo'
+import { abrirMenu } from './MenuContexto'
+import { itensDoAndar, itensDoEspaco } from './menus'
 
 function NovoEspaco({ aoFechar }: { aoFechar: () => void }) {
   const [nome, setNome] = useState('')
@@ -38,14 +42,22 @@ function NovoEspaco({ aoFechar }: { aoFechar: () => void }) {
 
 export function BarraLateral() {
   const espacos = usarLoja((e) => e.espacos)
-  const ativo = usarLoja((e) => e.espaco?.id)
-  // o espaço aberto conta na hora; os outros, pelo que está salvo
-  const terminaisAtivo = usarLoja((e) => e.espaco?.nos.filter((n) => n.tipo === 'terminal').length ?? 0)
+  const espacoAberto = usarLoja((e) => e.espaco)
   const [filtro, setFiltro] = useState('')
   const [criando, setCriando] = useState(false)
   const [renomeando, setRenomeando] = useState<string | null>(null)
 
-  const visiveis = espacos.filter((e) => e.nome.toLowerCase().includes(filtro.trim().toLowerCase()))
+  // o espaço aberto conta e lista na hora (terminais de todos os andares); os outros, pelo que está salvo
+  const comAberto = (r: ResumoEspaco): ResumoEspaco => {
+    if (r.id !== espacoAberto?.id) return r
+    const planos = [espacoAberto, ...espacoAberto.andares]
+    return {
+      ...r,
+      terminais: planos.reduce((t, p) => t + p.nos.filter((n) => n.tipo === 'terminal').length, 0),
+      andares: espacoAberto.andares.map((a) => ({ id: a.id, nome: a.nome, ramo: a.git?.ramo ?? null, estado: a.status?.estado }))
+    }
+  }
+  const visiveis = espacos.filter((e) => e.nome.toLowerCase().includes(filtro.trim().toLowerCase())).map(comAberto)
 
   return (
     <aside className="lateral">
@@ -60,41 +72,73 @@ export function BarraLateral() {
       </div>
       <h2 className="lateral-titulo">Espaços de trabalho</h2>
       <ul className="lista-espacos">
-        {visiveis.map((r) => ({ ...r, terminais: r.id === ativo ? terminaisAtivo : r.terminais })).map((e) => (
-          <li
-            key={e.id}
-            className={e.id === ativo ? 'ativo' : ''}
-            title={e.pasta}
-            onClick={() => void abrirEspaco(e.id)}
-            onDoubleClick={() => setRenomeando(e.id)}
-          >
-            <Folder size={16} color={e.cor} fill={e.id === ativo ? e.cor : 'none'} fillOpacity={0.25} />
-            {renomeando === e.id ? (
-              <input
-                className="renomear"
-                autoFocus
-                defaultValue={e.nome}
-                onClick={(ev) => ev.stopPropagation()}
-                onBlur={(ev) => {
-                  void renomearEspaco(e.id, ev.target.value)
-                  setRenomeando(null)
+        {visiveis.map((e) => {
+          const ativo = e.id === espacoAberto?.id
+          return (
+            <li key={e.id} className="grupo-espaco">
+              <div
+                className={`linha-espaco ${ativo && !espacoAberto?.andarAtivo ? 'ativo' : ''} ${ativo ? 'aberto' : ''}`}
+                title={e.pasta}
+                onClick={() => void abrirEspaco(e.id, null)}
+                onDoubleClick={() => setRenomeando(e.id)}
+                onContextMenu={(ev) => {
+                  ev.preventDefault()
+                  abrirMenu(ev.clientX, ev.clientY, itensDoEspaco(e))
                 }}
-                onKeyDown={(ev) => {
-                  if (ev.key === 'Enter') ev.currentTarget.blur()
-                  if (ev.key === 'Escape') setRenomeando(null)
-                }}
-              />
-            ) : (
-              <span className="espaco-nome">{e.nome}</span>
-            )}
-            {e.terminais > 0 && (
-              <span className="selo" title={`${e.terminais} terminais`}>
-                <SquareTerminal size={12} />
-                {e.terminais}
-              </span>
-            )}
-          </li>
-        ))}
+              >
+                <Folder size={16} color={e.cor} fill={ativo ? e.cor : 'none'} fillOpacity={0.25} />
+                {renomeando === e.id ? (
+                  <input
+                    className="renomear"
+                    autoFocus
+                    defaultValue={e.nome}
+                    onClick={(ev) => ev.stopPropagation()}
+                    onBlur={(ev) => {
+                      void renomearEspaco(e.id, ev.target.value)
+                      setRenomeando(null)
+                    }}
+                    onKeyDown={(ev) => {
+                      if (ev.key === 'Enter') ev.currentTarget.blur()
+                      if (ev.key === 'Escape') setRenomeando(null)
+                    }}
+                  />
+                ) : (
+                  <span className="espaco-nome">{e.nome}</span>
+                )}
+                {e.terminais > 0 && (
+                  <span className="selo" title={`${e.terminais} terminais`}>
+                    <SquareTerminal size={12} />
+                    {e.terminais}
+                  </span>
+                )}
+              </div>
+              {e.andares.length > 0 && (
+                <ul className="lista-andares">
+                  {e.andares.map((a) => (
+                    <li
+                      key={a.id}
+                      className={`linha-andar ${ativo && espacoAberto?.andarAtivo === a.id ? 'ativo' : ''}`}
+                      title={a.ramo ? `ramo ${a.ramo}` : 'andar sem git'}
+                      onClick={() => void abrirEspaco(e.id, a.id)}
+                      onContextMenu={async (ev) => {
+                        ev.preventDefault()
+                        const { clientX, clientY } = ev
+                        if (!ativo) await abrirEspaco(e.id, a.id)
+                        const andar = lerEstado().espaco?.andares.find((x) => x.id === a.id)
+                        if (andar) abrirMenu(clientX, clientY, itensDoAndar(andar))
+                      }}
+                    >
+                      <Layers size={13} />
+                      <span className="andar-nome">{a.nome}</span>
+                      {a.ramo && <GitBranch size={11} className="andar-git" />}
+                      {a.estado && <span className="ponto-estado" style={{ background: COR_ESTADO[a.estado] }} />}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          )
+        })}
       </ul>
       {criando && <NovoEspaco aoFechar={() => setCriando(false)} />}
     </aside>

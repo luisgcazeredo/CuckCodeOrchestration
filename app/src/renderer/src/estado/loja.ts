@@ -1,18 +1,22 @@
 import { useSyncExternalStore } from 'react'
 import {
   PRESETS_PADRAO,
+  type Andar,
   type Camera,
   type Corda,
   type Desenho,
   type Espaco,
-  type FerramentaDesenho,
   type No,
   type NoPostIt,
+  type PincelDesenho,
+  type Plano,
   type PresetAgente,
   type Preferencias,
+  type ResultadoGit,
   type ResumoEspaco,
   type Tema
 } from '../../../shared/modelo'
+import { distanciaAoDesenho } from '../quadro/geometria'
 
 export type Ferramenta = 'selecionar' | 'postit' | 'texto' | 'desenho'
 
@@ -29,12 +33,14 @@ export interface EstadoUI {
   preferencias: Preferencias
   lateralAberta: boolean
   ferramenta: Ferramenta
-  estiloDesenho: { ferramenta: FerramentaDesenho; cor: string }
+  estiloDesenho: { ferramenta: PincelDesenho; cor: string }
   selecao: Selecao | null
   /** Nó em edição de texto (post-it ou texto). */
   editando: string | null
   miniMapa: boolean
   erroAoSalvar: string | null
+  /** Vista de andares (a pilha em perspectiva) aberta. */
+  vistaAndares: boolean
 }
 
 let estado: EstadoUI = {
@@ -49,7 +55,8 @@ let estado: EstadoUI = {
   selecao: null,
   editando: null,
   miniMapa: false,
-  erroAoSalvar: null
+  erroAoSalvar: null,
+  vistaAndares: false
 }
 
 const ouvintes = new Set<() => void>()
@@ -73,6 +80,34 @@ function definir(parcial: Partial<EstadoUI>): void {
   ouvintes.forEach((o) => o())
 }
 
+// ---------- plano à mostra (térreo ou andar) ----------
+
+/** O plano à mostra: o próprio espaço (térreo) ou o andar ativo. Mesmo objeto enquanto não muda. */
+export function planoDe(espaco: Espaco): Plano {
+  return (espaco.andarAtivo && espaco.andares.find((a) => a.id === espaco.andarAtivo)) || espaco
+}
+
+export function planoAtual(): Plano | null {
+  return estado.espaco ? planoDe(estado.espaco) : null
+}
+
+/** Andar à mostra, ou null no térreo. */
+export function andarAtual(): Andar | null {
+  const e = estado.espaco
+  return (e?.andarAtivo && e.andares.find((a) => a.id === e.andarAtivo)) || null
+}
+
+/** Pasta onde os terminais do plano à mostra abrem: a do andar (worktree) ou a do projeto. */
+export function pastaDoPlano(espaco: Espaco): string {
+  const andar = espaco.andarAtivo ? espaco.andares.find((a) => a.id === espaco.andarAtivo) : null
+  return andar?.git?.pasta ?? espaco.pasta
+}
+
+function comPlano(espaco: Espaco, plano: Plano): Espaco {
+  if (!espaco.andarAtivo) return { ...espaco, ...plano }
+  return { ...espaco, andares: espaco.andares.map((a) => (a.id === espaco.andarAtivo ? { ...a, ...plano } : a)) }
+}
+
 // ---------- salvar ----------
 
 let temporizador: ReturnType<typeof setTimeout> | null = null
@@ -83,11 +118,12 @@ function agendarSalvar(): void {
   temporizador = setTimeout(() => void salvarAgora(), 600)
 }
 
-export function salvarAgora(): Promise<void> {
+/** Salva o que estiver pendente. Diz se deu certo (false = o arquivo em disco ficou como estava). */
+export function salvarAgora(): Promise<boolean> {
   if (temporizador) clearTimeout(temporizador)
   temporizador = null
   const { espaco, notas } = estado
-  if (!espaco) return salvando
+  if (!espaco) return salvando.then(() => estado.erroAoSalvar === null)
   // a fila nunca fica presa: uma falha é registrada e o próximo salvamento tenta de novo
   salvando = salvando.then(async () => {
     try {
@@ -97,81 +133,125 @@ export function salvarAgora(): Promise<void> {
       definir({ erroAoSalvar: String(erro) })
     }
   })
-  return salvando
+  return salvando.then(() => estado.erroAoSalvar === null)
 }
 
-// ---------- desfazer e refazer ----------
+/** Antes de fechar a janela: salva o pendente e diz se deu certo. */
+export function salvarParaFechar(): Promise<boolean> {
+  return salvarAgora()
+}
 
+// ---------- desfazer e refazer (um histórico por plano: térreo e cada andar) ----------
+
+/** Só o conteúdo do plano e o texto dos post-its dele: desfazer num andar não mexe no térreo, e vice-versa. */
 interface Instantaneo {
-  espaco: Espaco
+  plano: Plano
   notas: Record<string, string>
 }
 
 const LIMITE_HISTORICO = 100
-let pilhaDesfazer: Instantaneo[] = []
-let pilhaRefazer: Instantaneo[] = []
+const historicos = new Map<string, { desfazer: Instantaneo[]; refazer: Instantaneo[] }>()
 let ultimaChave: string | null = null
 let ultimoRegistro = 0
 
+const idDoPlano = (espaco: Espaco): string => espaco.andarAtivo ?? 'terreo'
+
+function pilhasDoPlano(): { desfazer: Instantaneo[]; refazer: Instantaneo[] } {
+  const id = idDoPlano(estado.espaco!)
+  let pilhas = historicos.get(id)
+  if (!pilhas) historicos.set(id, (pilhas = { desfazer: [], refazer: [] }))
+  return pilhas
+}
+
+function zerarHistorico(): void {
+  historicos.clear()
+  ultimaChave = null
+}
+
+function notasDoPlano(plano: Plano, notas: Record<string, string>): Record<string, string> {
+  const doPlano: Record<string, string> = {}
+  for (const n of plano.nos) if (n.tipo === 'postit') doPlano[n.arquivo] = notas[n.arquivo] ?? ''
+  return doPlano
+}
+
+function instantaneoAtual(): Instantaneo {
+  const { camera, nos, cordas, desenhos } = planoDe(estado.espaco!)
+  const plano = { camera, nos, cordas, desenhos }
+  return { plano, notas: notasDoPlano(plano, estado.notas) }
+}
+
 /**
- * Guarda o estado de antes de uma mudança. Mudanças seguidas com a mesma `chave` (arrastar, digitar,
+ * Guarda o plano de antes de uma mudança. Mudanças seguidas com a mesma `chave` (arrastar, digitar,
  * redimensionar) viram um passo só; sem chave, cada mudança é um passo.
  */
 function registrarHistorico(chave?: string): void {
-  const { espaco, notas } = estado
-  if (!espaco) return
+  if (!estado.espaco) return
   const agora = Date.now()
-  if (chave && chave === ultimaChave && agora - ultimoRegistro < 1000) {
+  const chaveCompleta = chave ? `${idDoPlano(estado.espaco)}|${chave}` : null
+  if (chaveCompleta && chaveCompleta === ultimaChave && agora - ultimoRegistro < 1000) {
     ultimoRegistro = agora
     return
   }
-  pilhaDesfazer.push({ espaco, notas })
-  if (pilhaDesfazer.length > LIMITE_HISTORICO) pilhaDesfazer.shift()
-  pilhaRefazer = []
-  ultimaChave = chave ?? null
+  const pilhas = pilhasDoPlano()
+  pilhas.desfazer.push(instantaneoAtual())
+  if (pilhas.desfazer.length > LIMITE_HISTORICO) pilhas.desfazer.shift()
+  pilhas.refazer = []
+  ultimaChave = chaveCompleta
   ultimoRegistro = agora
 }
 
 function aplicarInstantaneo(i: Instantaneo): void {
   // desfazer mexe no conteúdo, não na vista: câmera, página aberta no portal e pastas abertas ficam como estão
-  const atual = new Map(estado.espaco!.nos.map((n) => [n.id, n]))
-  const nos = i.espaco.nos.map((n) => {
-    const agoraNo = atual.get(n.id)
-    if (n.tipo === 'portal' && agoraNo?.tipo === 'portal') return { ...n, url: agoraNo.url }
-    if (n.tipo === 'pasta' && agoraNo?.tipo === 'pasta') return { ...n, expandidas: agoraNo.expandidas }
-    return n
-  })
-  definir({ espaco: { ...i.espaco, nos, camera: estado.espaco!.camera }, notas: i.notas, selecao: null, editando: null })
+  const atual = planoDe(estado.espaco!)
+  const vista = new Map(atual.nos.map((n) => [n.id, n] as const))
+  const plano: Plano = {
+    ...i.plano,
+    camera: atual.camera,
+    nos: i.plano.nos.map((n) => {
+      const agoraNo = vista.get(n.id)
+      if (n.tipo === 'portal' && agoraNo?.tipo === 'portal') return { ...n, url: agoraNo.url }
+      if (n.tipo === 'pasta' && agoraNo?.tipo === 'pasta') return { ...n, expandidas: agoraNo.expandidas }
+      return n
+    })
+  }
+  // post-its deste plano voltam ao texto da época; post-its de outros planos não são tocados
+  const notas = { ...estado.notas }
+  for (const arquivo of Object.keys(notasDoPlano(atual, estado.notas))) if (!(arquivo in i.notas)) delete notas[arquivo]
+  Object.assign(notas, i.notas)
+  definir({ espaco: comPlano(estado.espaco!, plano), notas, selecao: null, editando: null })
   ultimaChave = null
   agendarSalvar()
 }
 
 export function desfazer(): void {
-  const anterior = pilhaDesfazer.pop()
-  if (!anterior || !estado.espaco) return
-  pilhaRefazer.push({ espaco: estado.espaco, notas: estado.notas })
+  if (!estado.espaco) return
+  const pilhas = pilhasDoPlano()
+  const anterior = pilhas.desfazer.pop()
+  if (!anterior) return
+  pilhas.refazer.push(instantaneoAtual())
   aplicarInstantaneo(anterior)
 }
 
 export function refazer(): void {
-  const proximo = pilhaRefazer.pop()
-  if (!proximo || !estado.espaco) return
-  pilhaDesfazer.push({ espaco: estado.espaco, notas: estado.notas })
+  if (!estado.espaco) return
+  const pilhas = pilhasDoPlano()
+  const proximo = pilhas.refazer.pop()
+  if (!proximo) return
+  pilhas.desfazer.push(instantaneoAtual())
   aplicarInstantaneo(proximo)
 }
 
-/** `chave`: agrupa no histórico (ver registrarHistorico); `false`: não entra no histórico (câmera, z). */
-/** Antes de fechar a janela: salva o pendente e diz se deu certo. */
-export async function salvarParaFechar(): Promise<boolean> {
-  await salvarAgora()
-  return estado.erroAoSalvar === null
-}
-
+/** `chave`: agrupa no histórico (ver registrarHistorico); `false`: não entra no histórico (câmera, z, vista). */
 function mudarEspaco(mudar: (espaco: Espaco) => Espaco, chave?: string | false): void {
   if (!estado.espaco) return
   if (chave !== false) registrarHistorico(chave)
   definir({ espaco: mudar(estado.espaco) })
   agendarSalvar()
+}
+
+/** Muda só o plano à mostra (térreo ou andar). */
+function mudarPlano(mudar: (plano: Plano) => Plano, chave?: string | false): void {
+  mudarEspaco((e) => comPlano(e, mudar(planoDe(e))), chave)
 }
 
 // ---------- início e espaços ----------
@@ -190,17 +270,27 @@ export async function iniciar(): Promise<void> {
 
 let pedidoDeAbertura = 0
 
-export async function abrirEspaco(id: string): Promise<void> {
-  if (estado.espaco?.id === id) return
+export async function abrirEspaco(id: string, andarId?: string | null): Promise<void> {
+  if (estado.espaco?.id === id) {
+    if (andarId !== undefined) irParaAndar(andarId)
+    return
+  }
   // cliques rápidos em vários espaços: vale só o último
   const pedido = ++pedidoDeAbertura
-  await salvarAgora()
+  // não salvou: fica onde está (o aviso de erro aparece) para a mudança não se perder
+  if (!(await salvarAgora())) return
   const carregado = await window.mp.dados.carregarEspaco(id)
   if (!carregado || pedido !== pedidoDeAbertura) return
-  pilhaDesfazer = []
-  pilhaRefazer = []
-  ultimaChave = null
-  definir({ espaco: carregado.espaco, notas: carregado.notas, selecao: null, editando: null, ferramenta: 'selecionar' })
+  zerarHistorico()
+  definir({
+    espaco: carregado.espaco,
+    notas: carregado.notas,
+    selecao: null,
+    editando: null,
+    ferramenta: 'selecionar',
+    vistaAndares: false
+  })
+  if (andarId !== undefined) irParaAndar(andarId)
   salvarJanela()
 }
 
@@ -224,6 +314,23 @@ export async function renomearEspaco(id: string, nome: string): Promise<void> {
   definir({ espacos: estado.espacos.map((r) => (r.id === id ? resumo : r)) })
 }
 
+/** Apaga o espaço do app. Se era o aberto, abre outro (ou fica vazio). */
+export async function apagarEspaco(id: string): Promise<void> {
+  if (estado.espaco?.id === id) {
+    if (temporizador) clearTimeout(temporizador)
+    temporizador = null
+    await salvando
+  }
+  await window.mp.dados.apagarEspaco(id)
+  const espacos = estado.espacos.filter((e) => e.id !== id)
+  if (estado.espaco?.id === id) {
+    definir({ espaco: null, notas: {}, espacos, selecao: null, editando: null })
+    zerarHistorico()
+    if (espacos[0]) await abrirEspaco(espacos[0].id)
+    else salvarJanela()
+  } else definir({ espacos })
+}
+
 function salvarJanela(): void {
   void window.mp.dados.salvarEstado({
     versao: 1,
@@ -241,6 +348,91 @@ export function definirTema(tema: Tema): void {
   const preferencias = { ...estado.preferencias, tema }
   definir({ preferencias })
   void window.mp.dados.salvarPreferencias(preferencias)
+}
+
+// ---------- andares ----------
+
+export function abrirVistaAndares(aberta: boolean): void {
+  definir({ vistaAndares: aberta })
+}
+
+/** Mostra outro andar (null = térreo). A troca de andar não entra no desfazer. */
+export function irParaAndar(andarId: string | null): void {
+  const e = estado.espaco
+  if (!e) return
+  const existe = andarId === null || e.andares.some((a) => a.id === andarId)
+  if (!existe || e.andarAtivo === andarId) return
+  mudarEspaco((esp) => ({ ...esp, andarAtivo: andarId }), false)
+  definir({ selecao: null, editando: null, ferramenta: 'selecionar' })
+}
+
+/** Cria o andar (com git: ramo + worktree, feito pelo processo principal) e vai para ele. */
+export async function criarAndar(nome: string, usarGit: boolean): Promise<void> {
+  const e = estado.espaco
+  if (!e) return
+  if (!(await salvarAgora())) throw new Error('Não consegui salvar o quadro; o andar não foi criado.')
+  const andar = await window.mp.andares.criar(e.id, nome, usarGit)
+  // a câmera do andar novo começa onde o térreo está, para a transição ficar no mesmo lugar
+  const novo: Andar = { ...andar, camera: planoDe(estado.espaco!).camera }
+  mudarEspaco((esp) => ({ ...esp, andares: [...esp.andares, novo], andarAtivo: novo.id }), false)
+  definir({ selecao: null, editando: null })
+  await salvarAgora()
+}
+
+export function renomearAndar(andarId: string, nome: string): void {
+  const limpo = nome.trim()
+  if (!limpo) return
+  mudarEspaco((e) => ({ ...e, andares: e.andares.map((a) => (a.id === andarId ? { ...a, nome: limpo } : a)) }), false)
+}
+
+export function definirStatusAndar(andarId: string, status: Andar['status']): void {
+  mudarEspaco((e) => ({ ...e, andares: e.andares.map((a) => (a.id === andarId ? { ...a, status } : a)) }), false)
+}
+
+/** Tira o andar do espaço (depois de juntado ou apagado no git). Os post-its dele saem junto. */
+function retirarAndar(andarId: string): void {
+  const e = estado.espaco
+  const andar = e?.andares.find((a) => a.id === andarId)
+  if (!e || !andar) return
+  const notas = { ...estado.notas }
+  for (const n of andar.nos) if (n.tipo === 'postit') delete notas[n.arquivo]
+  definir({ notas })
+  mudarEspaco(
+    (esp) => ({
+      ...esp,
+      andares: esp.andares.filter((a) => a.id !== andarId),
+      andarAtivo: esp.andarAtivo === andarId ? null : esp.andarAtivo
+    }),
+    false
+  )
+  historicos.delete(andarId)
+  ultimaChave = null
+}
+
+const NAO_SALVOU: ResultadoGit = { ok: false, mensagem: 'Não consegui salvar o quadro; nada foi feito no git.' }
+
+export async function pousarAndar(andarId: string, apagarRamo: boolean, destino: string): Promise<ResultadoGit> {
+  const e = estado.espaco
+  if (!e) return { ok: false, mensagem: 'nenhum espaço aberto' }
+  if (!(await salvarAgora())) return NAO_SALVOU
+  const r = await window.mp.andares.pousar(e.id, andarId, apagarRamo, destino)
+  if (r.ok) {
+    retirarAndar(andarId)
+    await salvarAgora()
+  }
+  return r
+}
+
+export async function apagarAndar(andarId: string, apagarRamo: boolean, forcar: boolean): Promise<ResultadoGit> {
+  const e = estado.espaco
+  if (!e) return { ok: false, mensagem: 'nenhum espaço aberto' }
+  if (!(await salvarAgora())) return NAO_SALVOU
+  const r = await window.mp.andares.apagar(e.id, andarId, apagarRamo, forcar)
+  if (r.ok) {
+    retirarAndar(andarId)
+    await salvarAgora()
+  }
+  return r
 }
 
 // ---------- ferramentas e seleção ----------
@@ -273,7 +465,7 @@ export const ZOOM_MAX = 2
 
 export function definirCamera(camera: Camera): void {
   const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, camera.zoom))
-  mudarEspaco((e) => ({ ...e, camera: { ...camera, zoom } }), false)
+  mudarPlano((p) => ({ ...p, camera: { ...camera, zoom } }), false)
 }
 
 // ---------- nós ----------
@@ -281,8 +473,12 @@ export function definirCamera(camera: Camera): void {
 const novoId = (): string => crypto.randomUUID()
 const agora = (): string => new Date().toISOString()
 
-function proximoZ(espaco: Espaco): number {
-  return Math.max(0, ...espaco.nos.map((n) => n.z), ...espaco.desenhos.map((d) => d.z)) + 1
+function proximoZ(plano: Plano): number {
+  return Math.max(0, ...plano.nos.map((n) => n.z), ...plano.desenhos.map((d) => d.z)) + 1
+}
+
+export function acharNo(id: string): No | undefined {
+  return planoAtual()?.nos.find((n) => n.id === id)
 }
 
 export type NovoNo =
@@ -295,15 +491,15 @@ export type NovoNo =
 
 /** Cria um nó com o centro em (x, y) do quadro e já o seleciona. */
 export function adicionarNo(novo: NovoNo, x: number, y: number): string {
-  const espaco = estado.espaco
-  if (!espaco) return ''
+  const plano = planoAtual()
+  if (!plano) return ''
   registrarHistorico()
-  const base = { id: novoId(), z: proximoZ(espaco), criadoEm: agora() }
+  const base = { id: novoId(), z: proximoZ(plano), criadoEm: agora() }
   const centrado = (largura: number, altura: number) => ({ x: x - largura / 2, y: y - altura / 2, largura, altura })
   let no: No
   switch (novo.tipo) {
     case 'terminal': {
-      const mesmos = espaco.nos.filter((n) => n.tipo === 'terminal' && n.agente === novo.preset.agente).length
+      const mesmos = plano.nos.filter((n) => n.tipo === 'terminal' && n.agente === novo.preset.agente).length
       no = {
         ...base,
         ...centrado(800, 500),
@@ -331,7 +527,7 @@ export function adicionarNo(novo: NovoNo, x: number, y: number): string {
       no = { ...base, ...centrado(900, 600), tipo: 'portal', url: novo.url }
       break
   }
-  mudarEspaco((e) => ({ ...e, nos: [...e.nos, no] }), false)
+  mudarPlano((p) => ({ ...p, nos: [...p.nos, no] }), false)
   definir({
     selecao: { tipo: 'no', id: no.id },
     editando: no.tipo === 'postit' || no.tipo === 'texto' ? no.id : null,
@@ -342,15 +538,48 @@ export function adicionarNo(novo: NovoNo, x: number, y: number): string {
 
 /** `chave`: mudanças seguidas com a mesma chave viram um passo de desfazer; `false`: fora do histórico. */
 export function atualizarNo(id: string, parcial: Partial<No>, chave?: string | false): void {
-  mudarEspaco((e) => ({ ...e, nos: e.nos.map((n) => (n.id === id ? ({ ...n, ...parcial } as No) : n)) }), chave)
+  mudarPlano((p) => ({ ...p, nos: p.nos.map((n) => (n.id === id ? ({ ...n, ...parcial } as No) : n)) }), chave)
 }
 
 export function trazerParaFrente(id: string): void {
-  const espaco = estado.espaco
-  const no = espaco?.nos.find((n) => n.id === id)
-  if (!espaco || !no) return
-  const z = proximoZ(espaco)
+  const plano = planoAtual()
+  const no = plano?.nos.find((n) => n.id === id)
+  if (!plano || !no) return
+  const z = proximoZ(plano)
   if (no.z < z - 1) atualizarNo(id, { z }, false)
+}
+
+export function enviarParaTras(id: string): void {
+  const plano = planoAtual()
+  if (!plano) return
+  const menor = Math.min(0, ...plano.nos.map((n) => n.z), ...plano.desenhos.map((d) => d.z))
+  atualizarNo(id, { z: menor - 1 })
+}
+
+export function definirCorNo(id: string, cor: string | undefined): void {
+  atualizarNo(id, { cor } as Partial<No>)
+}
+
+export function alternarTrava(id: string): void {
+  const no = acharNo(id)
+  if (no) atualizarNo(id, { travado: !no.travado })
+}
+
+/** Cópia ao lado do original; post-it ganha arquivo próprio com o mesmo texto. */
+export function duplicarNo(id: string): string | null {
+  const plano = planoAtual()
+  const original = plano?.nos.find((n) => n.id === id)
+  if (!plano || !original) return null
+  registrarHistorico()
+  const copia = { ...original, id: novoId(), x: original.x + 40, y: original.y + 40, z: proximoZ(plano), criadoEm: agora(), travado: false } as No
+  if (copia.tipo === 'postit') {
+    copia.arquivo = `${copia.id}.md`
+    definir({ notas: { ...estado.notas, [copia.arquivo]: estado.notas[(original as NoPostIt).arquivo] ?? '' } })
+  }
+  if (copia.tipo === 'terminal') copia.nome = `${copia.nome} (cópia)`
+  mudarPlano((p) => ({ ...p, nos: [...p.nos, copia] }), false)
+  definir({ selecao: { tipo: 'no', id: copia.id } })
+  return copia.id
 }
 
 export function definirNota(arquivo: string, texto: string): void {
@@ -359,50 +588,73 @@ export function definirNota(arquivo: string, texto: string): void {
   agendarSalvar()
 }
 
+/** Apaga o que está selecionado. Cartão travado não sai (destrave antes). */
 export function apagarSelecao(): void {
-  const { selecao, espaco } = estado
-  if (!selecao || !espaco) return
-  registrarHistorico()
+  const { selecao } = estado
+  const plano = planoAtual()
+  if (!selecao || !plano) return
   if (selecao.tipo === 'no') {
-    const no = espaco.nos.find((n) => n.id === selecao.id)
-    mudarEspaco(
-      (e) => ({
-        ...e,
-        nos: e.nos.filter((n) => n.id !== selecao.id),
-        cordas: e.cordas.filter((c) => c.de !== selecao.id && c.para !== selecao.id)
+    const no = plano.nos.find((n) => n.id === selecao.id)
+    if (!no || no.travado) return
+    registrarHistorico()
+    mudarPlano(
+      (p) => ({
+        ...p,
+        nos: p.nos.filter((n) => n.id !== selecao.id),
+        cordas: p.cordas.filter((c) => c.de !== selecao.id && c.para !== selecao.id)
       }),
       false
     )
-    if (no?.tipo === 'postit') {
+    if (no.tipo === 'postit') {
       const notas = { ...estado.notas }
-      delete notas[(no as NoPostIt).arquivo]
+      delete notas[no.arquivo]
       definir({ notas })
     }
   } else if (selecao.tipo === 'corda') {
-    mudarEspaco((e) => ({ ...e, cordas: e.cordas.filter((c) => c.id !== selecao.id) }), false)
+    mudarPlano((p) => ({ ...p, cordas: p.cordas.filter((c) => c.id !== selecao.id) }))
   } else {
-    mudarEspaco((e) => ({ ...e, desenhos: e.desenhos.filter((d) => d.id !== selecao.id) }), false)
+    mudarPlano((p) => ({ ...p, desenhos: p.desenhos.filter((d) => d.id !== selecao.id) }))
   }
   definir({ selecao: null, editando: null })
+}
+
+export function apagar(selecao: Selecao): void {
+  selecionar(selecao)
+  apagarSelecao()
 }
 
 // ---------- cordas e desenhos ----------
 
 /** Só terminal com terminal, sem repetir e sem ligar um terminal nele mesmo. */
 export function ligar(de: string, para: string): boolean {
-  const espaco = estado.espaco
-  if (!espaco || de === para) return false
-  const ehTerminal = (id: string): boolean => espaco.nos.some((n) => n.id === id && n.tipo === 'terminal')
+  const plano = planoAtual()
+  if (!plano || de === para) return false
+  const ehTerminal = (id: string): boolean => plano.nos.some((n) => n.id === id && n.tipo === 'terminal')
   if (!ehTerminal(de) || !ehTerminal(para)) return false
-  const existe = espaco.cordas.some((c) => (c.de === de && c.para === para) || (c.de === para && c.para === de))
+  const existe = plano.cordas.some((c) => (c.de === de && c.para === para) || (c.de === para && c.para === de))
   if (existe) return false
   const corda: Corda = { id: novoId(), de, para, criadoEm: agora() }
-  mudarEspaco((e) => ({ ...e, cordas: [...e.cordas, corda] }))
+  mudarPlano((p) => ({ ...p, cordas: [...p.cordas, corda] }))
   return true
 }
 
 export function adicionarDesenho(desenho: Omit<Desenho, 'id' | 'z'>): void {
-  const espaco = estado.espaco
-  if (!espaco) return
-  mudarEspaco((e) => ({ ...e, desenhos: [...e.desenhos, { ...desenho, id: novoId(), z: proximoZ(espaco) }] }))
+  const plano = planoAtual()
+  if (!plano) return
+  mudarPlano((p) => ({ ...p, desenhos: [...p.desenhos, { ...desenho, id: novoId(), z: proximoZ(plano) }] }))
+}
+
+export function definirCorDesenho(id: string, cor: string): void {
+  mudarPlano((p) => ({ ...p, desenhos: p.desenhos.map((d) => (d.id === id ? { ...d, cor } : d)) }))
+}
+
+/** Borracha: apaga os traços a até `raio` (em unidades do quadro) do ponto. Um gesto = um passo de desfazer. */
+export function apagarDesenhosPerto(x: number, y: number, raio: number, chaveDoGesto: string): number {
+  const plano = planoAtual()
+  if (!plano) return 0
+  const tocados = plano.desenhos.filter((d) => distanciaAoDesenho(d, { x, y }) <= raio + d.espessura / 2)
+  if (!tocados.length) return 0
+  const fora = new Set(tocados.map((d) => d.id))
+  mudarPlano((p) => ({ ...p, desenhos: p.desenhos.filter((d) => !fora.has(d.id)) }), chaveDoGesto)
+  return tocados.length
 }

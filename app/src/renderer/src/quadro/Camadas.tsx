@@ -62,7 +62,7 @@ export const CamadaDesenhos = memo(function CamadaDesenhos({
           const marcado = selecao?.tipo === 'desenho' && selecao.id === d.id
           const caixa = caixaDoDesenho(d)
           return (
-            <g key={d.id}>
+            <g key={d.id} data-desenho-id={d.id}>
               <FormaDesenho desenho={d} />
               {/* área de clique mais larga que o traço */}
               <g
@@ -113,7 +113,7 @@ export const CamadaCordas = memo(function CamadaCordas({
         const [p1, p2] = pontasDaCorda(a, b)
         const marcada = selecao?.tipo === 'corda' && selecao.id === c.id
         return (
-          <g key={c.id} className={`corda ${marcada ? 'marcada' : ''}`}>
+          <g key={c.id} className={`corda ${marcada ? 'marcada' : ''}`} data-corda-id={c.id}>
             <path d={d} className="corda-linha" />
             <path
               d={d}

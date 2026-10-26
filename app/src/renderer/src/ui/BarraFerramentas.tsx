@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  Eraser,
   FolderTree,
   Globe,
   MousePointer2,
@@ -12,16 +13,18 @@ import {
   Type,
   type LucideIcon
 } from 'lucide-react'
-import type { FerramentaDesenho } from '../../../shared/modelo'
-import { adicionarNo, definirEstiloDesenho, escolherFerramenta, lerEstado, usarLoja, type Ferramenta } from '../estado/loja'
+import type { PincelDesenho } from '../../../shared/modelo'
+import { adicionarNo, definirEstiloDesenho, escolherFerramenta, planoAtual, usarLoja, type Ferramenta } from '../estado/loja'
+import { anexarArquivoEm, arvoreEm, portalEm } from './menus'
 import { centroDaTela } from '../quadro/geometria'
 import { COR_AGENTE, ICONE_AGENTE } from '../nos/icones'
 
 const CORES_DESENHO = ['#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#007AFF', '#AF52DE', '#8E8E93']
-const FORMAS: Array<[FerramentaDesenho, LucideIcon, string]> = [
+const FORMAS: Array<[PincelDesenho, LucideIcon, string]> = [
   ['lapis', Pencil, 'Lápis'],
   ['retangulo', Square, 'Retângulo'],
-  ['seta', MoveUpRight, 'Seta']
+  ['seta', MoveUpRight, 'Seta'],
+  ['borracha', Eraser, 'Borracha: passe por cima dos traços para apagar (E)']
 ]
 
 function Botao({
@@ -62,29 +65,25 @@ export function BarraFerramentas() {
   }
 
   function noCentro(): { x: number; y: number } {
-    return centroDaTela(lerEstado().espaco!.camera)
+    return centroDaTela(planoAtual()!.camera)
   }
 
   async function anexar(): Promise<void> {
     setMenuTerminal(false)
-    const arquivo = await window.mp.dados.escolherArquivo()
-    if (!arquivo) return
     const { x, y } = noCentro()
-    adicionarNo({ tipo: 'arquivo', caminho: arquivo.caminho, nome: arquivo.nome }, x, y)
+    await anexarArquivoEm(x, y)
   }
 
   async function arvore(): Promise<void> {
     setMenuTerminal(false)
-    const pasta = await window.mp.dados.escolherPasta()
-    if (!pasta) return
     const { x, y } = noCentro()
-    adicionarNo({ tipo: 'pasta', caminho: pasta }, x, y)
+    await arvoreEm(x, y)
   }
 
   function portal(): void {
     setMenuTerminal(false)
     const { x, y } = noCentro()
-    adicionarNo({ tipo: 'portal', url: 'https://www.google.com' }, x, y)
+    portalEm(x, y)
   }
 
   return (
@@ -140,7 +139,8 @@ export function BarraFerramentas() {
               className={`amostra ${estilo.cor === cor ? 'ativa' : ''}`}
               style={{ background: cor }}
               title={cor}
-              onClick={() => definirEstiloDesenho({ cor })}
+              // escolher cor com a borracha na mão volta para o lápis
+              onClick={() => definirEstiloDesenho({ cor, ...(estilo.ferramenta === 'borracha' ? { ferramenta: 'lapis' as const } : {}) })}
             />
           ))}
         </div>

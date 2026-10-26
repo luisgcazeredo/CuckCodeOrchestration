@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, Menu, session, shell } from 'electron'
 import { join } from 'node:path'
 import { CANAIS_APP } from '../shared/api'
+import { registrarAndares } from './andares'
 import { registrarDados } from './dados'
 import { encerrarTodos, registrarTerminais } from './terminais'
 import { rodarAutoteste } from './autoteste'
@@ -154,6 +155,7 @@ if (!autoteste && !app.requestSingleInstanceLock()) {
     const portal = session.fromPartition('persist:portal')
     portal.setUserAgent(portal.getUserAgent().replace(/ (Electron|maestri-proprio|Maestri ?Proprio)\/\S+/gi, ''))
     registrarDados()
+    registrarAndares()
     registrarTerminais()
     criarJanela()
   })

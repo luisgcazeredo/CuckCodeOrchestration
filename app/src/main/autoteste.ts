@@ -1,5 +1,6 @@
 import { app, type BrowserWindow } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PASTA_DADOS } from './dados'
@@ -300,6 +301,121 @@ export async function rodarAutoteste(
       gravou && emDisco.includes('ÚLTIMA EDIÇÃO ANTES DE FECHAR'),
       `${gravou ? 'janela confirmou' : 'janela disse que falhou'} · ${emDisco.split('\n')[1] ?? ''}`
     )
+
+    // ---- borracha: E, passar o mouse por cima de um traço ----
+    await js(`(() => { const L = window.__teste.loja
+      L.definirCamera({ x: 0, y: 0, zoom: 1 })
+      L.adicionarDesenho({ ferramenta: 'lapis', pontos: [[200, 300], [500, 300]], cor: '#FF9500', espessura: 3 })
+      L.selecionar(null) })()`)
+    const tracosAntes = await js<number>('window.__teste.loja.planoAtual().desenhos.length')
+    // um clique no quadro vazio tira o foco de onde estiver (o portal pega o teclado quando tem foco)
+    await clicar({ x: quadro.esquerda + 700, y: quadro.topo + 120 })
+    await teclar('E')
+    const pincel = await js<string>('window.__teste.loja.lerEstado().estiloDesenho.ferramenta')
+    await arrastar({ x: quadro.esquerda + 350, y: quadro.topo + 240 }, { x: quadro.esquerda + 350, y: quadro.topo + 360 })
+    const tracosDepois = await js<number>('window.__teste.loja.planoAtual().desenhos.length')
+    await teclar('Escape')
+    conferir('borracha apaga o traço', tracosDepois === tracosAntes - 1, `pincel: ${pincel} · ${tracosAntes} → ${tracosDepois} traços`)
+
+    // ---- botão direito num cartão: Duplicar, e Cor → Verde ----
+    const clicarDireito = async (p: { x: number; y: number }): Promise<void> => {
+      tela.sendInputEvent({ type: 'mouseMove', x: p.x, y: p.y })
+      tela.sendInputEvent({ type: 'mouseDown', x: p.x, y: p.y, button: 'right', clickCount: 1 })
+      tela.sendInputEvent({ type: 'mouseUp', x: p.x, y: p.y, button: 'right', clickCount: 1 })
+      await esperar(250)
+    }
+    const itemDoMenu = (rotulo: string): Promise<{ x: number; y: number } | null> =>
+      js(`(() => { const b = [...document.querySelectorAll('.menu-item')].find((el) => el.querySelector('.menu-rotulo')?.textContent === ${JSON.stringify(rotulo)});
+        if (!b) return null; const r = b.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } })()`)
+    await js(`(() => { const L = window.__teste.loja; L.definirCamera({ x: 0, y: 0, zoom: 1 })
+      window.__alvoMenu = L.adicionarNo({ tipo: 'postit' }, 420, 520); L.editar(null); L.selecionar(null) })()`)
+    const alvoMenu = await js<string>('window.__alvoMenu')
+    const postitNaTela = await centroDe(`[data-no-id="${alvoMenu}"]`)
+    if (!postitNaTela) throw new Error('post-it do teste de menu fora da tela')
+    const contarPlano = (): Promise<number> => js<number>('window.__teste.loja.planoAtual().nos.length')
+    const antesDeDuplicar = await contarPlano()
+    await clicarDireito(postitNaTela)
+    const duplicar = await itemDoMenu('Duplicar')
+    if (duplicar) await clicar(duplicar)
+    conferir('botão direito → Duplicar', !!duplicar && (await contarPlano()) === antesDeDuplicar + 1, duplicar ? '' : 'menu não abriu')
+    await clicarDireito(postitNaTela)
+    const cor = await itemDoMenu('Cor')
+    if (cor) tela.sendInputEvent({ type: 'mouseMove', x: cor.x, y: cor.y })
+    await esperar(250)
+    // o clique direito selecionou o cartão de cima (a cópia, que nasceu por cima): é ele que tem que ficar verde
+    const clicado = await js<string>('window.__teste.loja.lerEstado().selecao?.id ?? ""')
+    const verde = await centroDe('.menu-amostra[title="Verde"]')
+    if (verde) await clicar(verde)
+    const corDoPostit = await js<string>(`window.__teste.loja.acharNo('${clicado}')?.cor`)
+    conferir('botão direito → Cor → Verde', corDoPostit === 'verde', `cor: ${corDoPostit}`)
+
+    // ---- andar sem git: quadro separado do térreo ----
+    const noTerreo = await contarPlano()
+    await js(`window.__teste.loja.criarAndar('Rascunho', false)`)
+    await js(`(() => { const L = window.__teste.loja; L.adicionarNo({ tipo: 'texto' }, 300, 300)
+      L.atualizarNo(L.planoAtual().nos[0].id, { texto: 'só no andar' }); L.editar(null) })()`)
+    const noAndar = await contarPlano()
+    await js('window.__teste.loja.irParaAndar(null)')
+    const terreoDeNovo = await contarPlano()
+    conferir('andar sem git tem quadro próprio', noAndar === 1 && terreoDeNovo === noTerreo, `andar ${noAndar} nó, térreo ${terreoDeNovo} (era ${noTerreo})`)
+    // Ctrl+Z no andar desfaz só o andar: o térreo fica como está
+    const rascunho = await js<string>('window.__teste.loja.lerEstado().espaco.andares.find((a) => a.nome === "Rascunho").id')
+    await js(`window.__teste.loja.irParaAndar('${rascunho}')`)
+    await clicar({ x: quadro.esquerda + 700, y: quadro.topo + 120 })
+    await tecla('Z')
+    await tecla('Z')
+    const andarDepoisDoZ = await contarPlano()
+    await js('window.__teste.loja.irParaAndar(null)')
+    const terreoDepoisDoZ = await contarPlano()
+    conferir('Ctrl+Z no andar não mexe no térreo', andarDepoisDoZ === 0 && terreoDepoisDoZ === noTerreo, `andar ${andarDepoisDoZ}, térreo ${terreoDepoisDoZ} (era ${noTerreo})`)
+
+    // ---- andar com git: worktree num ramo, commit nele, juntar ao principal ----
+    // pasta nova a cada rodada: os objetos do git ficam somente leitura e o Windows não deixa apagar de primeira
+    const repo = join(tmpdir(), `maestri-proprio-autoteste-repo-${Date.now()}`)
+    mkdirSync(repo, { recursive: true })
+    const gitEm = (pasta: string, ...args: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=Autoteste', '-c', 'user.email=autoteste@local', ...args], { cwd: pasta, encoding: 'utf8' }).trim()
+    gitEm(repo, 'init', '-q', '-b', 'main')
+    // como nos repositórios do Luís: autor na configuração local (o app assina o commit de junção com ela)
+    gitEm(repo, 'config', 'user.name', 'Autoteste')
+    gitEm(repo, 'config', 'user.email', 'autoteste@local')
+    writeFileSync(join(repo, 'leia.md'), 'projeto de teste\n')
+    gitEm(repo, 'add', '.')
+    gitEm(repo, 'commit', '-q', '-m', 'início')
+    await js(`window.__teste.loja.criarEspaco('Repo de teste', ${JSON.stringify(repo)})`)
+    await js(`window.__teste.loja.criarAndar('Arrumar login', true)`)
+    const andarGit = await js<{ id: string; git: { ramo: string; pasta: string } | null } | null>(
+      `(() => { const e = window.__teste.loja.lerEstado().espaco; return e.andares.find((a) => a.id === e.andarAtivo) ?? null })()`
+    )
+    const worktreeOk = !!andarGit?.git && existsSync(andarGit.git.pasta) && gitEm(andarGit.git.pasta, 'rev-parse', '--abbrev-ref', 'HEAD') === andarGit.git.ramo
+    conferir('andar com git cria ramo e pasta isolada', worktreeOk, andarGit?.git ? `${andarGit.git.ramo}` : 'sem git')
+    await js(`(() => { const L = window.__teste.loja; L.adicionarNo({ tipo: 'postit' }, 200, 200); L.editar(null)
+      L.abrirVistaAndares(true) })()`)
+    await esperar(700)
+    await print('andares-3d')
+    await js('window.__teste.loja.abrirVistaAndares(false)')
+    if (andarGit?.git) {
+      writeFileSync(join(andarGit.git.pasta, 'login.ts'), 'export const login = true\n')
+      gitEm(andarGit.git.pasta, 'add', '.')
+      gitEm(andarGit.git.pasta, 'commit', '-q', '-m', 'login no andar')
+      const r = await js<{ ok: boolean; mensagem: string }>(`window.__teste.loja.pousarAndar('${andarGit.id}', true, 'main')`)
+      const ramos = gitEm(repo, 'branch', '--list')
+      conferir(
+        'juntar andar ao principal (merge, apaga ramo e pasta)',
+        r.ok && existsSync(join(repo, 'login.ts')) && !ramos.includes('andar/') && !existsSync(andarGit.git.pasta),
+        r.mensagem
+      )
+    }
+    // e apagar um andar com git: a pasta do andar some, o principal fica como estava
+    await js(`window.__teste.loja.criarAndar('Experimento', true)`)
+    const outro = await js<{ id: string; git: { pasta: string } } | null>(
+      `(() => { const e = window.__teste.loja.lerEstado().espaco; return e.andares.find((a) => a.id === e.andarAtivo) ?? null })()`
+    )
+    if (outro?.git) {
+      const r = await js<{ ok: boolean; mensagem: string }>(`window.__teste.loja.apagarAndar('${outro.id}', true, false)`)
+      const andaresRestantes = await js<number>('window.__teste.loja.lerEstado().espaco.andares.length')
+      conferir('apagar andar com git', r.ok && !existsSync(outro.git.pasta) && andaresRestantes === 0, r.mensagem)
+    }
 
     passou = resultados.every(([, ok]) => ok)
   } catch (erro) {

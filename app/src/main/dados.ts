@@ -15,6 +15,8 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import {
   PRESETS_PADRAO,
+  type Andar,
+  type Plano,
   type EntradaPasta,
   type No,
   type Espaco,
@@ -58,14 +60,38 @@ function pastaDoEspaco(id: string): string {
   return join(PASTA_ESPACOS, id)
 }
 
+/** Todos os planos do espaço: o térreo e cada andar. */
+function planos(espaco: Espaco): Plano[] {
+  return [espaco, ...espaco.andares]
+}
+
 function resumo(espaco: Espaco): ResumoEspaco {
   const { id, nome, cor, icone, pasta } = espaco
-  return { id, nome, cor, icone, pasta, terminais: espaco.nos.filter((n) => n.tipo === 'terminal').length }
+  return {
+    id,
+    nome,
+    cor,
+    icone,
+    pasta,
+    terminais: planos(espaco).reduce((t, p) => t + p.nos.filter((n) => n.tipo === 'terminal').length, 0),
+    andares: espaco.andares.map((a) => ({ id: a.id, nome: a.nome, ramo: a.git?.ramo ?? null, estado: a.status?.estado }))
+  }
+}
+
+/** Espaço salvo por versões antigas ganha os campos novos (andares) com valor vazio. */
+function completar(espaco: Espaco): Espaco {
+  return { ...espaco, andares: Array.isArray(espaco.andares) ? espaco.andares : [], andarAtivo: espaco.andarAtivo ?? null }
 }
 
 function lerEspaco(id: string): Espaco | null {
   const caminho = join(pastaDoEspaco(id), 'espaco.json')
-  return existsSync(caminho) ? lerJson<Espaco | null>(caminho, null) : null
+  const espaco = existsSync(caminho) ? lerJson<Espaco | null>(caminho, null) : null
+  return espaco ? completar(espaco) : null
+}
+
+/** O espaço como está em disco (os andares usam isto para achar ramo e pasta sem confiar na janela). */
+export function lerEspacoSalvo(id: string): Espaco | null {
+  return ID_VALIDO.test(String(id)) ? lerEspaco(id) : null
 }
 
 function lerManifesto(): string[] {
@@ -90,7 +116,9 @@ function novoEspaco(nome: string, pasta: string): Espaco {
     camera: { x: 0, y: 0, zoom: 1 },
     nos: [],
     cordas: [],
-    desenhos: []
+    desenhos: [],
+    andares: [],
+    andarAtivo: null
   }
 }
 
@@ -128,8 +156,16 @@ function garantirInicio(): void {
   gravarJson(join(pastaDoEspaco(espaco.id), 'espaco.json'), espaco)
 }
 
+function todosOsEspacos(): Espaco[] {
+  return lerManifesto().flatMap((id) => {
+    const e = ID_VALIDO.test(id) ? lerEspaco(id) : null
+    return e ? [e] : []
+  })
+}
+
+/** Nós de todos os espaços e de todos os andares. */
 function todosOsNos(): No[] {
-  return lerManifesto().flatMap((id) => (ID_VALIDO.test(id) ? (lerEspaco(id)?.nos ?? []) : []))
+  return todosOsEspacos().flatMap((e) => planos(e).flatMap((p) => p.nos))
 }
 
 function estaDentro(raiz: string, caminho: string): boolean {
@@ -159,6 +195,36 @@ function dentroDeUmaArvore(caminho: string): boolean {
 const TIPOS_DE_NO = new Set(['terminal', 'postit', 'texto', 'arquivo', 'pasta', 'portal'])
 const LIMITE_JSON = 20 * 1024 * 1024
 
+function planoValido(p: Plano): boolean {
+  return (
+    Array.isArray(p?.nos) &&
+    Array.isArray(p.cordas) &&
+    Array.isArray(p.desenhos) &&
+    [p.camera?.x, p.camera?.y, p.camera?.zoom].every(Number.isFinite) &&
+    p.nos.every(
+      (n) =>
+        TIPOS_DE_NO.has(n?.tipo) &&
+        typeof n.id === 'string' &&
+        [n.x, n.y, n.largura, n.altura, n.z].every(Number.isFinite) &&
+        (n.tipo !== 'postit' || NOTA_VALIDA.test(n.arquivo)) &&
+        (n.tipo !== 'pasta' || typeof n.caminho === 'string') &&
+        (n.tipo !== 'portal' || /^https?:\/\//.test(n.url))
+    )
+  )
+}
+
+/** Andar com git só aponta para um worktree nosso (em ~/.maestri-proprio/andares/<espaço>) e para um ramo andar/. */
+function andarValido(a: Andar, espacoId: string): boolean {
+  if (typeof a?.id !== 'string' || typeof a.nome !== 'string' || !planoValido(a)) return false
+  if (a.git === null) return true
+  return (
+    typeof a.git?.ramo === 'string' &&
+    a.git.ramo.startsWith('andar/') &&
+    typeof a.git.pasta === 'string' &&
+    estaDentro(join(RAIZ, 'andares', espacoId), resolve(a.git.pasta))
+  )
+}
+
 /** O que vem da janela só é gravado se tiver a forma de um espaço que já existe. */
 function validarParaSalvar(carregado: EspacoCarregado): EspacoCarregado {
   const espaco = carregado?.espaco
@@ -167,18 +233,14 @@ function validarParaSalvar(carregado: EspacoCarregado): EspacoCarregado {
     espaco?.versao === 1 &&
     typeof espaco.id === 'string' &&
     lerManifesto().includes(espaco.id) &&
-    Array.isArray(espaco.nos) &&
-    Array.isArray(espaco.cordas) &&
-    Array.isArray(espaco.desenhos) &&
-    espaco.nos.every(
-      (n) =>
-        TIPOS_DE_NO.has(n?.tipo) &&
-        typeof n.id === 'string' &&
-        [n.x, n.y, n.largura, n.altura, n.z].every(Number.isFinite) &&
-        (n.tipo !== 'postit' || NOTA_VALIDA.test(n.arquivo)) &&
-        (n.tipo !== 'pasta' || typeof n.caminho === 'string') &&
-        (n.tipo !== 'portal' || /^https?:\/\//.test(n.url))
-    ) &&
+    planoValido(espaco) &&
+    Array.isArray(espaco.andares) &&
+    espaco.andares.every((a) => andarValido(a, espaco.id)) &&
+    // cada andar com o seu ramo e a sua pasta: dois andares nunca apontam para o mesmo worktree
+    new Set(espaco.andares.flatMap((a) => (a.git ? [a.git.ramo] : []))).size === espaco.andares.filter((a) => a.git).length &&
+    new Set(espaco.andares.flatMap((a) => (a.git ? [resolve(a.git.pasta).toLowerCase()] : []))).size ===
+      espaco.andares.filter((a) => a.git).length &&
+    (espaco.andarAtivo === null || espaco.andares.some((a) => a.id === espaco.andarAtivo)) &&
     typeof notas === 'object' &&
     notas !== null &&
     JSON.stringify(carregado).length < LIMITE_JSON
@@ -201,7 +263,7 @@ export function registrarDados(): void {
     if (!espaco) return null
     const pastaNotas = join(pastaDoEspaco(id), 'notas')
     const notas: Record<string, string> = {}
-    for (const no of espaco.nos) {
+    for (const no of planos(espaco).flatMap((p) => p.nos)) {
       if (no.tipo !== 'postit' || !NOTA_VALIDA.test(no.arquivo)) continue
       const caminho = join(pastaNotas, no.arquivo)
       notas[no.arquivo] = existsSync(caminho) ? readFileSync(caminho, 'utf8') : ''
@@ -222,11 +284,32 @@ export function registrarDados(): void {
     }
     // o quadro é gravado antes da limpeza: se algo cair no meio, sobra uma nota órfã, nunca um post-it sem texto
     gravarJson(join(pasta, 'espaco.json'), espaco)
-    const emUso = new Set(espaco.nos.flatMap((n) => (n.tipo === 'postit' ? [n.arquivo] : [])))
+    const emUso = new Set(planos(espaco).flatMap((p) => p.nos.flatMap((n) => (n.tipo === 'postit' ? [n.arquivo] : []))))
     for (const arquivo of readdirSync(pastaNotas)) {
       if (NOTA_VALIDA.test(arquivo) && !emUso.has(arquivo)) rmSync(join(pastaNotas, arquivo))
     }
     return resumo(espaco)
+  })
+
+  // apaga só o espaço do app (quadro, post-its); a pasta do projeto e os ramos do git ficam
+  ipcMain.handle(CANAIS_DADOS.apagarEspaco, (_e, id: string) => {
+    if (!lerManifesto().includes(id)) throw new Error('espaço não encontrado')
+    gravarManifesto(lerManifesto().filter((outro) => outro !== id))
+    rmSync(pastaDoEspaco(id), { recursive: true, force: true })
+  })
+
+  ipcMain.handle(CANAIS_DADOS.mostrarNoExplorer, (_e, caminho: string) => {
+    if (typeof caminho !== 'string') return 'caminho inválido'
+    const conhecido = todosOsEspacos().some(
+      (e) =>
+        e.pasta === caminho ||
+        e.andares.some((a) => a.git?.pasta === caminho) ||
+        planos(e).some((p) => p.nos.some((n) => (n.tipo === 'arquivo' || n.tipo === 'pasta') && n.caminho === caminho))
+    )
+    if (!conhecido && !dentroDeUmaArvore(caminho)) return 'isso não está no quadro'
+    if (!existsSync(caminho)) return 'não encontrado'
+    shell.showItemInFolder(caminho)
+    return ''
   })
 
   ipcMain.handle(CANAIS_DADOS.criarEspaco, (_e, nome: string, pasta: string): ResumoEspaco => {

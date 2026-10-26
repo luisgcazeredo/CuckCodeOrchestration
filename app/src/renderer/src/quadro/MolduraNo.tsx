@@ -1,6 +1,7 @@
-import { useEffect, useRef, type PointerEvent, type ReactNode } from 'react'
+import { useEffect, useRef, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
 import type { Camera, No } from '../../../shared/modelo'
-import { atualizarNo, definirCamera, lerEstado, selecionar } from '../estado/loja'
+import { Lock } from 'lucide-react'
+import { atualizarNo, definirCamera, planoAtual, selecionar } from '../estado/loja'
 
 const MINIMO = {
   terminal: { largura: 320, altura: 200 },
@@ -76,7 +77,7 @@ export function MolduraNo({ no, selecionado, children, aoClicarDuasVezes, classN
 
   function preparar(modo: Gesto['modo'], e: PointerEvent<HTMLElement>): void {
     const area = document.querySelector('.quadro')!.getBoundingClientRect()
-    const camera = lerEstado().espaco!.camera
+    const camera = planoAtual()!.camera
     gesto.current = {
       modo,
       inicioTela: { x: e.clientX, y: e.clientY },
@@ -99,7 +100,7 @@ export function MolduraNo({ no, selecionado, children, aoClicarDuasVezes, classN
   function passo(): void {
     const g = gesto.current
     if (!g || g.modo === 'talvez') return
-    let camera = lerEstado().espaco!.camera
+    let camera = planoAtual()!.camera
     const { area, mouse } = g
     const vx = velocidadeNaBorda(area.right - mouse.x) - velocidadeNaBorda(mouse.x - area.left)
     const vy = velocidadeNaBorda(area.bottom - mouse.y) - velocidadeNaBorda(mouse.y - area.top)
@@ -120,7 +121,7 @@ export function MolduraNo({ no, selecionado, children, aoClicarDuasVezes, classN
         altura: Math.round(Math.max(minimo.altura, g.original.altura + dy))
       }
     }
-    const atual = lerEstado().espaco?.nos.find((n) => n.id === no.id)
+    const atual = planoAtual()?.nos.find((n) => n.id === no.id)
     if (atual && Object.entries(mudanca).some(([k, v]) => atual[k as keyof No] !== v)) {
       atualizarNo(no.id, mudanca, g.chave)
     }
@@ -132,7 +133,8 @@ export function MolduraNo({ no, selecionado, children, aoClicarDuasVezes, classN
     if (alvo.closest('[data-porta]')) return // a porta é do quadro (ligar terminais)
     e.stopPropagation()
     selecionar({ tipo: 'no', id: no.id })
-    if (e.button !== 0 || alvo.closest(SO_CONTEUDO)) return
+    // travado: seleciona e usa o conteúdo, mas não sai do lugar
+    if (e.button !== 0 || no.travado || alvo.closest(SO_CONTEUDO)) return
     preparar('talvez', e)
   }
 
@@ -176,9 +178,18 @@ export function MolduraNo({ no, selecionado, children, aoClicarDuasVezes, classN
 
   return (
     <div
-      className={`no no-${no.tipo} ${selecionado ? 'selecionado' : ''} ${className}`}
+      className={`no no-${no.tipo} ${selecionado ? 'selecionado' : ''} ${no.cor && no.tipo !== 'postit' ? 'com-cor' : ''} ${className}`}
       data-no-id={no.id}
-      style={{ left: no.x, top: no.y, width: no.largura, height: no.altura, zIndex: no.z }}
+      style={
+        {
+          left: no.x,
+          top: no.y,
+          width: no.largura,
+          height: no.altura,
+          zIndex: no.z,
+          ...(no.cor && no.tipo !== 'postit' ? { '--cor-no': no.cor } : {})
+        } as CSSProperties
+      }
       onPointerDown={aoApertar}
       onPointerMove={aoMover}
       onPointerUp={aoSoltar}
@@ -187,7 +198,12 @@ export function MolduraNo({ no, selecionado, children, aoClicarDuasVezes, classN
       onDoubleClick={aoClicarDuasVezes}
     >
       {children}
-      {selecionado && (
+      {no.travado && (
+        <span className="selo-trava" title="Travado: não move nem apaga (botão direito → Destravar)">
+          <Lock size={11} />
+        </span>
+      )}
+      {selecionado && !no.travado && (
         <div
           className="alca-redimensionar"
           onPointerDown={(e) => {

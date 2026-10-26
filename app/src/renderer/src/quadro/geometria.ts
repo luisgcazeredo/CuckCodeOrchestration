@@ -41,6 +41,36 @@ export function caixaDoDesenho(d: Desenho): Caixa {
   return { x, y, largura: Math.max(...xs) - x, altura: Math.max(...ys) - y }
 }
 
+function distanciaAoSegmento(p: Ponto, a: [number, number], b: [number, number]): number {
+  const [ax, ay] = a
+  const [bx, by] = b
+  const dx = bx - ax
+  const dy = by - ay
+  const t = dx || dy ? Math.max(0, Math.min(1, ((p.x - ax) * dx + (p.y - ay) * dy) / (dx * dx + dy * dy))) : 0
+  return Math.hypot(p.x - (ax + t * dx), p.y - (ay + t * dy))
+}
+
+/** Distância do ponto ao traço (não à caixa): é o que a borracha usa para saber se tocou. */
+export function distanciaAoDesenho(d: Desenho, p: Ponto): number {
+  const pts = d.pontos
+  if (pts.length === 0) return Infinity
+  let segmentos: Array<[[number, number], [number, number]]>
+  if (d.ferramenta === 'retangulo' && pts.length === 2) {
+    const [[x1, y1], [x2, y2]] = pts
+    segmentos = [
+      [[x1, y1], [x2, y1]],
+      [[x2, y1], [x2, y2]],
+      [[x2, y2], [x1, y2]],
+      [[x1, y2], [x1, y1]]
+    ]
+  } else if (pts.length === 1) {
+    segmentos = [[pts[0], pts[0]]]
+  } else {
+    segmentos = pts.slice(1).map((b, i) => [pts[i], b] as [[number, number], [number, number]])
+  }
+  return Math.min(...segmentos.map(([a, b]) => distanciaAoSegmento(p, a, b)))
+}
+
 export function uniao(caixas: Caixa[]): Caixa | null {
   if (caixas.length === 0) return null
   const x = Math.min(...caixas.map((c) => c.x))

@@ -1,6 +1,7 @@
 import { Map as IconeMapa, Minus, Moon, PanelLeft, Plus, Scan, Sun } from 'lucide-react'
 import type { No } from '../../../shared/modelo'
-import { alternarLateral, alternarMiniMapa, definirCamera, definirTema, lerEstado, usarLoja } from '../estado/loja'
+import { alternarLateral, alternarMiniMapa, definirCamera, definirTema, planoAtual, planoDe, usarLoja } from '../estado/loja'
+import { BotaoAndares, IndicadorAndar } from './Andares'
 import {
   caixaDoDesenho,
   enquadrar,
@@ -14,13 +15,13 @@ import {
 const caixaDoNo = (n: No): Caixa => ({ x: n.x, y: n.y, largura: n.largura, altura: n.altura })
 
 function caixaDoConteudo(): Caixa | null {
-  const espaco = lerEstado().espaco
-  if (!espaco) return null
-  return uniao([...espaco.nos.map(caixaDoNo), ...espaco.desenhos.map(caixaDoDesenho)])
+  const plano = planoAtual()
+  if (!plano) return null
+  return uniao([...plano.nos.map(caixaDoNo), ...plano.desenhos.map(caixaDoDesenho)])
 }
 
 export function zoomPeloCentro(fator: number | 'inicial'): void {
-  const cam = lerEstado().espaco!.camera
+  const cam = planoAtual()!.camera
   const { largura, altura } = lerViewport()
   const zoom = fator === 'inicial' ? 1 : cam.zoom * fator
   definirCamera(zoomEm(cam, zoom, { x: largura / 2, y: altura / 2 }))
@@ -33,9 +34,12 @@ export function enquadrarTudo(): void {
 
 export function BotaoLateral() {
   return (
-    <button className="botao-redondo botao-lateral" title="Mostrar ou esconder os espaços" onClick={alternarLateral}>
-      <PanelLeft size={17} />
-    </button>
+    <div className="canto-esquerdo">
+      <button className="botao-redondo" title="Mostrar ou esconder os espaços" onClick={alternarLateral}>
+        <PanelLeft size={17} />
+      </button>
+      <IndicadorAndar />
+    </div>
   )
 }
 
@@ -58,7 +62,7 @@ export function CantoSuperior() {
 }
 
 function MiniMapa() {
-  const espaco = usarLoja((e) => e.espaco)!
+  const espaco = usarLoja((e) => (e.espaco ? planoDe(e.espaco) : null))!
   const { largura, altura } = lerViewport()
   const visivel: Caixa = (() => {
     const a = telaParaQuadro({ x: 0, y: 0 }, espaco.camera)
@@ -93,12 +97,13 @@ function MiniMapa() {
 }
 
 export function CantoInferior() {
-  const zoom = usarLoja((e) => e.espaco?.camera.zoom ?? 1)
+  const zoom = usarLoja((e) => (e.espaco ? planoDe(e.espaco).camera.zoom : 1))
   const aberto = usarLoja((e) => e.miniMapa)
   return (
     <div className="canto-inferior">
       {aberto && <MiniMapa />}
       <div className="canto-inferior-linha">
+        <BotaoAndares />
         <button className={`botao-redondo ${aberto ? 'ativo' : ''}`} title="Mini-mapa" onClick={alternarMiniMapa}>
           <IconeMapa size={16} />
         </button>
