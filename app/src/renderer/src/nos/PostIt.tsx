@@ -45,12 +45,16 @@ interface Props {
 export const PostIt = memo(function PostIt({ no, texto, selecionado, editando }: Props) {
   const campo = useRef<HTMLTextAreaElement>(null)
 
+  // foco no próximo ciclo: o clique que criou o post-it ainda está terminando
   useEffect(() => {
-    if (editando) {
-      campo.current?.focus()
-      const fim = campo.current?.value.length ?? 0
-      campo.current?.setSelectionRange(fim, fim)
-    }
+    if (!editando) return
+    const t = setTimeout(() => {
+      const el = campo.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(el.value.length, el.value.length)
+    }, 0)
+    return () => clearTimeout(t)
   }, [editando])
 
   function marcar(linha: number): void {
@@ -65,12 +69,13 @@ export const PostIt = memo(function PostIt({ no, texto, selecionado, editando }:
         {editando ? (
           <textarea
             ref={campo}
+            autoFocus
             className="postit-campo"
             value={texto}
             spellCheck={false}
             onChange={(e) => definirNota(no.arquivo, e.target.value)}
             onBlur={() => editar(null)}
-            onKeyDown={(e) => e.key === 'Escape' && editar(null)}
+            onKeyDown={(e) => e.key === 'Escape' && e.currentTarget.blur()}
           />
         ) : (
           <div className="postit-texto" data-arrasta>

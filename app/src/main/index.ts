@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, shell } from 'electron'
+import { app, BrowserWindow, dialog, Menu, session, shell } from 'electron'
 import { join } from 'node:path'
 import { CANAIS_APP } from '../shared/api'
 import { registrarDados } from './dados'
@@ -150,6 +150,9 @@ if (!autoteste && !app.requestSingleInstanceLock()) {
   })
 
   app.whenReady().then(() => {
+    // o portal se apresenta como Chrome comum: com "Electron" no nome, sites como o login do Google recusam
+    const portal = session.fromPartition('persist:portal')
+    portal.setUserAgent(portal.getUserAgent().replace(/ (Electron|maestri-proprio|Maestri ?Proprio)\/\S+/gi, ''))
     registrarDados()
     registrarTerminais()
     criarJanela()

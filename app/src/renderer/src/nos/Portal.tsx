@@ -1,5 +1,5 @@
 import { createElement, memo, useEffect, useRef, useState, type PointerEvent } from 'react'
-import { ArrowLeft, ArrowRight, Globe, RotateCw } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ExternalLink, Globe, RotateCw } from 'lucide-react'
 import type { NoPortal } from '../../../shared/modelo'
 import { atualizarNo } from '../estado/loja'
 import { MolduraNo } from '../quadro/MolduraNo'
@@ -87,6 +87,14 @@ export const Portal = memo(function Portal({ no, selecionado }: { no: NoPortal; 
               e.currentTarget.blur()
             }}
           />
+          <button
+            className="botao-mini"
+            title="Abrir no navegador do sistema"
+            {...parar}
+            onClick={() => window.open(endereco)}
+          >
+            <ExternalLink size={12} />
+          </button>
         </header>
         {createElement('webview', {
           ref: visor,
@@ -95,6 +103,12 @@ export const Portal = memo(function Portal({ no, selecionado }: { no: NoPortal; 
           // sem `allowpopups`: janelas novas do site são negadas pelo processo principal
           partition: 'persist:portal'
         })}
+        {/* sem estar selecionado, a página não pega o mouse: dá para arrastar o cartão de qualquer ponto */}
+        {!selecionado && (
+          <div className="portal-escudo">
+            <span>Clique para usar a página</span>
+          </div>
+        )}
       </div>
     </MolduraNo>
   )

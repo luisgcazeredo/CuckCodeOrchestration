@@ -38,6 +38,8 @@ export function Quadro() {
   const area = useRef<HTMLDivElement>(null)
   const [gesto, setGesto] = useState<Gesto | null>(null)
   const [espacoApertado, setEspacoApertado] = useState(false)
+  // post-it ou texto criado neste clique: o mousedown que vem logo depois não pode tirar o foco da caixa nova
+  const criouAgora = useRef(false)
   const { camera } = espaco
   const emGesto = gesto !== null || espacoApertado
 
@@ -88,11 +90,18 @@ export function Quadro() {
     const cima = (e: KeyboardEvent): void => {
       if (e.code === 'Space') setEspacoApertado(false)
     }
+    // trocou de janela no meio de um gesto ou com o espaço apertado: solta tudo
+    const soltarTudo = (): void => {
+      setEspacoApertado(false)
+      setGesto(null)
+    }
     window.addEventListener('keydown', baixo)
     window.addEventListener('keyup', cima)
+    window.addEventListener('blur', soltarTudo)
     return () => {
       window.removeEventListener('keydown', baixo)
       window.removeEventListener('keyup', cima)
+      window.removeEventListener('blur', soltarTudo)
     }
   }, [])
 
@@ -128,8 +137,10 @@ export function Quadro() {
     }
     if (e.button !== 0 || !noFundo) return
 
-    if (ferramenta === 'postit') adicionarNo({ tipo: 'postit' }, noQuadro.x, noQuadro.y)
-    else if (ferramenta === 'texto') adicionarNo({ tipo: 'texto' }, noQuadro.x, noQuadro.y)
+    if (ferramenta === 'postit' || ferramenta === 'texto') {
+      criouAgora.current = true
+      adicionarNo({ tipo: ferramenta }, noQuadro.x, noQuadro.y)
+    }
     else if (ferramenta === 'desenho') {
       area.current!.setPointerCapture(e.pointerId)
       const ponto: [number, number] = [noQuadro.x, noQuadro.y]
@@ -195,9 +206,14 @@ export function Quadro() {
         cursor
       }}
       onPointerDown={aoApertar}
+      onMouseDown={(e) => {
+        if (criouAgora.current) e.preventDefault()
+        criouAgora.current = false
+      }}
       onPointerMove={aoMover}
       onPointerUp={aoSoltar}
       onPointerCancel={() => setGesto(null)}
+      onLostPointerCapture={() => setGesto(null)}
     >
       <div
         className={`mundo ${espacoApertado ? 'so-arrastar' : ''}`}

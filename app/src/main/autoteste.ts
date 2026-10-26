@@ -191,9 +191,101 @@ export async function rodarAutoteste(
     }
     await esperar(800)
     conferir('portal abre um site', endereco.includes('example.com'), endereco || 'não carregou (sem internet?)')
-    const transformacao = await js<string>(`document.querySelector('.mundo').style.transform`)
-    conferir('câmera foi para a árvore e o portal', transformacao.includes('-1180px'), transformacao)
+    // os dois cartões novos estão na tela (independe de o zoom ter mudado no meio do teste)
+    const naTela = await js<boolean>(`(() => { const q = document.querySelector('.quadro').getBoundingClientRect();
+      return ['.no-pasta', '.no-portal'].every((s) => { const r = document.querySelector(s).getBoundingClientRect();
+        return r.right > q.left && r.left < q.right && r.bottom > q.top && r.top < q.bottom }) })()`)
+    conferir('árvore e portal aparecem na tela', naTela)
     await print('ferramentas')
+
+    // ---- uso real com mouse e teclado ----
+    const quadro = await js<{ esquerda: number; topo: number; direita: number; base: number }>(
+      `(() => { const r = document.querySelector('.quadro').getBoundingClientRect();
+        return { esquerda: Math.round(r.left), topo: Math.round(r.top), direita: Math.round(r.right), base: Math.round(r.bottom) } })()`
+    )
+    const teclar = async (tecla: string): Promise<void> => {
+      tela.sendInputEvent({ type: 'keyDown', keyCode: tecla })
+      tela.sendInputEvent({ type: 'keyUp', keyCode: tecla })
+      await esperar(120)
+    }
+    const digitar = async (texto: string): Promise<void> => {
+      for (const letra of texto) tela.sendInputEvent({ type: 'char', keyCode: letra })
+      await esperar(200)
+    }
+    const clicar = async (p: { x: number; y: number }): Promise<void> => {
+      tela.sendInputEvent({ type: 'mouseMove', x: p.x, y: p.y })
+      tela.sendInputEvent({ type: 'mouseDown', x: p.x, y: p.y, button: 'left', clickCount: 1 })
+      tela.sendInputEvent({ type: 'mouseUp', x: p.x, y: p.y, button: 'left', clickCount: 1 })
+      await esperar(250)
+    }
+    const nos = (): Promise<Array<Record<string, unknown>>> => js('window.__teste.loja.lerEstado().espaco.nos')
+
+    // texto: T, clica num lugar vazio, digita, Esc
+    await teclar('T')
+    await clicar({ x: quadro.esquerda + 120, y: quadro.base - 140 })
+    await digitar('Olá, quadro')
+    await teclar('Escape')
+    const textos = (await nos()).filter((n) => n.tipo === 'texto').map((n) => n.texto)
+    conferir('ferramenta de texto (T, clicar, digitar)', textos.includes('Olá, quadro'), JSON.stringify(textos))
+
+    // post-it: N, clica, digita, Esc
+    await teclar('N')
+    await clicar({ x: quadro.esquerda + 420, y: quadro.base - 140 })
+    await digitar('lembrete rápido')
+    await teclar('Escape')
+    const notasAgora = await js<string[]>('Object.values(window.__teste.loja.lerEstado().notas)')
+    conferir('post-it (N, clicar, digitar)', notasAgora.includes('lembrete rápido'), JSON.stringify(notasAgora.filter((t) => !t.startsWith('#'))))
+
+    // arrastar a árvore segurando numa pasta da lista: o cartão anda e a pasta não abre
+    await js('window.__teste.loja.selecionar(null)')
+    const zoomAgora = (): Promise<number> => js<number>('window.__teste.loja.lerEstado().espaco.camera.zoom')
+    const perto = (a: number, b: number): boolean => Math.abs(a - b) <= 2
+    const arvoreAntes = (await nos()).find((n) => n.tipo === 'pasta')!
+    const zoomArvore = await zoomAgora()
+    const linhaSub = await centroDe('.no-pasta .arvore-linha')
+    if (!linhaSub) throw new Error('linha da árvore fora da tela')
+    await arrastar(linhaSub, { x: linhaSub.x + 60, y: linhaSub.y + 40 })
+    const arvoreDepois = (await nos()).find((n) => n.tipo === 'pasta')!
+    conferir(
+      'arrastar cartão pelo conteúdo, sem abrir a pasta',
+      perto((arvoreDepois.x as number) - (arvoreAntes.x as number), 60 / zoomArvore) &&
+        (arvoreDepois.expandidas as string[]).length === 0,
+      `x ${arvoreAntes.x} → ${arvoreDepois.x}, pastas abertas: ${(arvoreDepois.expandidas as string[]).length}`
+    )
+
+    // portal sem seleção: a película deixa arrastar pelo meio da página
+    await js('window.__teste.loja.selecionar(null)')
+    const portalAntes = (await nos()).find((n) => n.tipo === 'portal')!
+    const zoomPortal = await zoomAgora()
+    const escudo = await centroDe('.no-portal .portal-escudo')
+    if (!escudo) throw new Error('película do portal não apareceu')
+    await arrastar(escudo, { x: escudo.x - 50, y: escudo.y + 30 })
+    const portalDepois = (await nos()).find((n) => n.tipo === 'portal')!
+    conferir(
+      'arrastar portal pela página',
+      perto((portalDepois.x as number) - (portalAntes.x as number), -50 / zoomPortal),
+      `x ${portalAntes.x} → ${portalDepois.x}`
+    )
+
+    // levar o cartão até a borda direita: a tela anda junto enquanto o mouse fica lá
+    const camAntes = await js<{ x: number }>('window.__teste.loja.lerEstado().espaco.camera')
+    const cabecalhoArvore = await centroDe('.no-pasta .cartao-ferramenta-cabecalho')
+    if (!cabecalhoArvore) throw new Error('cabeçalho da árvore fora da tela')
+    const naBorda = { x: quadro.direita - 6, y: cabecalhoArvore.y }
+    tela.sendInputEvent({ type: 'mouseMove', x: cabecalhoArvore.x, y: cabecalhoArvore.y })
+    tela.sendInputEvent({ type: 'mouseDown', x: cabecalhoArvore.x, y: cabecalhoArvore.y, button: 'left', clickCount: 1 })
+    for (let i = 1; i <= 10; i++) {
+      const x = Math.round(cabecalhoArvore.x + ((naBorda.x - cabecalhoArvore.x) * i) / 10)
+      tela.sendInputEvent({ type: 'mouseMove', x, y: naBorda.y, button: 'left', modifiers: ['leftbuttondown'] })
+      await esperar(16)
+    }
+    await esperar(700)
+    tela.sendInputEvent({ type: 'mouseUp', x: naBorda.x, y: naBorda.y, button: 'left', clickCount: 1 })
+    await esperar(200)
+    const camDepois = await js<{ x: number }>('window.__teste.loja.lerEstado().espaco.camera')
+    const andou = Math.round(camAntes.x - camDepois.x)
+    conferir('tela anda junto na borda', andou > 80, `a tela andou ${andou} px para a direita`)
+    await print('uso-real')
 
     // fechar a janela logo depois de editar: a última edição tem que chegar ao disco
     const arquivoNota = await js<string>(

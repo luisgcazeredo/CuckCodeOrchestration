@@ -663,6 +663,47 @@ body.em-gesto webview {
   pointer-events: none;
 }
 
+.cartao-ferramenta {
+  position: relative;
+}
+
+.portal-escudo {
+  position: absolute;
+  inset: 28px 0 0 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 14px;
+  cursor: grab;
+}
+
+.portal-escudo span {
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.portal-escudo:hover span {
+  opacity: 1;
+}
+
+/* arrastar de qualquer ponto do cartão */
+.no-postit .postit-texto,
+.no-arquivo .arquivo,
+.no-terminal .terminal-corpo,
+.no-pasta .arvore-linha {
+  cursor: default;
+}
+
+.no:active .postit-texto,
+.no:active .terminal-corpo {
+  cursor: grabbing;
+}
+
 .girando {
   animation: girar 1s linear infinite;
 }

@@ -1,6 +1,6 @@
-import { useRef, type PointerEvent, type ReactNode } from 'react'
-import type { No } from '../../../shared/modelo'
-import { atualizarNo, lerEstado, selecionar } from '../estado/loja'
+import { useEffect, useRef, type PointerEvent, type ReactNode } from 'react'
+import type { Camera, No } from '../../../shared/modelo'
+import { atualizarNo, definirCamera, lerEstado, selecionar } from '../estado/loja'
 
 const MINIMO = {
   terminal: { largura: 320, altura: 200 },
@@ -10,6 +10,15 @@ const MINIMO = {
   pasta: { largura: 200, altura: 160 },
   portal: { largura: 320, altura: 220 }
 } as const
+
+/** Quanto o mouse anda antes de um clique virar arrasto. */
+const LIMIAR_ARRASTO = 4
+/** Faixa perto da borda da tela que faz o quadro andar junto, e a velocidade máxima (px por quadro de tela). */
+const BORDA = 64
+const VELOCIDADE_MAXIMA = 16
+
+/** Onde o clique é do conteúdo e nunca vira arrasto: campos de texto e botões. */
+const SO_CONTEUDO = 'input, textarea, button, select, [data-sem-arrasto], [data-porta], .alca-redimensionar'
 
 interface Props {
   no: No
@@ -24,89 +33,171 @@ export function marcarGesto(ativo: boolean): void {
   document.body.classList.toggle('em-gesto', ativo)
 }
 
+/** Depois de um arrasto, o clique que o navegador dispara ao soltar não pode abrir pasta nem marcar tarefa. */
+function engolirProximoClique(): void {
+  const engolir = (e: MouseEvent): void => {
+    e.stopPropagation()
+    e.preventDefault()
+  }
+  window.addEventListener('click', engolir, { capture: true, once: true })
+  setTimeout(() => window.removeEventListener('click', engolir, { capture: true }), 0)
+}
+
+function pontoNoQuadro(clienteX: number, clienteY: number, area: DOMRect, camera: Camera): { x: number; y: number } {
+  return { x: (clienteX - area.left - camera.x) / camera.zoom, y: (clienteY - area.top - camera.y) / camera.zoom }
+}
+
+/** Velocidade de rolagem quando o mouse está a `distancia` px da borda (0 fora da faixa; acelera perto da borda). */
+function velocidadeNaBorda(distancia: number): number {
+  if (distancia >= BORDA) return 0
+  const t = 1 - Math.max(0, distancia) / BORDA
+  return VELOCIDADE_MAXIMA * t * t
+}
+
+interface Gesto {
+  modo: 'talvez' | 'mover' | 'redimensionar'
+  inicioTela: { x: number; y: number }
+  inicioQuadro: { x: number; y: number }
+  mouse: { x: number; y: number }
+  area: DOMRect
+  original: No
+  /** Uma chave por gesto: dois arrastos seguidos são dois passos de desfazer. */
+  chave: string
+  quadro: number
+}
+
 /**
  * Posição, arrasto, redimensionamento e seleção, iguais para todo tipo de nó.
- * Arrasta por qualquer elemento com `data-arrasta`; redimensiona pela alça do canto.
- * O movimento é aplicado no máximo uma vez por quadro de tela, e o gesto inteiro é um passo de desfazer.
+ * Arrasta de qualquer ponto do cartão: clique parado continua sendo clique no conteúdo; andou uns pixels, vira
+ * arrasto. Perto da borda da tela o quadro anda junto. Tudo aplicado uma vez por quadro de tela.
  */
 export function MolduraNo({ no, selecionado, children, aoClicarDuasVezes, className = '' }: Props) {
-  const gesto = useRef<{
-    modo: 'mover' | 'redimensionar'
-    inicio: { x: number; y: number }
-    original: No
-    /** Uma chave por gesto: dois arrastos seguidos são dois passos de desfazer. */
-    chave: string
-  } | null>(null)
-  const pendente = useRef<Partial<No> | null>(null)
-  const quadro = useRef(0)
+  const gesto = useRef<Gesto | null>(null)
 
-  function aplicarPendente(): void {
-    quadro.current = 0
-    if (pendente.current && gesto.current) atualizarNo(no.id, pendente.current, gesto.current.chave)
-    pendente.current = null
-  }
-
-  function comecar(modo: 'mover' | 'redimensionar', e: PointerEvent<HTMLElement>): void {
-    if (e.button !== 0) return
-    e.stopPropagation()
-    selecionar({ tipo: 'no', id: no.id })
+  function preparar(modo: Gesto['modo'], e: PointerEvent<HTMLElement>): void {
+    const area = document.querySelector('.quadro')!.getBoundingClientRect()
+    const camera = lerEstado().espaco!.camera
     gesto.current = {
       modo,
-      inicio: { x: e.clientX, y: e.clientY },
+      inicioTela: { x: e.clientX, y: e.clientY },
+      inicioQuadro: pontoNoQuadro(e.clientX, e.clientY, area, camera),
+      mouse: { x: e.clientX, y: e.clientY },
+      area,
       original: no,
-      chave: `gesto:${no.id}:${crypto.randomUUID()}`
+      chave: `gesto:${no.id}:${crypto.randomUUID()}`,
+      quadro: 0
     }
-    e.currentTarget.setPointerCapture(e.pointerId)
-    marcarGesto(true)
   }
 
-  function mover(e: PointerEvent<HTMLElement>): void {
+  function comecarDeVerdade(e: PointerEvent<HTMLElement>, elemento: HTMLElement): void {
+    elemento.setPointerCapture(e.pointerId)
+    marcarGesto(true)
+    gesto.current!.quadro = requestAnimationFrame(passo)
+  }
+
+  /** Um quadro de tela: rola perto da borda e põe o nó embaixo do mouse. */
+  function passo(): void {
     const g = gesto.current
-    if (!g) return
-    const zoom = lerEstado().espaco?.camera.zoom ?? 1
-    const dx = (e.clientX - g.inicio.x) / zoom
-    const dy = (e.clientY - g.inicio.y) / zoom
+    if (!g || g.modo === 'talvez') return
+    let camera = lerEstado().espaco!.camera
+    const { area, mouse } = g
+    const vx = velocidadeNaBorda(area.right - mouse.x) - velocidadeNaBorda(mouse.x - area.left)
+    const vy = velocidadeNaBorda(area.bottom - mouse.y) - velocidadeNaBorda(mouse.y - area.top)
+    if (vx || vy) {
+      camera = { ...camera, x: camera.x - vx, y: camera.y - vy }
+      definirCamera(camera)
+    }
+    const agora = pontoNoQuadro(mouse.x, mouse.y, area, camera)
+    const dx = agora.x - g.inicioQuadro.x
+    const dy = agora.y - g.inicioQuadro.y
+    let mudanca: Partial<No>
     if (g.modo === 'mover') {
-      pendente.current = { x: Math.round(g.original.x + dx), y: Math.round(g.original.y + dy) }
+      mudanca = { x: Math.round(g.original.x + dx), y: Math.round(g.original.y + dy) }
     } else {
       const minimo = MINIMO[no.tipo]
-      pendente.current = {
+      mudanca = {
         largura: Math.round(Math.max(minimo.largura, g.original.largura + dx)),
         altura: Math.round(Math.max(minimo.altura, g.original.altura + dy))
       }
     }
-    if (!quadro.current) quadro.current = requestAnimationFrame(aplicarPendente)
+    const atual = lerEstado().espaco?.nos.find((n) => n.id === no.id)
+    if (atual && Object.entries(mudanca).some(([k, v]) => atual[k as keyof No] !== v)) {
+      atualizarNo(no.id, mudanca, g.chave)
+    }
+    g.quadro = requestAnimationFrame(passo)
   }
 
-  function terminar(): void {
-    if (quadro.current) cancelAnimationFrame(quadro.current)
-    aplicarPendente()
-    gesto.current = null
-    marcarGesto(false)
+  function aoApertar(e: PointerEvent<HTMLDivElement>): void {
+    const alvo = e.target as HTMLElement
+    if (alvo.closest('[data-porta]')) return // a porta é do quadro (ligar terminais)
+    e.stopPropagation()
+    selecionar({ tipo: 'no', id: no.id })
+    if (e.button !== 0 || alvo.closest(SO_CONTEUDO)) return
+    preparar('talvez', e)
   }
+
+  function aoMover(e: PointerEvent<HTMLDivElement>): void {
+    const g = gesto.current
+    if (!g) return
+    g.mouse = { x: e.clientX, y: e.clientY }
+    if (g.modo === 'talvez') {
+      if (Math.hypot(e.clientX - g.inicioTela.x, e.clientY - g.inicioTela.y) < LIMIAR_ARRASTO) return
+      g.modo = 'mover'
+      comecarDeVerdade(e, e.currentTarget)
+    }
+  }
+
+  function aoSoltar(): void {
+    const g = gesto.current
+    if (!g) return
+    gesto.current = null
+    if (g.modo === 'talvez') return // foi só um clique: o conteúdo recebe normalmente
+    cancelAnimationFrame(g.quadro)
+    marcarGesto(false)
+    engolirProximoClique()
+  }
+
+  // soltar fora da janela, trocar de janela (Alt+Tab) ou o cartão sumir: o gesto termina, nada fica preso
+  const encerrar = useRef(aoSoltar)
+  encerrar.current = aoSoltar
+  useEffect(() => {
+    const aoPerderFoco = (): void => encerrar.current()
+    const aoEsconder = (): void => {
+      if (document.hidden) encerrar.current()
+    }
+    window.addEventListener('blur', aoPerderFoco)
+    document.addEventListener('visibilitychange', aoEsconder)
+    return () => {
+      window.removeEventListener('blur', aoPerderFoco)
+      document.removeEventListener('visibilitychange', aoEsconder)
+      encerrar.current()
+    }
+  }, [])
 
   return (
     <div
       className={`no no-${no.tipo} ${selecionado ? 'selecionado' : ''} ${className}`}
       data-no-id={no.id}
       style={{ left: no.x, top: no.y, width: no.largura, height: no.altura, zIndex: no.z }}
-      onPointerDown={(e) => {
-        const alvo = e.target as HTMLElement
-        if (alvo.closest('[data-arrasta]')) comecar('mover', e)
-        else if (!alvo.closest('[data-porta]')) {
-          e.stopPropagation()
-          selecionar({ tipo: 'no', id: no.id })
-        }
-      }}
-      onPointerMove={mover}
-      onPointerUp={terminar}
-      onPointerCancel={terminar}
+      onPointerDown={aoApertar}
+      onPointerMove={aoMover}
+      onPointerUp={aoSoltar}
+      onPointerCancel={aoSoltar}
+      onLostPointerCapture={aoSoltar}
       onDoubleClick={aoClicarDuasVezes}
     >
       {children}
       {selecionado && (
-        // mover e soltar sobem até a moldura, que já trata os dois
-        <div className="alca-redimensionar" onPointerDown={(e) => comecar('redimensionar', e)} />
+        <div
+          className="alca-redimensionar"
+          onPointerDown={(e) => {
+            if (e.button !== 0) return
+            e.stopPropagation()
+            preparar('redimensionar', e)
+            // mover e soltar sobem até a moldura, que já trata os dois
+            comecarDeVerdade(e, e.currentTarget.parentElement as HTMLElement)
+          }}
+        />
       )}
     </div>
   )
