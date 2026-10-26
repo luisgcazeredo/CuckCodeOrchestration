@@ -1,0 +1,19 @@
+# dependências e build
+node_modules/
+dist/
+out/
+release/
+*.log
+
+# segredos e ambiente local
+.env
+.env.*
+
+# documentos de levantamento: ficam só no PC (descrevem um produto de terceiro)
+ESPECIFICACAO.md
+VISUAL.md
+PLANEJAMENTO-FASE1.md
+
+# sistema
+Thumbs.db
+.DS_Store
