@@ -1,7 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
+
+// Pronto para a etapa de integração (ainda não é montado): o corpo de um cartão de terminal ligado
+// a um processo de verdade. O processo principal já aceita vários terminais por janela.
+// Falta resolver na integração: texto nítido com zoom do quadro, tema claro, retomar sessão do agente.
 
 const TEMA_ESCURO = {
   background: '#1A1A1E',
@@ -10,9 +14,15 @@ const TEMA_ESCURO = {
   selectionBackground: '#264F78'
 }
 
-export function CartaoTerminal({ nome }: { nome: string }) {
+interface Props {
+  pasta: string
+  /** Linha digitada quando o shell abre (ex.: `claude`); vazia = só o shell. */
+  comando: string
+  aoEncerrar?: () => void
+}
+
+export function CorpoXterm({ pasta, comando, aoEncerrar }: Props) {
   const areaRef = useRef<HTMLDivElement>(null)
-  const [estado, setEstado] = useState<'abrindo' | 'rodando' | 'encerrado'>('abrindo')
 
   useEffect(() => {
     const area = areaRef.current!
@@ -39,36 +49,24 @@ export function CartaoTerminal({ nome }: { nome: string }) {
     let cancelado = false
     const desligar: Array<() => void> = []
 
-    window.mp.terminal.criar({ colunas: terminal.cols, linhas: terminal.rows }).then((novoId) => {
+    window.mp.terminal.criar({ colunas: terminal.cols, linhas: terminal.rows, pasta }).then((novoId) => {
       if (cancelado) {
         window.mp.terminal.encerrar(novoId)
         return
       }
       id = novoId
-      setEstado('rodando')
       desligar.push(
         window.mp.terminal.aoReceber(novoId, (dados) => terminal.write(dados)),
-        window.mp.terminal.aoSair(novoId, () => setEstado('encerrado'))
+        window.mp.terminal.aoSair(novoId, () => aoEncerrar?.())
       )
       const digitado = terminal.onData((dados) => window.mp.terminal.escrever(novoId, dados))
-      const redimensionado = terminal.onResize(({ cols, rows }) =>
-        window.mp.terminal.redimensionar(novoId, cols, rows)
-      )
+      const redimensionado = terminal.onResize(({ cols, rows }) => window.mp.terminal.redimensionar(novoId, cols, rows))
       desligar.push(() => digitado.dispose(), () => redimensionado.dispose())
-      terminal.focus()
+      if (comando) window.mp.terminal.escrever(novoId, `${comando}\r`)
     })
 
     const observador = new ResizeObserver(() => ajuste.fit())
     observador.observe(area)
-
-    if (window.mp.autoteste) {
-      window.__textoDoTerminal = () => {
-        const buffer = terminal.buffer.active
-        const linhas: string[] = []
-        for (let i = 0; i < buffer.length; i++) linhas.push(buffer.getLine(i)?.translateToString(true) ?? '')
-        return linhas.join('\n')
-      }
-    }
 
     return () => {
       cancelado = true
@@ -77,16 +75,7 @@ export function CartaoTerminal({ nome }: { nome: string }) {
       if (id) window.mp.terminal.encerrar(id)
       terminal.dispose()
     }
-  }, [])
+  }, [pasta, comando, aoEncerrar])
 
-  return (
-    <section className="cartao-terminal">
-      <header className="cartao-cabecalho">
-        <span className={`ponto ponto-${estado}`} />
-        {nome}
-      </header>
-      <div className="cartao-corpo" ref={areaRef} />
-      <footer className="cartao-rodape">{estado === 'encerrado' ? 'processo encerrado' : 'pasta do usuário'}</footer>
-    </section>
-  )
+  return <div className="terminal-xterm" ref={areaRef} />
 }

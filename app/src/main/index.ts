@@ -1,5 +1,7 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, Menu, shell } from 'electron'
 import { join } from 'node:path'
+import { CANAIS_APP } from '../shared/api'
+import { registrarDados } from './dados'
 import { encerrarTodos, registrarTerminais } from './terminais'
 import { rodarAutoteste } from './autoteste'
 
@@ -52,11 +54,29 @@ function criarJanela(): BrowserWindow {
     janela.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
+  // Fechar: a janela salva o que estiver pendente e avisa; sem resposta em 3 s, fecha assim mesmo.
+  let podeFechar = autoteste
+  const fecharDeVez = (): void => {
+    podeFechar = true
+    if (!janela.isDestroyed()) janela.close()
+  }
+  janela.on('close', (evento) => {
+    if (podeFechar) return
+    evento.preventDefault()
+    janela.webContents.send(CANAIS_APP.vaiFechar)
+    setTimeout(fecharDeVez, 3000)
+  })
+  janela.webContents.ipc.on(CANAIS_APP.podeFechar, fecharDeVez)
+
   if (autoteste) janela.webContents.once('did-finish-load', () => rodarAutoteste(janela))
   return janela
 }
 
+// Sem o menu padrão do Electron: os atalhos dele (zoom da página, recarregar) brigam com os do quadro.
+Menu.setApplicationMenu(null)
+
 app.whenReady().then(() => {
+  registrarDados()
   registrarTerminais()
   criarJanela()
 })

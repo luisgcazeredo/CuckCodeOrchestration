@@ -1,4 +1,5 @@
 // Contrato entre a janela (renderer) e o processo principal, exposto pelo preload em window.mp.
+import type { EspacoCarregado, EstadoJanela, Preferencias, ResumoEspaco } from './modelo'
 
 export interface OpcoesTerminal {
   colunas: number
@@ -17,10 +18,32 @@ export interface ApiTerminal {
   aoSair(id: string, ouvinte: (codigo: number) => void): () => void
 }
 
+export interface ApiDados {
+  listarEspacos(): Promise<ResumoEspaco[]>
+  carregarEspaco(id: string): Promise<EspacoCarregado | null>
+  salvarEspaco(carregado: EspacoCarregado): Promise<ResumoEspaco>
+  criarEspaco(nome: string, pasta: string): Promise<ResumoEspaco>
+  carregarPreferencias(): Promise<Preferencias>
+  salvarPreferencias(preferencias: Preferencias): Promise<void>
+  carregarEstado(): Promise<EstadoJanela>
+  salvarEstado(estado: EstadoJanela): Promise<void>
+  escolherPasta(): Promise<string | null>
+  escolherArquivo(): Promise<{ caminho: string; nome: string } | null>
+  abrirArquivo(caminho: string): Promise<string>
+}
+
 export interface ApiMaestri {
   terminal: ApiTerminal
+  dados: ApiDados
+  /** Chamado quando a janela vai fechar; ela só fecha depois de `salvar` terminar (ou em 3 s). */
+  aoPedirFechar(salvar: () => Promise<void>): void
   autoteste: boolean
 }
+
+export const CANAIS_APP = {
+  vaiFechar: 'app:vai-fechar',
+  podeFechar: 'app:pode-fechar'
+} as const
 
 export const CANAIS = {
   criar: 'terminal:criar',
@@ -29,4 +52,18 @@ export const CANAIS = {
   encerrar: 'terminal:encerrar',
   dados: 'terminal:dados',
   saida: 'terminal:saida'
+} as const
+
+export const CANAIS_DADOS = {
+  listarEspacos: 'dados:listar-espacos',
+  carregarEspaco: 'dados:carregar-espaco',
+  salvarEspaco: 'dados:salvar-espaco',
+  criarEspaco: 'dados:criar-espaco',
+  carregarPreferencias: 'dados:carregar-preferencias',
+  salvarPreferencias: 'dados:salvar-preferencias',
+  carregarEstado: 'dados:carregar-estado',
+  salvarEstado: 'dados:salvar-estado',
+  escolherPasta: 'dados:escolher-pasta',
+  escolherArquivo: 'dados:escolher-arquivo',
+  abrirArquivo: 'dados:abrir-arquivo'
 } as const
