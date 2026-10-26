@@ -1,10 +1,22 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import {
   PRESETS_PADRAO,
+  type EntradaPasta,
+  type No,
   type Espaco,
   type EspacoCarregado,
   type EstadoJanela,
@@ -116,7 +128,35 @@ function garantirInicio(): void {
   gravarJson(join(pastaDoEspaco(espaco.id), 'espaco.json'), espaco)
 }
 
-const TIPOS_DE_NO = new Set(['terminal', 'postit', 'texto', 'arquivo'])
+function todosOsNos(): No[] {
+  return lerManifesto().flatMap((id) => (ID_VALIDO.test(id) ? (lerEspaco(id)?.nos ?? []) : []))
+}
+
+function estaDentro(raiz: string, caminho: string): boolean {
+  const r = relative(raiz, caminho)
+  return r === '' || (!r.startsWith('..') && !isAbsolute(r))
+}
+
+/** Caminho real, com atalhos e links simbólicos resolvidos; null se não existir. */
+function real(caminho: string): string | null {
+  try {
+    return realpathSync.native(caminho)
+  } catch {
+    return null
+  }
+}
+
+/** Compara caminhos reais: um link dentro da pasta que aponta para fora dela não passa. */
+function dentroDeUmaArvore(caminho: string): boolean {
+  const alvo = real(caminho)
+  if (!alvo) return false
+  return todosOsNos().some((n) => {
+    const raiz = n.tipo === 'pasta' ? real(n.caminho) : null
+    return raiz !== null && estaDentro(raiz, alvo)
+  })
+}
+
+const TIPOS_DE_NO = new Set(['terminal', 'postit', 'texto', 'arquivo', 'pasta', 'portal'])
 const LIMITE_JSON = 20 * 1024 * 1024
 
 /** O que vem da janela só é gravado se tiver a forma de um espaço que já existe. */
@@ -135,7 +175,9 @@ function validarParaSalvar(carregado: EspacoCarregado): EspacoCarregado {
         TIPOS_DE_NO.has(n?.tipo) &&
         typeof n.id === 'string' &&
         [n.x, n.y, n.largura, n.altura, n.z].every(Number.isFinite) &&
-        (n.tipo !== 'postit' || NOTA_VALIDA.test(n.arquivo))
+        (n.tipo !== 'postit' || NOTA_VALIDA.test(n.arquivo)) &&
+        (n.tipo !== 'pasta' || typeof n.caminho === 'string') &&
+        (n.tipo !== 'portal' || /^https?:\/\//.test(n.url))
     ) &&
     typeof notas === 'object' &&
     notas !== null &&
@@ -223,13 +265,28 @@ export function registrarDados(): void {
     return r.canceled ? null : { caminho: r.filePaths[0], nome: basename(r.filePaths[0]) }
   })
 
-  // só abre arquivo que está num quadro (anexado pelo diálogo), nunca um caminho qualquer
+  // só abre arquivo que está num quadro (anexado pelo diálogo ou dentro de uma árvore), nunca um caminho qualquer
   ipcMain.handle(CANAIS_DADOS.abrirArquivo, (_e, caminho: string) => {
-    const anexado = lerManifesto().some((id) =>
-      lerEspaco(id)?.nos.some((n) => n.tipo === 'arquivo' && n.caminho === caminho)
-    )
-    if (!anexado) return 'arquivo não está anexado a nenhum quadro'
+    if (typeof caminho !== 'string') return 'caminho inválido'
+    const anexado = todosOsNos().some((n) => n.tipo === 'arquivo' && n.caminho === caminho)
+    if (!anexado && !dentroDeUmaArvore(caminho)) return 'arquivo não está no quadro'
     if (!existsSync(caminho)) return 'arquivo não encontrado'
     return shell.openPath(caminho)
+  })
+
+  ipcMain.handle(CANAIS_DADOS.listarPasta, (_e, raiz: string, caminho: string): EntradaPasta[] => {
+    const raizes = todosOsNos().flatMap((n) => (n.tipo === 'pasta' ? [resolve(n.caminho)] : []))
+    if (typeof raiz !== 'string' || typeof caminho !== 'string' || !raizes.includes(resolve(raiz))) {
+      throw new Error('pasta não está no quadro')
+    }
+    const raizReal = real(raiz)
+    const alvoReal = real(caminho)
+    if (!raizReal || !alvoReal || !estaDentro(raizReal, alvoReal)) throw new Error('caminho fora da pasta da árvore')
+    // links simbólicos e atalhos de pasta não aparecem (isDirectory/isFile são falsos para eles)
+    return readdirSync(caminho, { withFileTypes: true })
+      .filter((d) => d.isDirectory() || d.isFile())
+      .map((d) => ({ nome: d.name, caminho: join(caminho, d.name), ehPasta: d.isDirectory() }))
+      .sort((a, b) => Number(b.ehPasta) - Number(a.ehPasta) || a.nome.localeCompare(b.nome, 'pt-BR'))
+      .slice(0, 1000)
   })
 }

@@ -1,37 +1,83 @@
 {
   "name": "maestri-proprio",
-  "productName": "Maestri Próprio",
-  "version": "0.1.0",
+  "productName": "Maestri Proprio",
+  "version": "0.2.0",
   "private": true,
   "description": "Quadro infinito para orquestrar agentes de código",
+  "author": "Luís Azeredo",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit",
-    "autoteste": "electron-vite build && electron . --autoteste"
+    "autoteste": "electron-vite build && electron . --autoteste",
+    "icone": "electron scripts/gerar-icone.cjs",
+    "empacotar": "electron-vite build && electron-builder --win --x64",
+    "instalar": "npm run empacotar && node scripts/instalar.mjs"
   },
   "dependencies": {
-    "@xterm/addon-fit": "0.11.0",
-    "@xterm/addon-webgl": "0.19.0",
-    "@xterm/xterm": "6.0.0",
-    "lucide-react": "1.58.0",
-    "node-pty": "1.1.0",
-    "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "node-pty": "1.1.0"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-webgl": "0.19.0",
+    "@xterm/xterm": "6.0.0",
     "electron": "44.9.3",
+    "electron-builder": "26.17.0",
     "electron-vite": "6.0.0",
+    "lucide-react": "1.58.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "typescript": "6.0.3",
     "vite": "8.3.4"
   },
   "allowScripts": {
-    "node-pty@1.1.0": true
+    "node-pty@1.1.0": true,
+    "electron-winstaller": false
+  },
+  "build": {
+    "appId": "br.luisao.maestriproprio",
+    "productName": "Maestri Proprio",
+    "executableName": "MaestriProprio",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**",
+      "!out/autoteste*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/node_modules/node-pty/**"
+    ],
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "Maestri Próprio",
+      "uninstallDisplayName": "Maestri Próprio",
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "runAfterFinish": false,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "MaestriProprio-Instalador-${version}.${ext}"
+    }
   }
 }

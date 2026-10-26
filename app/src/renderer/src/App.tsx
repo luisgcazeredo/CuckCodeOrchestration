@@ -1,6 +1,16 @@
 import { useEffect } from 'react'
 import * as loja from './estado/loja'
-import { apagarSelecao, editar, escolherFerramenta, iniciar, salvarAgora, selecionar, usarLoja } from './estado/loja'
+import {
+  apagarSelecao,
+  desfazer,
+  editar,
+  escolherFerramenta,
+  iniciar,
+  refazer,
+  salvarParaFechar,
+  selecionar,
+  usarLoja
+} from './estado/loja'
 import { Quadro } from './quadro/Quadro'
 import { BarraFerramentas } from './ui/BarraFerramentas'
 import { BarraLateral } from './ui/BarraLateral'
@@ -18,6 +28,8 @@ function atalhos(e: KeyboardEvent): void {
   if (ctrl && e.key === '-') return (e.preventDefault(), zoomPeloCentro(1 / 1.2))
   if (ctrl && e.key === '0') return (e.preventDefault(), zoomPeloCentro('inicial'))
   if (ctrl && e.key === '1') return (e.preventDefault(), enquadrarTudo())
+  if (ctrl && e.key.toLowerCase() === 'z') return (e.preventDefault(), e.shiftKey ? refazer() : desfazer())
+  if (ctrl && e.key.toLowerCase() === 'y') return (e.preventDefault(), refazer())
   if (ctrl || e.altKey) return
   if (e.key === 'Delete' || e.key === 'Backspace') return apagarSelecao()
   if (e.key === 'Escape') {
@@ -41,7 +53,7 @@ export function App() {
   useEffect(() => {
     void iniciar()
     window.addEventListener('keydown', atalhos)
-    window.mp.aoPedirFechar(salvarAgora)
+    window.mp.aoPedirFechar(salvarParaFechar)
     if (window.mp.autoteste) window.__teste = { loja }
     return () => window.removeEventListener('keydown', atalhos)
   }, [])

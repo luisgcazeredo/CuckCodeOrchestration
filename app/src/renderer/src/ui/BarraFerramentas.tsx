@@ -73,6 +73,20 @@ export function BarraFerramentas() {
     adicionarNo({ tipo: 'arquivo', caminho: arquivo.caminho, nome: arquivo.nome }, x, y)
   }
 
+  async function arvore(): Promise<void> {
+    setMenuTerminal(false)
+    const pasta = await window.mp.dados.escolherPasta()
+    if (!pasta) return
+    const { x, y } = noCentro()
+    adicionarNo({ tipo: 'pasta', caminho: pasta }, x, y)
+  }
+
+  function portal(): void {
+    setMenuTerminal(false)
+    const { x, y } = noCentro()
+    adicionarNo({ tipo: 'portal', url: 'https://www.google.com' }, x, y)
+  }
+
   return (
     <div className="barra-ferramentas-pos">
       <div className="pilula barra-ferramentas">
@@ -80,8 +94,8 @@ export function BarraFerramentas() {
         <Botao icone={SquareTerminal} titulo="Terminal" ativo={menuTerminal} aoClicar={() => setMenuTerminal(!menuTerminal)} />
         <Botao icone={StickyNote} titulo="Post-it (N)" ativo={ferramenta === 'postit'} aoClicar={escolher('postit')} />
         <Botao icone={Paperclip} titulo="Anexar arquivo" aoClicar={() => void anexar()} />
-        <Botao icone={FolderTree} titulo="Árvore de arquivos (em breve)" desligado />
-        <Botao icone={Globe} titulo="Portal: navegador no quadro (em breve)" desligado />
+        <Botao icone={FolderTree} titulo="Árvore de arquivos de uma pasta" aoClicar={() => void arvore()} />
+        <Botao icone={Globe} titulo="Portal: navegador no quadro" aoClicar={portal} />
         <Botao icone={Type} titulo="Texto (T)" ativo={ferramenta === 'texto'} aoClicar={escolher('texto')} />
         <Botao icone={Pencil} titulo="Desenhar (D)" ativo={ferramenta === 'desenho'} aoClicar={escolher('desenho')} />
       </div>

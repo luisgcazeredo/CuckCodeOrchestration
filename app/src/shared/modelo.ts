@@ -53,7 +53,27 @@ export interface NoArquivo extends NoBase {
   nomeExibido: string
 }
 
-export type No = NoTerminal | NoPostIt | NoTexto | NoArquivo
+/** Árvore de arquivos de uma pasta, navegável no quadro. */
+export interface NoPasta extends NoBase {
+  tipo: 'pasta'
+  caminho: string
+  /** Subpastas abertas (caminhos completos). */
+  expandidas: string[]
+}
+
+/** Navegador dentro do quadro. */
+export interface NoPortal extends NoBase {
+  tipo: 'portal'
+  url: string
+}
+
+export interface EntradaPasta {
+  nome: string
+  caminho: string
+  ehPasta: boolean
+}
+
+export type No = NoTerminal | NoPostIt | NoTexto | NoArquivo | NoPasta | NoPortal
 export type TipoNo = No['tipo']
 
 /** Ligação entre dois terminais: é a permissão de um agente falar com o outro (integração depois). */

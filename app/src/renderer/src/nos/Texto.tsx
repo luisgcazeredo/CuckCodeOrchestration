@@ -40,7 +40,7 @@ export const Texto = memo(function Texto({ no, selecionado, editando }: Props) {
           value={no.texto}
           placeholder="Texto"
           spellCheck={false}
-          onChange={(e) => atualizarNo(no.id, { texto: e.target.value })}
+          onChange={(e) => atualizarNo(no.id, { texto: e.target.value }, `texto:${no.id}`)}
           onBlur={sair}
           onKeyDown={(e) => e.key === 'Escape' && sair()}
         />

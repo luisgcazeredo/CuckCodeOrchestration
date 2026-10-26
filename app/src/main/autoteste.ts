@@ -1,5 +1,6 @@
 import { app, type BrowserWindow } from 'electron'
-import { existsSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PASTA_DADOS } from './dados'
 
@@ -7,18 +8,31 @@ import { PASTA_DADOS } from './dados'
 // temas, usa o mouse como um usuário (arrastar terminal, ligar dois terminais pela porta), recarrega e
 // confere que tudo voltou do disco. Sai com 0 (passou) ou 1 (falhou).
 
-export async function rodarAutoteste(janela: BrowserWindow): Promise<void> {
+export async function rodarAutoteste(
+  janela: BrowserWindow,
+  pedirSalvamento: (janela: BrowserWindow) => Promise<boolean>
+): Promise<void> {
   const tela = janela.webContents
   const esperar = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
   const js = <T>(codigo: string): Promise<T> => tela.executeJavaScript(codigo)
-  const pastaSaida = join(app.getAppPath(), 'out')
+  // no app instalado a pasta do app é somente leitura: os prints vão para a pasta temporária
+  const pastaSaida = app.isPackaged ? join(tmpdir(), 'maestri-proprio-autoteste-prints') : join(app.getAppPath(), 'out')
+  mkdirSync(pastaSaida, { recursive: true })
   const resultados: Array<[string, boolean, string]> = []
   const conferir = (nome: string, ok: boolean, detalhe = ''): void => {
     resultados.push([nome, ok, detalhe])
   }
+  // a captura às vezes falha logo depois de recarregar (erro do compositor de vídeo): tenta de novo
   const print = async (nome: string): Promise<void> => {
-    await esperar(400)
-    writeFileSync(join(pastaSaida, `autoteste-${nome}.png`), (await tela.capturePage()).toPNG())
+    for (let tentativa = 1; ; tentativa++) {
+      await esperar(400 * tentativa)
+      try {
+        writeFileSync(join(pastaSaida, `autoteste-${nome}.png`), (await tela.capturePage()).toPNG())
+        return
+      } catch (erro) {
+        if (tentativa === 4) throw erro
+      }
+    }
   }
   const aguardarCarga = async (): Promise<void> => {
     for (let i = 0; i < 60; i++) {
@@ -124,11 +138,82 @@ export async function rodarAutoteste(janela: BrowserWindow): Promise<void> {
     conferir('post-its viram .md', notasEmDisco.length === 2, notasEmDisco.join(', '))
     await print('reaberto')
 
+    // desfazer e refazer pelo teclado: apagar o texto, Ctrl+Z traz de volta, Ctrl+Y apaga de novo
+    const contar = (): Promise<number> => js<number>('window.__teste.loja.lerEstado().espaco.nos.length')
+    await js(`window.__teste.loja.selecionar({ tipo: 'no', id: '${ids.tx}' }); window.__teste.loja.apagarSelecao()`)
+    const depoisDeApagar = await contar()
+    const tecla = async (letra: string): Promise<void> => {
+      tela.sendInputEvent({ type: 'keyDown', keyCode: letra, modifiers: ['control'] })
+      tela.sendInputEvent({ type: 'keyUp', keyCode: letra, modifiers: ['control'] })
+      await esperar(150)
+    }
+    await tecla('Z')
+    const depoisDeDesfazer = await contar()
+    await tecla('Y')
+    const depoisDeRefazer = await contar()
+    conferir(
+      'desfazer e refazer (Ctrl+Z, Ctrl+Y)',
+      depoisDeApagar === 5 && depoisDeDesfazer === 6 && depoisDeRefazer === 5,
+      `${depoisDeApagar} → ${depoisDeDesfazer} → ${depoisDeRefazer} nós`
+    )
+
+    // árvore de arquivos de uma pasta de teste e um portal, longe do resto
+    const pastaTeste = join(tmpdir(), 'maestri-proprio-autoteste-arvore')
+    rmSync(pastaTeste, { recursive: true, force: true })
+    mkdirSync(join(pastaTeste, 'sub'), { recursive: true })
+    for (const nome of ['a.md', 'b.txt']) writeFileSync(join(pastaTeste, nome), nome)
+    // atalho de pasta (junction) que aponta para fora: não pode aparecer nem ser listado
+    const fora = join(tmpdir(), 'maestri-proprio-autoteste-fora')
+    mkdirSync(fora, { recursive: true })
+    writeFileSync(join(fora, 'segredo.txt'), 'não pode vazar')
+    symlinkSync(fora, join(pastaTeste, 'atalho-para-fora'), 'junction')
+    await js(`(() => {
+      const L = window.__teste.loja
+      L.adicionarNo({ tipo: 'pasta', caminho: ${JSON.stringify(pastaTeste)} }, 2700, 500)
+      L.adicionarNo({ tipo: 'portal', url: 'https://example.com/' }, 3400, 500)
+      L.selecionar(null)
+      L.definirCamera({ x: -1180, y: 120, zoom: 0.5 })
+    })()`)
+    let linhas = 0
+    for (let i = 0; i < 30 && linhas < 3; i++) {
+      await esperar(100)
+      linhas = await js<number>(`document.querySelectorAll('.arvore-linha').length`)
+    }
+    conferir('árvore de arquivos', linhas === 3, `${linhas} linhas (sub, a.md, b.txt; o atalho para fora não aparece)`)
+    const vazou = await js<string>(`window.mp.dados.listarPasta(${JSON.stringify(pastaTeste)}, ${JSON.stringify(
+      join(pastaTeste, 'atalho-para-fora')
+    )}).then((l) => 'LISTOU ' + l.map((e) => e.nome).join(','), (e) => 'bloqueado')`)
+    conferir('atalho para fora da pasta é bloqueado', vazou === 'bloqueado', vazou)
+    let endereco = ''
+    for (let i = 0; i < 80 && !endereco.includes('example.com'); i++) {
+      await esperar(100)
+      endereco = await js<string>(`(() => { try { return document.querySelector('webview').getURL() } catch { return '' } })()`)
+    }
+    await esperar(800)
+    conferir('portal abre um site', endereco.includes('example.com'), endereco || 'não carregou (sem internet?)')
+    const transformacao = await js<string>(`document.querySelector('.mundo').style.transform`)
+    conferir('câmera foi para a árvore e o portal', transformacao.includes('-1180px'), transformacao)
+    await print('ferramentas')
+
+    // fechar a janela logo depois de editar: a última edição tem que chegar ao disco
+    const arquivoNota = await js<string>(
+      `window.__teste.loja.lerEstado().espaco.nos.find((n) => n.id === '${ids.pi}').arquivo`
+    )
+    await js(`window.__teste.loja.definirNota('${arquivoNota}', '# TODOS\\nÚLTIMA EDIÇÃO ANTES DE FECHAR')`)
+    const gravou = await pedirSalvamento(janela)
+    const idEspaco = await js<string>('window.__teste.loja.lerEstado().espaco.id')
+    const emDisco = readFileSync(join(PASTA_DADOS, 'espacos', idEspaco, 'notas', arquivoNota), 'utf8')
+    conferir(
+      'salvar ao fechar',
+      gravou && emDisco.includes('ÚLTIMA EDIÇÃO ANTES DE FECHAR'),
+      `${gravou ? 'janela confirmou' : 'janela disse que falhou'} · ${emDisco.split('\n')[1] ?? ''}`
+    )
+
     passou = resultados.every(([, ok]) => ok)
   } catch (erro) {
     console.error('AUTOTESTE ERRO', erro)
   }
   for (const [nome, ok, detalhe] of resultados) console.log(`AUTOTESTE ${ok ? 'ok    ' : 'FALHOU'} ${nome} — ${detalhe}`)
-  console.log(`AUTOTESTE ${passou ? 'PASSOU' : 'FALHOU'} — prints em out/autoteste-*.png`)
+  console.log(`AUTOTESTE ${passou ? 'PASSOU' : 'FALHOU'} — prints em ${pastaSaida}`)
   app.exit(passou ? 0 : 1)
 }

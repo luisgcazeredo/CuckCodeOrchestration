@@ -1,5 +1,5 @@
 // Contrato entre a janela (renderer) e o processo principal, exposto pelo preload em window.mp.
-import type { EspacoCarregado, EstadoJanela, Preferencias, ResumoEspaco } from './modelo'
+import type { EntradaPasta, EspacoCarregado, EstadoJanela, Preferencias, ResumoEspaco } from './modelo'
 
 export interface OpcoesTerminal {
   colunas: number
@@ -30,13 +30,15 @@ export interface ApiDados {
   escolherPasta(): Promise<string | null>
   escolherArquivo(): Promise<{ caminho: string; nome: string } | null>
   abrirArquivo(caminho: string): Promise<string>
+  /** Conteúdo de `caminho`, que precisa estar dentro de `raiz` (a pasta de uma árvore do quadro). */
+  listarPasta(raiz: string, caminho: string): Promise<EntradaPasta[]>
 }
 
 export interface ApiMaestri {
   terminal: ApiTerminal
   dados: ApiDados
-  /** Chamado quando a janela vai fechar; ela só fecha depois de `salvar` terminar (ou em 3 s). */
-  aoPedirFechar(salvar: () => Promise<void>): void
+  /** Chamado quando a janela vai fechar; `salvar` diz se gravou. Se não gravou, o app pergunta antes de fechar. */
+  aoPedirFechar(salvar: () => Promise<boolean>): void
   autoteste: boolean
 }
 
@@ -65,5 +67,6 @@ export const CANAIS_DADOS = {
   salvarEstado: 'dados:salvar-estado',
   escolherPasta: 'dados:escolher-pasta',
   escolherArquivo: 'dados:escolher-arquivo',
-  abrirArquivo: 'dados:abrir-arquivo'
+  abrirArquivo: 'dados:abrir-arquivo',
+  listarPasta: 'dados:listar-pasta'
 } as const

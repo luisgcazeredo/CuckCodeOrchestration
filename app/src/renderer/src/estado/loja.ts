@@ -100,8 +100,76 @@ export function salvarAgora(): Promise<void> {
   return salvando
 }
 
-function mudarEspaco(mudar: (espaco: Espaco) => Espaco): void {
+// ---------- desfazer e refazer ----------
+
+interface Instantaneo {
+  espaco: Espaco
+  notas: Record<string, string>
+}
+
+const LIMITE_HISTORICO = 100
+let pilhaDesfazer: Instantaneo[] = []
+let pilhaRefazer: Instantaneo[] = []
+let ultimaChave: string | null = null
+let ultimoRegistro = 0
+
+/**
+ * Guarda o estado de antes de uma mudança. Mudanças seguidas com a mesma `chave` (arrastar, digitar,
+ * redimensionar) viram um passo só; sem chave, cada mudança é um passo.
+ */
+function registrarHistorico(chave?: string): void {
+  const { espaco, notas } = estado
+  if (!espaco) return
+  const agora = Date.now()
+  if (chave && chave === ultimaChave && agora - ultimoRegistro < 1000) {
+    ultimoRegistro = agora
+    return
+  }
+  pilhaDesfazer.push({ espaco, notas })
+  if (pilhaDesfazer.length > LIMITE_HISTORICO) pilhaDesfazer.shift()
+  pilhaRefazer = []
+  ultimaChave = chave ?? null
+  ultimoRegistro = agora
+}
+
+function aplicarInstantaneo(i: Instantaneo): void {
+  // desfazer mexe no conteúdo, não na vista: câmera, página aberta no portal e pastas abertas ficam como estão
+  const atual = new Map(estado.espaco!.nos.map((n) => [n.id, n]))
+  const nos = i.espaco.nos.map((n) => {
+    const agoraNo = atual.get(n.id)
+    if (n.tipo === 'portal' && agoraNo?.tipo === 'portal') return { ...n, url: agoraNo.url }
+    if (n.tipo === 'pasta' && agoraNo?.tipo === 'pasta') return { ...n, expandidas: agoraNo.expandidas }
+    return n
+  })
+  definir({ espaco: { ...i.espaco, nos, camera: estado.espaco!.camera }, notas: i.notas, selecao: null, editando: null })
+  ultimaChave = null
+  agendarSalvar()
+}
+
+export function desfazer(): void {
+  const anterior = pilhaDesfazer.pop()
+  if (!anterior || !estado.espaco) return
+  pilhaRefazer.push({ espaco: estado.espaco, notas: estado.notas })
+  aplicarInstantaneo(anterior)
+}
+
+export function refazer(): void {
+  const proximo = pilhaRefazer.pop()
+  if (!proximo || !estado.espaco) return
+  pilhaDesfazer.push({ espaco: estado.espaco, notas: estado.notas })
+  aplicarInstantaneo(proximo)
+}
+
+/** `chave`: agrupa no histórico (ver registrarHistorico); `false`: não entra no histórico (câmera, z). */
+/** Antes de fechar a janela: salva o pendente e diz se deu certo. */
+export async function salvarParaFechar(): Promise<boolean> {
+  await salvarAgora()
+  return estado.erroAoSalvar === null
+}
+
+function mudarEspaco(mudar: (espaco: Espaco) => Espaco, chave?: string | false): void {
   if (!estado.espaco) return
+  if (chave !== false) registrarHistorico(chave)
   definir({ espaco: mudar(estado.espaco) })
   agendarSalvar()
 }
@@ -129,6 +197,9 @@ export async function abrirEspaco(id: string): Promise<void> {
   await salvarAgora()
   const carregado = await window.mp.dados.carregarEspaco(id)
   if (!carregado || pedido !== pedidoDeAbertura) return
+  pilhaDesfazer = []
+  pilhaRefazer = []
+  ultimaChave = null
   definir({ espaco: carregado.espaco, notas: carregado.notas, selecao: null, editando: null, ferramenta: 'selecionar' })
   salvarJanela()
 }
@@ -143,7 +214,7 @@ export async function renomearEspaco(id: string, nome: string): Promise<void> {
   const limpo = nome.trim()
   if (!limpo) return
   if (estado.espaco?.id === id) {
-    mudarEspaco((e) => ({ ...e, nome: limpo }))
+    mudarEspaco((e) => ({ ...e, nome: limpo }), false)
     definir({ espacos: estado.espacos.map((r) => (r.id === id ? { ...r, nome: limpo } : r)) })
     return
   }
@@ -202,7 +273,7 @@ export const ZOOM_MAX = 2
 
 export function definirCamera(camera: Camera): void {
   const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, camera.zoom))
-  mudarEspaco((e) => ({ ...e, camera: { ...camera, zoom } }))
+  mudarEspaco((e) => ({ ...e, camera: { ...camera, zoom } }), false)
 }
 
 // ---------- nós ----------
@@ -214,49 +285,53 @@ function proximoZ(espaco: Espaco): number {
   return Math.max(0, ...espaco.nos.map((n) => n.z), ...espaco.desenhos.map((d) => d.z)) + 1
 }
 
-type NovoNo =
+export type NovoNo =
   | { tipo: 'terminal'; preset: PresetAgente }
   | { tipo: 'postit' }
   | { tipo: 'texto' }
   | { tipo: 'arquivo'; caminho: string; nome: string }
+  | { tipo: 'pasta'; caminho: string }
+  | { tipo: 'portal'; url: string }
 
 /** Cria um nó com o centro em (x, y) do quadro e já o seleciona. */
 export function adicionarNo(novo: NovoNo, x: number, y: number): string {
   const espaco = estado.espaco
   if (!espaco) return ''
+  registrarHistorico()
   const base = { id: novoId(), z: proximoZ(espaco), criadoEm: agora() }
+  const centrado = (largura: number, altura: number) => ({ x: x - largura / 2, y: y - altura / 2, largura, altura })
   let no: No
-  if (novo.tipo === 'terminal') {
-    const mesmos = espaco.nos.filter((n) => n.tipo === 'terminal' && n.agente === novo.preset.agente).length
-    no = {
-      ...base,
-      tipo: 'terminal',
-      nome: mesmos ? `${novo.preset.nome} ${mesmos + 1}` : novo.preset.nome,
-      agente: novo.preset.agente,
-      comando: novo.preset.comando,
-      x: x - 400,
-      y: y - 250,
-      largura: 800,
-      altura: 500
+  switch (novo.tipo) {
+    case 'terminal': {
+      const mesmos = espaco.nos.filter((n) => n.tipo === 'terminal' && n.agente === novo.preset.agente).length
+      no = {
+        ...base,
+        ...centrado(800, 500),
+        tipo: 'terminal',
+        nome: mesmos ? `${novo.preset.nome} ${mesmos + 1}` : novo.preset.nome,
+        agente: novo.preset.agente,
+        comando: novo.preset.comando
+      }
+      break
     }
-  } else if (novo.tipo === 'postit') {
-    no = {
-      ...base,
-      tipo: 'postit',
-      arquivo: `${base.id}.md`,
-      cor: estado.preferencias.corPostItPadrao,
-      x: x - 130,
-      y: y - 80,
-      largura: 260,
-      altura: 160
-    }
-    definir({ notas: { ...estado.notas, [no.arquivo]: '' } })
-  } else if (novo.tipo === 'texto') {
-    no = { ...base, tipo: 'texto', texto: '', tamanhoFonte: 24, mono: false, x: x - 60, y: y - 20, largura: 240, altura: 48 }
-  } else {
-    no = { ...base, tipo: 'arquivo', caminho: novo.caminho, nomeExibido: novo.nome, x: x - 90, y: y - 70, largura: 180, altura: 140 }
+    case 'postit':
+      no = { ...base, ...centrado(260, 160), tipo: 'postit', arquivo: `${base.id}.md`, cor: estado.preferencias.corPostItPadrao }
+      definir({ notas: { ...estado.notas, [no.arquivo]: '' } })
+      break
+    case 'texto':
+      no = { ...base, ...centrado(240, 48), tipo: 'texto', texto: '', tamanhoFonte: 24, mono: false }
+      break
+    case 'arquivo':
+      no = { ...base, ...centrado(180, 140), tipo: 'arquivo', caminho: novo.caminho, nomeExibido: novo.nome }
+      break
+    case 'pasta':
+      no = { ...base, ...centrado(300, 380), tipo: 'pasta', caminho: novo.caminho, expandidas: [] }
+      break
+    case 'portal':
+      no = { ...base, ...centrado(900, 600), tipo: 'portal', url: novo.url }
+      break
   }
-  mudarEspaco((e) => ({ ...e, nos: [...e.nos, no] }))
+  mudarEspaco((e) => ({ ...e, nos: [...e.nos, no] }), false)
   definir({
     selecao: { tipo: 'no', id: no.id },
     editando: no.tipo === 'postit' || no.tipo === 'texto' ? no.id : null,
@@ -265,8 +340,9 @@ export function adicionarNo(novo: NovoNo, x: number, y: number): string {
   return no.id
 }
 
-export function atualizarNo(id: string, parcial: Partial<No>): void {
-  mudarEspaco((e) => ({ ...e, nos: e.nos.map((n) => (n.id === id ? ({ ...n, ...parcial } as No) : n)) }))
+/** `chave`: mudanças seguidas com a mesma chave viram um passo de desfazer; `false`: fora do histórico. */
+export function atualizarNo(id: string, parcial: Partial<No>, chave?: string | false): void {
+  mudarEspaco((e) => ({ ...e, nos: e.nos.map((n) => (n.id === id ? ({ ...n, ...parcial } as No) : n)) }), chave)
 }
 
 export function trazerParaFrente(id: string): void {
@@ -274,10 +350,11 @@ export function trazerParaFrente(id: string): void {
   const no = espaco?.nos.find((n) => n.id === id)
   if (!espaco || !no) return
   const z = proximoZ(espaco)
-  if (no.z < z - 1) atualizarNo(id, { z })
+  if (no.z < z - 1) atualizarNo(id, { z }, false)
 }
 
 export function definirNota(arquivo: string, texto: string): void {
+  registrarHistorico(`nota:${arquivo}`)
   definir({ notas: { ...estado.notas, [arquivo]: texto } })
   agendarSalvar()
 }
@@ -285,22 +362,26 @@ export function definirNota(arquivo: string, texto: string): void {
 export function apagarSelecao(): void {
   const { selecao, espaco } = estado
   if (!selecao || !espaco) return
+  registrarHistorico()
   if (selecao.tipo === 'no') {
     const no = espaco.nos.find((n) => n.id === selecao.id)
-    mudarEspaco((e) => ({
-      ...e,
-      nos: e.nos.filter((n) => n.id !== selecao.id),
-      cordas: e.cordas.filter((c) => c.de !== selecao.id && c.para !== selecao.id)
-    }))
+    mudarEspaco(
+      (e) => ({
+        ...e,
+        nos: e.nos.filter((n) => n.id !== selecao.id),
+        cordas: e.cordas.filter((c) => c.de !== selecao.id && c.para !== selecao.id)
+      }),
+      false
+    )
     if (no?.tipo === 'postit') {
       const notas = { ...estado.notas }
       delete notas[(no as NoPostIt).arquivo]
       definir({ notas })
     }
   } else if (selecao.tipo === 'corda') {
-    mudarEspaco((e) => ({ ...e, cordas: e.cordas.filter((c) => c.id !== selecao.id) }))
+    mudarEspaco((e) => ({ ...e, cordas: e.cordas.filter((c) => c.id !== selecao.id) }), false)
   } else {
-    mudarEspaco((e) => ({ ...e, desenhos: e.desenhos.filter((d) => d.id !== selecao.id) }))
+    mudarEspaco((e) => ({ ...e, desenhos: e.desenhos.filter((d) => d.id !== selecao.id) }), false)
   }
   definir({ selecao: null, editando: null })
 }

@@ -12,10 +12,13 @@ import {
   ZOOM_MIN
 } from '../estado/loja'
 import { Arquivo } from '../nos/Arquivo'
+import { ArvorePasta } from '../nos/ArvorePasta'
 import { PecaTerminal } from '../nos/PecaTerminal'
+import { Portal } from '../nos/Portal'
 import { PostIt } from '../nos/PostIt'
 import { Texto } from '../nos/Texto'
 import { CamadaCordas, CamadaDesenhos, FormaDesenho } from './Camadas'
+import { marcarGesto } from './MolduraNo'
 import { definirViewport, telaParaQuadro, zoomEm, type Ponto } from './geometria'
 
 const GRADE = 24
@@ -36,6 +39,10 @@ export function Quadro() {
   const [gesto, setGesto] = useState<Gesto | null>(null)
   const [espacoApertado, setEspacoApertado] = useState(false)
   const { camera } = espaco
+  const emGesto = gesto !== null || espacoApertado
+
+  // arrastando, desenhando ou ligando: portais não podem pegar o mouse no caminho
+  useEffect(() => marcarGesto(emGesto), [emGesto])
 
   // tamanho da área, para zoom pelos botões e mini-mapa
   useLayoutEffect(() => {
@@ -51,7 +58,9 @@ export function Quadro() {
   useEffect(() => {
     const el = area.current!
     function rodar(e: WheelEvent): void {
-      if ((e.target as HTMLElement).closest('.postit-campo, .texto-campo')) return
+      const alvo = e.target as HTMLElement
+      // campos e listas com rolagem própria rolam o próprio conteúdo (sem Ctrl)
+      if (!e.ctrlKey && alvo.closest('.postit-campo, .texto-campo, .rolavel')) return
       e.preventDefault()
       const cam = lerEstado().espaco!.camera
       if (e.ctrlKey || e.metaKey) {
@@ -227,6 +236,10 @@ export function Quadro() {
               return <Texto key={no.id} no={no} selecionado={marcado} editando={editando === no.id} />
             case 'arquivo':
               return <Arquivo key={no.id} no={no} selecionado={marcado} />
+            case 'pasta':
+              return <ArvorePasta key={no.id} no={no} selecionado={marcado} />
+            case 'portal':
+              return <Portal key={no.id} no={no} selecionado={marcado} />
           }
         })}
         {gesto?.tipo === 'desenhar' && (

@@ -529,6 +529,150 @@ button {
   font-size: 12px;
 }
 
+/* árvore de arquivos e portal: cartão com cabeçalho igual ao do terminal */
+.cartao-ferramenta {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--terminal-borda);
+  border-radius: 10px;
+  background: var(--cartao);
+  box-shadow: var(--sombra);
+}
+
+.cartao-ferramenta-cabecalho {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  background: var(--terminal-cabecalho);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: grab;
+}
+
+.cartao-ferramenta-titulo {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.botao-mini {
+  width: 22px;
+  height: 20px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--texto-suave);
+}
+
+.botao-mini:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--texto);
+}
+
+.botao-mini:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.arvore {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0;
+  font-size: 12.5px;
+}
+
+.arvore-linha {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding-right: 8px;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.arvore-linha:hover {
+  background: var(--hover);
+}
+
+.arvore-linha span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.arvore-seta {
+  flex-shrink: 0;
+  color: var(--texto-suave);
+  transition: transform 0.1s;
+}
+
+.arvore-seta.aberta {
+  transform: rotate(90deg);
+}
+
+.arvore-seta.invisivel {
+  visibility: hidden;
+}
+
+.arvore-pasta {
+  flex-shrink: 0;
+  color: #5ea0ff;
+}
+
+.arvore-aviso {
+  color: var(--texto-suave);
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.portal-endereco {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--quadro-fundo);
+  color: var(--texto);
+  font: inherit;
+  font-weight: 400;
+  outline: 0;
+  user-select: text;
+}
+
+.portal-endereco:focus {
+  border-color: var(--destaque);
+}
+
+.portal-visor {
+  flex: 1;
+  width: 100%;
+  background: #fff;
+}
+
+body.em-gesto webview {
+  pointer-events: none;
+}
+
+.girando {
+  animation: girar 1s linear infinite;
+}
+
+@keyframes girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* cordas */
 .corda-linha {
   fill: none;

@@ -36,11 +36,8 @@ const api: ApiMaestri = {
   dados,
   aoPedirFechar: (salvar) => {
     ipcRenderer.on(CANAIS_APP.vaiFechar, async () => {
-      try {
-        await salvar()
-      } finally {
-        ipcRenderer.send(CANAIS_APP.podeFechar)
-      }
+      const gravou = await salvar().catch(() => false)
+      ipcRenderer.send(CANAIS_APP.podeFechar, gravou)
     })
   },
   autoteste: process.argv.includes('--autoteste')
