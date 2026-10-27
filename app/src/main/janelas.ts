@@ -85,7 +85,13 @@ export function abrirJanela(espacoId: string | null): BrowserWindow | null {
     }
   }
   const livre = espacoId ?? listarIds().find((id) => !dono.has(id)) ?? null
-  return fabrica?.(livre) ?? null
+  const janela = fabrica?.(livre) ?? null
+  // já reservado para a janela nova: várias "Nova janela" seguidas não pegam o mesmo espaço
+  if (janela && livre) {
+    dono.set(livre, janela.webContents.id)
+    avisarAbertos()
+  }
+  return janela
 }
 
 export function registrarJanelas(): void {
@@ -99,10 +105,16 @@ export function registrarJanelas(): void {
         return false
       }
     }
-    for (const [espaco, janela] of dono) if (janela === evento.sender.id) dono.delete(espaco)
+    // o espaço de antes continua desta janela até o novo carregar (ela ainda pode precisar salvá-lo): quem solta é `soltar`
     dono.set(espacoId, evento.sender.id)
     avisarAbertos()
     return true
+  })
+
+  ipcMain.handle(CANAIS_JANELAS.soltar, (evento, espacoId: string) => {
+    if (dono.get(espacoId) !== evento.sender.id) return
+    dono.delete(espacoId)
+    avisarAbertos()
   })
 
   ipcMain.handle(CANAIS_JANELAS.nova, (_evento, espacoId: string | null) => {

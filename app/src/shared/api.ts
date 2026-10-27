@@ -73,8 +73,8 @@ export interface ApiArea {
   copiar(json: string, espacoOrigem: string, texto: string): Promise<void>
   /** Lê a área de transferência. Uma imagem é gravada em `imagens/` do espaço `espacoId`. */
   colar(espacoId: string): Promise<ConteudoArea>
-  /** Copia uma imagem de outro espaço para este e devolve o nome novo (null se ela não existe mais). */
-  trazerImagem(deEspaco: string, arquivo: string, paraEspaco: string): Promise<string | null>
+  /** Traz para o espaço uma imagem guardada no momento de copiar; devolve o nome novo (null se não existe). */
+  trazerImagem(arquivo: string, paraEspaco: string): Promise<string | null>
 }
 
 /** Avisos que o processo principal manda para cada janela. */
@@ -93,6 +93,8 @@ export type AvisoJanelas =
 export interface ApiJanelas {
   /** Fica com o espaço nesta janela. false: ele já está aberto em outra janela, que vem para a frente. */
   reservar(espacoId: string): Promise<boolean>
+  /** Devolve o espaço (a janela trocou para outro, ou desistiu de abri-lo). */
+  soltar(espacoId: string): Promise<void>
   /** Abre uma janela nova. Com espaço, mostra ele (se já estiver aberto em outra, traz aquela para a frente). */
   nova(espacoId: string | null): Promise<void>
   /** Com que espaço esta janela começa e quais estão abertos nas outras. */
@@ -145,6 +147,7 @@ export const CANAIS_DADOS = {
 
 export const CANAIS_JANELAS = {
   reservar: 'janelas:reservar',
+  soltar: 'janelas:soltar',
   nova: 'janelas:nova',
   inicio: 'janelas:inicio'
 } as const

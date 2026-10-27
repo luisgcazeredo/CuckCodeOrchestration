@@ -374,6 +374,7 @@ export async function rodarAutoteste(
     await comTecla(tela2(700, 320), ['shift'])
     conferir('Shift+clique seleciona dois', (await selecionados()).length === 2, `${(await selecionados()).length} selecionados`)
     const barra = await js<boolean>(`!!document.querySelector('.barra-selecao')`)
+    await print('selecao-barrinha')
     const [a0, b0] = [await no(ab.a), await no(ab.b)]
     await arrastar(tela2(300, 320), tela2(350, 350))
     const [a1, b1] = [await no(ab.a), await no(ab.b)]
@@ -551,12 +552,25 @@ export async function rodarAutoteste(
       conferir('cópia sem a assinatura do app vira só texto', (await plano()).nos.some((n) => n.tipo === 'texto' && n.texto === 'marca falsa'))
       // imagem apagada some do disco quando o espaço é aberto de novo
       if (imagem) {
+        // copiada antes de apagar: a cópia guardada tem que sobreviver à limpeza
+        await js(`window.__teste.loja.selecionar({ tipo: 'no', id: '${imagem.id}' })`)
+        await tecla('C')
+        await esperar(200)
         await js(`(() => { const L = window.__teste.loja; L.apagar({ tipo: 'no', id: '${imagem.id}' }) })()`)
         await js('window.__teste.loja.salvarAgora()')
         const outro = await js<string>(`(async () => { const L = window.__teste.loja; const atual = L.lerEstado().espaco.id
           await L.criarEspaco('Outro espaço', ${JSON.stringify(tmpdir())}); const outro = L.lerEstado().espaco.id
           await L.abrirEspaco(atual); return outro })()`)
         conferir('imagem apagada sai do disco ao reabrir', !existsSync(arquivoImagem), arquivoImagem.split(/[\\/]/).pop() ?? '')
+        await clicar(vazio)
+        await tecla('V')
+        let voltou = 0
+        for (let i = 0; i < 30 && !voltou; i++) {
+          await esperar(100)
+          voltou = await js<number>(`(() => { const n = window.__teste.loja.planoAtual().nos.find((x) => x.tipo === 'imagem');
+            return n ? document.querySelector('[data-no-id="' + n.id + '"] img')?.naturalWidth ?? 0 : 0 })()`)
+        }
+        conferir('imagem copiada cola mesmo depois de apagada e limpa', voltou > 0, `${voltou} px`)
         // e colar em outro espaço: o cartão chega com o texto
         await js(`(() => { const L = window.__teste.loja; L.selecionar({ tipo: 'no', id: '${original}' }) })()`)
         await tecla('C')

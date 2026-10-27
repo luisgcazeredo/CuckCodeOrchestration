@@ -328,7 +328,13 @@ export async function abrirEspaco(id: string, andarId?: string | null): Promise<
   // aberto em outra janela: ela vem para a frente e esta fica como está
   if (pedido !== pedidoDeAbertura || !(await window.mp.janelas.reservar(id))) return
   const carregado = await window.mp.dados.carregarEspaco(id)
-  if (!carregado || pedido !== pedidoDeAbertura) return
+  if (!carregado || pedido !== pedidoDeAbertura) {
+    // desistiu (outro clique veio depois, ou não carregou): devolve a reserva, se não for o que está à mostra
+    if (estado.espaco?.id !== id) void window.mp.janelas.soltar(id)
+    return
+  }
+  // o espaço de antes só é devolvido agora, depois de salvo e com o novo já carregado
+  const anterior = estado.espaco?.id
   zerarHistorico()
   definir({
     espaco: carregado.espaco,
@@ -338,6 +344,7 @@ export async function abrirEspaco(id: string, andarId?: string | null): Promise<
     ferramenta: 'selecionar',
     vistaAndares: false
   })
+  if (anterior && anterior !== id) void window.mp.janelas.soltar(anterior)
   if (andarId !== undefined) irParaAndar(andarId)
   salvarJanela()
 }

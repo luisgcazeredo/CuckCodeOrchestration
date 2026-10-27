@@ -1,6 +1,6 @@
 import { clipboard, ClipboardItem, ipcMain, nativeImage, net, protocol } from 'electron'
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { CANAIS_AREA, type ConteudoArea } from '../shared/api'
@@ -61,12 +61,38 @@ export function servirImagens(): void {
   })
 }
 
+/** Cópias das imagens copiadas: a cópia não depende do cartão original (que pode ser apagado e limpo). */
+const PASTA_AREA = join(PASTA_DADOS, 'area')
+
+/** Largura e altura lidas do cabeçalho do PNG, antes de decodificar (barra a "bomba" de descompressão). */
+function tamanhoDoPng(png: Buffer): { largura: number; altura: number } | null {
+  const ehPng = png.length >= 24 && png.subarray(0, 8).toString('hex') === '89504e470d0a1a0a'
+  if (!ehPng || png.subarray(12, 16).toString('ascii') !== 'IHDR') return null
+  return { largura: png.readUInt32BE(16), altura: png.readUInt32BE(20) }
+}
+
+const LADO_MAXIMO = 16384
+const PIXELS_MAXIMOS = 64_000_000
+
 export function registrarArea(): void {
   ipcMain.handle(CANAIS_AREA.copiar, async (_e, json: string, espacoOrigem: string, texto: string) => {
     if (typeof json !== 'string' || json.length > LIMITE_FRAGMENTO || !ID_VALIDO.test(String(espacoOrigem))) {
       throw new Error('cópia inválida')
     }
-    const carga = Buffer.from(JSON.stringify({ espacoOrigem, json }), 'utf8').toString('base64')
+    // cada imagem copiada ganha uma cópia guardada em area/ (a cópia anterior sai): colar depois ainda funciona,
+    // mesmo que o cartão original tenha sido apagado e o espaço limpo
+    const fragmento = JSON.parse(json) as { nos?: Array<{ tipo?: string; arquivo?: string }> }
+    rmSync(PASTA_AREA, { recursive: true, force: true })
+    mkdirSync(PASTA_AREA, { recursive: true })
+    for (const n of fragmento.nos ?? []) {
+      if (n?.tipo !== 'imagem' || !IMAGEM_VALIDA.test(String(n.arquivo))) continue
+      const origem = join(pastaImagens(espacoOrigem), n.arquivo!)
+      if (!existsSync(origem)) continue
+      const guardada = `${randomUUID()}.png`
+      copyFileSync(origem, join(PASTA_AREA, guardada))
+      n.arquivo = guardada
+    }
+    const carga = Buffer.from(JSON.stringify({ espacoOrigem, json: JSON.stringify(fragmento) }), 'utf8').toString('base64')
     const simples = typeof texto === 'string' ? texto.slice(0, LIMITE_TEXTO) : ''
     await clipboard.write([
       new ClipboardItem({
@@ -83,8 +109,9 @@ export function registrarArea(): void {
       const item = itens.find((i) => i.types.includes(tipo))
       return item ? ((await item.getType(tipo)) as Blob) : null
     }
+    // tamanho conferido antes de ler: um texto de centenas de MB vindo de outro programa não entra na memória
     const html = await ler('text/html')
-    const marca = html ? MARCA.exec(await html.text()) : null
+    const marca = html && html.size <= LIMITE_FRAGMENTO * 2 ? MARCA.exec(await html.text()) : null
     if (marca && confere(marca[1], marca[2])) {
       const { espacoOrigem, json } = JSON.parse(Buffer.from(marca[1], 'base64').toString('utf8'))
       if (typeof json === 'string' && typeof espacoOrigem === 'string') return { tipo: 'fragmento', json, espacoOrigem }
@@ -94,6 +121,11 @@ export function registrarArea(): void {
       if (!ID_VALIDO.test(String(espacoId))) throw new Error('espaço inválido')
       if (imagem.size > LIMITE_IMAGEM) throw new Error('imagem grande demais (mais de 40 MB)')
       const png = Buffer.from(await imagem.arrayBuffer())
+      const tamanho = tamanhoDoPng(png)
+      if (!tamanho?.largura || !tamanho.altura) return { tipo: 'nada' }
+      if (tamanho.largura > LADO_MAXIMO || tamanho.altura > LADO_MAXIMO || tamanho.largura * tamanho.altura > PIXELS_MAXIMOS) {
+        throw new Error(`imagem grande demais (${tamanho.largura} × ${tamanho.altura} pixels)`)
+      }
       const { width, height } = nativeImage.createFromBuffer(png).getSize()
       if (!width || !height) return { tipo: 'nada' }
       const arquivo = `${randomUUID()}.png`
@@ -101,14 +133,18 @@ export function registrarArea(): void {
       writeFileSync(join(pastaImagens(espacoId), arquivo), png)
       return { tipo: 'imagem', arquivo, largura: width, altura: height }
     }
-    const texto = await clipboard.readText()
-    if (texto.trim()) return { tipo: 'texto', texto: texto.slice(0, LIMITE_TEXTO) }
+    const texto = await ler('text/plain')
+    if (texto && texto.size > 0 && texto.size <= LIMITE_TEXTO * 4) {
+      const conteudo = (await texto.text()).slice(0, LIMITE_TEXTO)
+      if (conteudo.trim()) return { tipo: 'texto', texto: conteudo }
+    }
     return { tipo: 'nada' }
   })
 
-  ipcMain.handle(CANAIS_AREA.trazerImagem, (_e, de: string, arquivo: string, para: string): string | null => {
-    if (![de, para].every((id) => ID_VALIDO.test(String(id))) || !IMAGEM_VALIDA.test(String(arquivo))) return null
-    const origem = join(pastaImagens(de), arquivo)
+  // a imagem guardada no momento de copiar vira um arquivo novo do espaço onde foi colada
+  ipcMain.handle(CANAIS_AREA.trazerImagem, (_e, arquivo: string, para: string): string | null => {
+    if (!ID_VALIDO.test(String(para)) || !IMAGEM_VALIDA.test(String(arquivo))) return null
+    const origem = join(PASTA_AREA, arquivo)
     if (!existsSync(origem)) return null
     const novo = `${randomUUID()}.png`
     mkdirSync(pastaImagens(para), { recursive: true })
