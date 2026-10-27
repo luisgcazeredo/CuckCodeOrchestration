@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, type ReactNode } from 'react'
 import type { NoPostIt } from '../../../shared/modelo'
 import { definirNota, editar } from '../estado/loja'
-import { MolduraNo } from '../quadro/MolduraNo'
+import { MolduraNo, type Marca } from '../quadro/MolduraNo'
 
 export const COR_POSTIT: Record<NoPostIt['cor'], string> = {
   amarelo: '#FFF9C4',
@@ -38,7 +38,7 @@ function Conteudo({ texto, aoMarcar }: { texto: string; aoMarcar: (linha: number
 interface Props {
   no: NoPostIt
   texto: string
-  selecionado: boolean
+  selecionado: Marca
   editando: boolean
 }
 

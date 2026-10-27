@@ -3,6 +3,7 @@ import {
   PRESETS_PADRAO,
   type Andar,
   type Camera,
+  type CorPostIt,
   type Corda,
   type Desenho,
   type Espaco,
@@ -16,14 +17,26 @@ import {
   type ResumoEspaco,
   type Tema
 } from '../../../shared/modelo'
-import { distanciaAoDesenho } from '../quadro/geometria'
+import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, uniao, type Caixa } from '../quadro/geometria'
 
 export type Ferramenta = 'selecionar' | 'postit' | 'texto' | 'desenho'
 
-export interface Selecao {
+/** Um item do quadro. */
+export interface Alvo {
   tipo: 'no' | 'corda' | 'desenho'
   id: string
 }
+
+/** O que está selecionado: cartões e traços (vários de uma vez) ou uma ligação. */
+export interface Selecao {
+  nos: string[]
+  desenhos: string[]
+  corda: string | null
+}
+
+export const NADA: Selecao = { nos: [], desenhos: [], corda: null }
+
+export const quantosSelecionados = (s: Selecao): number => s.nos.length + s.desenhos.length + (s.corda ? 1 : 0)
 
 export interface EstadoUI {
   carregado: boolean
@@ -34,7 +47,7 @@ export interface EstadoUI {
   lateralAberta: boolean
   ferramenta: Ferramenta
   estiloDesenho: { ferramenta: PincelDesenho; cor: string }
-  selecao: Selecao | null
+  selecao: Selecao
   /** Nó em edição de texto (post-it ou texto). */
   editando: string | null
   miniMapa: boolean
@@ -52,7 +65,7 @@ let estado: EstadoUI = {
   lateralAberta: true,
   ferramenta: 'selecionar',
   estiloDesenho: { ferramenta: 'lapis', cor: '#FF3B30' },
-  selecao: null,
+  selecao: NADA,
   editando: null,
   miniMapa: false,
   erroAoSalvar: null,
@@ -218,7 +231,7 @@ function aplicarInstantaneo(i: Instantaneo): void {
   const notas = { ...estado.notas }
   for (const arquivo of Object.keys(notasDoPlano(atual, estado.notas))) if (!(arquivo in i.notas)) delete notas[arquivo]
   Object.assign(notas, i.notas)
-  definir({ espaco: comPlano(estado.espaco!, plano), notas, selecao: null, editando: null })
+  definir({ espaco: comPlano(estado.espaco!, plano), notas, selecao: NADA, editando: null })
   ultimaChave = null
   agendarSalvar()
 }
@@ -285,7 +298,7 @@ export async function abrirEspaco(id: string, andarId?: string | null): Promise<
   definir({
     espaco: carregado.espaco,
     notas: carregado.notas,
-    selecao: null,
+    selecao: NADA,
     editando: null,
     ferramenta: 'selecionar',
     vistaAndares: false
@@ -324,7 +337,7 @@ export async function apagarEspaco(id: string): Promise<void> {
   await window.mp.dados.apagarEspaco(id)
   const espacos = estado.espacos.filter((e) => e.id !== id)
   if (estado.espaco?.id === id) {
-    definir({ espaco: null, notas: {}, espacos, selecao: null, editando: null })
+    definir({ espaco: null, notas: {}, espacos, selecao: NADA, editando: null })
     zerarHistorico()
     if (espacos[0]) await abrirEspaco(espacos[0].id)
     else salvarJanela()
@@ -363,7 +376,7 @@ export function irParaAndar(andarId: string | null): void {
   const existe = andarId === null || e.andares.some((a) => a.id === andarId)
   if (!existe || e.andarAtivo === andarId) return
   mudarEspaco((esp) => ({ ...esp, andarAtivo: andarId }), false)
-  definir({ selecao: null, editando: null, ferramenta: 'selecionar' })
+  definir({ selecao: NADA, editando: null, ferramenta: 'selecionar' })
 }
 
 /** Cria o andar (com git: ramo + worktree, feito pelo processo principal) e vai para ele. */
@@ -375,7 +388,7 @@ export async function criarAndar(nome: string, usarGit: boolean): Promise<void> 
   // a câmera do andar novo começa onde o térreo está, para a transição ficar no mesmo lugar
   const novo: Andar = { ...andar, camera: planoDe(estado.espaco!).camera }
   mudarEspaco((esp) => ({ ...esp, andares: [...esp.andares, novo], andarAtivo: novo.id }), false)
-  definir({ selecao: null, editando: null })
+  definir({ selecao: NADA, editando: null })
   await salvarAgora()
 }
 
@@ -445,13 +458,141 @@ export function definirEstiloDesenho(estilo: Partial<EstadoUI['estiloDesenho']>)
   definir({ estiloDesenho: { ...estado.estiloDesenho, ...estilo }, ferramenta: 'desenho' })
 }
 
-export function selecionar(selecao: Selecao | null): void {
-  if (selecao?.tipo === 'no') trazerParaFrente(selecao.id)
-  definir({ selecao, editando: estado.editando === selecao?.id ? estado.editando : null })
+function contem(s: Selecao, alvo: Alvo): boolean {
+  if (alvo.tipo === 'corda') return s.corda === alvo.id
+  return (alvo.tipo === 'no' ? s.nos : s.desenhos).includes(alvo.id)
+}
+
+export function estaSelecionado(alvo: Alvo): boolean {
+  return contem(estado.selecao, alvo)
+}
+
+function grupoDo(plano: Plano, alvo: Alvo): string | undefined {
+  if (alvo.tipo === 'no') return plano.nos.find((n) => n.id === alvo.id)?.grupo
+  if (alvo.tipo === 'desenho') return plano.desenhos.find((d) => d.id === alvo.id)?.grupo
+  return undefined
+}
+
+/** Grupos que têm algum item na seleção. */
+function gruposDa(plano: Plano, s: Selecao): Set<string> {
+  const itens = [...plano.nos.filter((n) => s.nos.includes(n.id)), ...plano.desenhos.filter((d) => s.desenhos.includes(d.id))]
+  return new Set(itens.flatMap((i) => (i.grupo ? [i.grupo] : [])))
+}
+
+/** A seleção mais os outros itens dos grupos que ela toca. */
+function comGrupos(plano: Plano, s: Selecao): Selecao {
+  const grupos = gruposDa(plano, s)
+  if (!grupos.size) return s
+  const entra = (i: { id: string; grupo?: string }, ids: string[]): boolean => ids.includes(i.id) || (!!i.grupo && grupos.has(i.grupo))
+  return {
+    nos: plano.nos.filter((n) => entra(n, s.nos)).map((n) => n.id),
+    desenhos: plano.desenhos.filter((d) => entra(d, s.desenhos)).map((d) => d.id),
+    corda: null
+  }
+}
+
+const juntar = (a: Selecao, b: Selecao): Selecao => ({
+  nos: [...new Set([...a.nos, ...b.nos])],
+  desenhos: [...new Set([...a.desenhos, ...b.desenhos])],
+  corda: null
+})
+
+function definirSelecao(selecao: Selecao, paraFrente = false): void {
+  if (paraFrente) trazerParaFrente(selecao.nos)
+  definir({ selecao, editando: estado.editando && selecao.nos.includes(estado.editando) ? estado.editando : null })
+}
+
+/**
+ * Muda a seleção. Um item de grupo traz o grupo inteiro, a não ser com `sozinho`.
+ * `somar` (Shift ou Ctrl): põe o item (com o grupo) na seleção, ou tira se já estava.
+ */
+export function selecionar(alvo: Alvo | null, opcoes: { somar?: boolean; sozinho?: boolean } = {}): void {
+  const plano = planoAtual()
+  if (!alvo || !plano) return definirSelecao(NADA)
+  if (alvo.tipo === 'corda') return definirSelecao({ ...NADA, corda: alvo.id })
+  const item: Selecao = alvo.tipo === 'no' ? { ...NADA, nos: [alvo.id] } : { ...NADA, desenhos: [alvo.id] }
+  const novos = opcoes.sozinho ? item : comGrupos(plano, item)
+  if (!opcoes.somar) return definirSelecao(novos, true)
+  const atual = estado.selecao
+  if (!contem(atual, alvo)) return definirSelecao(juntar(atual, novos))
+  definirSelecao({
+    nos: atual.nos.filter((id) => !novos.nos.includes(id)),
+    desenhos: atual.desenhos.filter((id) => !novos.desenhos.includes(id)),
+    corda: null
+  })
+}
+
+/** Vários de uma vez (retângulo de seleção), sempre com os grupos inteiros. */
+export function selecionarVarios(nos: string[], desenhos: string[], somar = false): void {
+  const plano = planoAtual()
+  if (!plano) return
+  const novos = comGrupos(plano, { nos, desenhos, corda: null })
+  definirSelecao(somar ? juntar(estado.selecao, novos) : novos)
+}
+
+export function selecionarTudo(): void {
+  const plano = planoAtual()
+  if (plano) definirSelecao({ nos: plano.nos.map((n) => n.id), desenhos: plano.desenhos.map((d) => d.id), corda: null })
+}
+
+/** O item, se a seleção é exatamente um cartão ou um traço. */
+function itemUnico(s: Selecao): Alvo | null {
+  if (s.corda || s.nos.length + s.desenhos.length !== 1) return null
+  return s.nos.length ? { tipo: 'no', id: s.nos[0] } : { tipo: 'desenho', id: s.desenhos[0] }
+}
+
+/**
+ * Clique sem Shift num item, como no Canva: seleciona o grupo inteiro; quem já está "dentro" do grupo
+ * (com um item dele selecionado) pega o item clicado. Item já selecionado não muda nada: arrastar leva todos.
+ */
+export function selecionarPeloClique(alvo: Alvo): void {
+  const plano = planoAtual()
+  if (!plano || estaSelecionado(alvo)) return
+  const grupo = grupoDo(plano, alvo)
+  const unico = itemUnico(estado.selecao)
+  selecionar(alvo, { sozinho: !!grupo && !!unico && grupoDo(plano, unico) === grupo })
+}
+
+/** Soltou sem arrastar num item que estava selecionado junto com outros: fica só ele (entra no grupo). */
+export function focarItem(alvo: Alvo): void {
+  const s = estado.selecao
+  if (s.nos.length + s.desenhos.length > 1 && contem(s, alvo)) selecionar(alvo, { sozinho: true })
+}
+
+export interface InfoSelecao {
+  nos: No[]
+  desenhos: Desenho[]
+  itens: number
+  /** A seleção é exatamente um grupo inteiro. */
+  umGrupo: boolean
+  /** Algum item selecionado está num grupo. */
+  temGrupo: boolean
+  /** Peças para alinhar e distribuir: cada grupo conta como uma. */
+  pecas: number
+  /** Todos os cartões selecionados estão travados. */
+  travados: boolean
+}
+
+export function infoDaSelecao(): InfoSelecao {
+  const plano = planoAtual()
+  const s = estado.selecao
+  const nos = plano?.nos.filter((n) => s.nos.includes(n.id)) ?? []
+  const desenhos = plano?.desenhos.filter((d) => s.desenhos.includes(d.id)) ?? []
+  const itens = [...nos, ...desenhos]
+  const grupos = new Set(itens.map((i) => i.grupo ?? `solto:${i.id}`))
+  return {
+    nos,
+    desenhos,
+    itens: itens.length,
+    umGrupo: itens.length > 1 && grupos.size === 1 && !!itens[0].grupo,
+    temGrupo: itens.some((i) => i.grupo),
+    pecas: grupos.size,
+    travados: nos.length > 0 && nos.every((n) => n.travado)
+  }
 }
 
 export function editar(id: string | null): void {
-  definir({ editando: id, selecao: id ? { tipo: 'no', id } : estado.selecao })
+  definir({ editando: id, selecao: id ? { ...NADA, nos: [id] } : estado.selecao })
 }
 
 export function alternarMiniMapa(): void {
@@ -529,7 +670,7 @@ export function adicionarNo(novo: NovoNo, x: number, y: number): string {
   }
   mudarPlano((p) => ({ ...p, nos: [...p.nos, no] }), false)
   definir({
-    selecao: { tipo: 'no', id: no.id },
+    selecao: { ...NADA, nos: [no.id] },
     editando: no.tipo === 'postit' || no.tipo === 'texto' ? no.id : null,
     ferramenta: 'selecionar'
   })
@@ -541,45 +682,145 @@ export function atualizarNo(id: string, parcial: Partial<No>, chave?: string | f
   mudarPlano((p) => ({ ...p, nos: p.nos.map((n) => (n.id === id ? ({ ...n, ...parcial } as No) : n)) }), chave)
 }
 
-export function trazerParaFrente(id: string): void {
+/** Põe os cartões por cima de todo o resto, na mesma ordem entre eles. Fora do desfazer. */
+export function trazerParaFrente(ids: string | string[]): void {
   const plano = planoAtual()
-  const no = plano?.nos.find((n) => n.id === id)
-  if (!plano || !no) return
-  const z = proximoZ(plano)
-  if (no.z < z - 1) atualizarNo(id, { z }, false)
+  const lista = new Set(typeof ids === 'string' ? [ids] : ids)
+  if (!plano || !lista.size) return
+  const escolhidos = plano.nos.filter((n) => lista.has(n.id)).sort((a, b) => a.z - b.z)
+  const topo = Math.max(0, ...plano.nos.filter((n) => !lista.has(n.id)).map((n) => n.z), ...plano.desenhos.map((d) => d.z))
+  if (escolhidos.every((n) => n.z > topo)) return
+  const novoZ = new Map(escolhidos.map((n, i) => [n.id, topo + 1 + i]))
+  mudarPlano((p) => ({ ...p, nos: p.nos.map((n) => (novoZ.has(n.id) ? { ...n, z: novoZ.get(n.id)! } : n)) }), false)
 }
 
-export function enviarParaTras(id: string): void {
+/** Põe os cartões selecionados por baixo de todo o resto. */
+export function enviarParaTras(): void {
   const plano = planoAtual()
-  if (!plano) return
-  const menor = Math.min(0, ...plano.nos.map((n) => n.z), ...plano.desenhos.map((d) => d.z))
-  atualizarNo(id, { z: menor - 1 })
+  const lista = new Set(estado.selecao.nos)
+  if (!plano || !lista.size) return
+  const escolhidos = plano.nos.filter((n) => lista.has(n.id)).sort((a, b) => a.z - b.z)
+  const fundo = Math.min(0, ...plano.nos.filter((n) => !lista.has(n.id)).map((n) => n.z), ...plano.desenhos.map((d) => d.z))
+  const novoZ = new Map(escolhidos.map((n, i) => [n.id, fundo - escolhidos.length + i]))
+  mudarPlano((p) => ({ ...p, nos: p.nos.map((n) => (novoZ.has(n.id) ? { ...n, z: novoZ.get(n.id)! } : n)) }))
 }
 
 export function definirCorNo(id: string, cor: string | undefined): void {
   atualizarNo(id, { cor } as Partial<No>)
 }
 
-export function alternarTrava(id: string): void {
-  const no = acharNo(id)
-  if (no) atualizarNo(id, { travado: !no.travado })
+/** Tom de post-it que corresponde a cada cor de cartão (as que não têm tom deixam o post-it como está). */
+const TOM_DO_POSTIT: Record<string, CorPostIt> = {
+  '#007AFF': 'azul',
+  '#AF52DE': 'roxo',
+  '#FF2D55': 'rosa',
+  '#FF3B30': 'rosa',
+  '#FF9500': 'amarelo',
+  '#FFCC00': 'amarelo',
+  '#34C759': 'verde'
 }
 
-/** Cópia ao lado do original; post-it ganha arquivo próprio com o mesmo texto. */
-export function duplicarNo(id: string): string | null {
+/** Pinta a seleção inteira: cartões, textos e traços. Post-it ganha o tom pastel correspondente. */
+export function definirCorSelecao(cor: string | null): void {
+  const s = estado.selecao
+  mudarPlano((p) => ({
+    ...p,
+    nos: p.nos.map((n) => {
+      if (!s.nos.includes(n.id)) return n
+      if (n.tipo === 'postit') return cor && TOM_DO_POSTIT[cor] ? { ...n, cor: TOM_DO_POSTIT[cor] } : n
+      return { ...n, cor: cor ?? undefined }
+    }),
+    desenhos: cor ? p.desenhos.map((d) => (s.desenhos.includes(d.id) ? { ...d, cor } : d)) : p.desenhos
+  }))
+}
+
+/** Só post-its selecionados: o tom pastel. */
+export function definirTomPostIts(cor: CorPostIt): void {
+  const s = estado.selecao
+  mudarPlano((p) => ({ ...p, nos: p.nos.map((n) => (n.tipo === 'postit' && s.nos.includes(n.id) ? { ...n, cor } : n)) }))
+}
+
+/** Trava todos (se algum estava solto) ou destrava todos. */
+export function alternarTravaSelecao(): void {
+  const s = estado.selecao
+  const nos = planoAtual()?.nos.filter((n) => s.nos.includes(n.id)) ?? []
+  if (!nos.length) return
+  const travar = nos.some((n) => !n.travado)
+  mudarPlano((p) => ({ ...p, nos: p.nos.map((n) => (s.nos.includes(n.id) ? { ...n, travado: travar } : n)) }))
+}
+
+// ---------- copiar, colar e duplicar ----------
+
+/** Pedaço do quadro: cartões, traços, as ligações entre eles e o texto dos post-its. */
+export interface Fragmento {
+  nos: No[]
+  desenhos: Desenho[]
+  cordas: Corda[]
+  notas: Record<string, string>
+}
+
+export function fragmentoDaSelecao(): Fragmento | null {
   const plano = planoAtual()
-  const original = plano?.nos.find((n) => n.id === id)
-  if (!plano || !original) return null
+  const s = estado.selecao
+  if (!plano) return null
+  const nos = plano.nos.filter((n) => s.nos.includes(n.id))
+  const desenhos = plano.desenhos.filter((d) => s.desenhos.includes(d.id))
+  if (!nos.length && !desenhos.length) return null
+  const ids = new Set(nos.map((n) => n.id))
+  const notas: Record<string, string> = {}
+  for (const n of nos) if (n.tipo === 'postit') notas[n.arquivo] = estado.notas[n.arquivo] ?? ''
+  return { nos, desenhos, cordas: plano.cordas.filter((c) => ids.has(c.de) && ids.has(c.para)), notas }
+}
+
+/**
+ * Põe uma cópia do fragmento no quadro, deslocada de (dx, dy), por cima de tudo, e a seleciona.
+ * Ids, grupos e arquivos de post-it são novos; a cópia nasce destravada.
+ */
+export function colarFragmento(f: Fragmento, dx: number, dy: number, sufixoTerminal = ''): void {
+  const plano = planoAtual()
+  if (!plano) return
   registrarHistorico()
-  const copia = { ...original, id: novoId(), x: original.x + 40, y: original.y + 40, z: proximoZ(plano), criadoEm: agora(), travado: false } as No
-  if (copia.tipo === 'postit') {
-    copia.arquivo = `${copia.id}.md`
-    definir({ notas: { ...estado.notas, [copia.arquivo]: estado.notas[(original as NoPostIt).arquivo] ?? '' } })
+  const ids = new Map<string, string>()
+  const grupos = new Map<string, string>()
+  const grupoNovo = (g?: string): string | undefined => {
+    if (!g) return undefined
+    if (!grupos.has(g)) grupos.set(g, novoId())
+    return grupos.get(g)
   }
-  if (copia.tipo === 'terminal') copia.nome = `${copia.nome} (cópia)`
-  mudarPlano((p) => ({ ...p, nos: [...p.nos, copia] }), false)
-  definir({ selecao: { tipo: 'no', id: copia.id } })
-  return copia.id
+  let z = proximoZ(plano)
+  const notas = { ...estado.notas }
+  const nos = [...f.nos]
+    .sort((a, b) => a.z - b.z)
+    .map((n) => {
+      const id = novoId()
+      ids.set(n.id, id)
+      const copia = { ...n, id, x: n.x + dx, y: n.y + dy, z: z++, criadoEm: agora(), travado: false, grupo: grupoNovo(n.grupo) } as No
+      if (copia.tipo === 'postit') {
+        copia.arquivo = `${id}.md`
+        notas[copia.arquivo] = f.notas[(n as NoPostIt).arquivo] ?? ''
+      }
+      if (copia.tipo === 'terminal') copia.nome += sufixoTerminal
+      return copia
+    })
+  const desenhos: Desenho[] = f.desenhos.map((d) => ({
+    ...d,
+    id: novoId(),
+    z: z++,
+    grupo: grupoNovo(d.grupo),
+    pontos: d.pontos.map(([x, y]) => [x + dx, y + dy] as [number, number])
+  }))
+  const cordas: Corda[] = f.cordas
+    .filter((c) => ids.has(c.de) && ids.has(c.para))
+    .map((c) => ({ ...c, id: novoId(), de: ids.get(c.de)!, para: ids.get(c.para)!, criadoEm: agora() }))
+  definir({ notas })
+  mudarPlano((p) => ({ ...p, nos: [...p.nos, ...nos], desenhos: [...p.desenhos, ...desenhos], cordas: [...p.cordas, ...cordas] }), false)
+  definir({ selecao: { nos: nos.map((n) => n.id), desenhos: desenhos.map((d) => d.id), corda: null }, editando: null })
+}
+
+/** Cópia da seleção ao lado do original (Ctrl+D). */
+export function duplicarSelecao(): void {
+  const f = fragmentoDaSelecao()
+  if (f) colarFragmento(f, 40, 40, ' (cópia)')
 }
 
 export function definirNota(arquivo: string, texto: string): void {
@@ -588,39 +829,217 @@ export function definirNota(arquivo: string, texto: string): void {
   agendarSalvar()
 }
 
-/** Apaga o que está selecionado. Cartão travado não sai (destrave antes). */
+// ---------- mover, apagar, agrupar e alinhar a seleção ----------
+
+/** Onde cada item estava quando o arrasto começou. */
+export interface Posicoes {
+  nos: Array<{ id: string; x: number; y: number }>
+  desenhos: Array<{ id: string; pontos: Array<[number, number]> }>
+}
+
+/** Posições da seleção; cartões travados ficam fora (não saem do lugar). */
+export function posicoesDaSelecao(): Posicoes {
+  const plano = planoAtual()
+  const s = estado.selecao
+  if (!plano) return { nos: [], desenhos: [] }
+  return {
+    nos: plano.nos.filter((n) => s.nos.includes(n.id) && !n.travado).map(({ id, x, y }) => ({ id, x, y })),
+    desenhos: plano.desenhos.filter((d) => s.desenhos.includes(d.id)).map(({ id, pontos }) => ({ id, pontos }))
+  }
+}
+
+/** Põe cada item na posição original + (dx, dy). Mudanças com a mesma `chave` (um arrasto) são um passo de desfazer. */
+export function moverItens(originais: Posicoes, dx: number, dy: number, chave: string): void {
+  const plano = planoAtual()
+  if (!plano) return
+  dx = Math.round(dx)
+  dy = Math.round(dy)
+  const nos = new Map(originais.nos.map((o) => [o.id, o]))
+  const desenhos = new Map(originais.desenhos.map((o) => [o.id, o]))
+  const parado =
+    plano.nos.every((n) => {
+      const o = nos.get(n.id)
+      return !o || (n.x === o.x + dx && n.y === o.y + dy)
+    }) &&
+    plano.desenhos.every((d) => {
+      const o = desenhos.get(d.id)
+      return !o || (d.pontos[0]?.[0] === o.pontos[0]?.[0] + dx && d.pontos[0]?.[1] === o.pontos[0]?.[1] + dy)
+    })
+  if (parado) return
+  mudarPlano(
+    (p) => ({
+      ...p,
+      nos: p.nos.map((n) => {
+        const o = nos.get(n.id)
+        return o ? { ...n, x: o.x + dx, y: o.y + dy } : n
+      }),
+      desenhos: p.desenhos.map((d) => {
+        const o = desenhos.get(d.id)
+        return o ? { ...d, pontos: o.pontos.map(([x, y]) => [x + dx, y + dy] as [number, number]) } : d
+      })
+    }),
+    chave
+  )
+}
+
+/** Setas do teclado: empurra a seleção. Toques seguidos viram um passo de desfazer. */
+export function empurrarSelecao(dx: number, dy: number): void {
+  moverItens(posicoesDaSelecao(), dx, dy, 'setas')
+}
+
+/** Apaga o que está selecionado. Cartão travado não sai (destrave antes) e continua selecionado. */
 export function apagarSelecao(): void {
   const { selecao } = estado
   const plano = planoAtual()
-  if (!selecao || !plano) return
-  if (selecao.tipo === 'no') {
-    const no = plano.nos.find((n) => n.id === selecao.id)
-    if (!no || no.travado) return
-    registrarHistorico()
-    mudarPlano(
-      (p) => ({
-        ...p,
-        nos: p.nos.filter((n) => n.id !== selecao.id),
-        cordas: p.cordas.filter((c) => c.de !== selecao.id && c.para !== selecao.id)
-      }),
-      false
-    )
-    if (no.tipo === 'postit') {
-      const notas = { ...estado.notas }
-      delete notas[no.arquivo]
-      definir({ notas })
-    }
-  } else if (selecao.tipo === 'corda') {
-    mudarPlano((p) => ({ ...p, cordas: p.cordas.filter((c) => c.id !== selecao.id) }))
-  } else {
-    mudarPlano((p) => ({ ...p, desenhos: p.desenhos.filter((d) => d.id !== selecao.id) }))
-  }
-  definir({ selecao: null, editando: null })
+  if (!plano) return
+  const nos = new Set(plano.nos.filter((n) => selecao.nos.includes(n.id) && !n.travado).map((n) => n.id))
+  const desenhos = new Set(selecao.desenhos)
+  if (!nos.size && !desenhos.size && !selecao.corda) return
+  registrarHistorico()
+  mudarPlano(
+    (p) => ({
+      ...p,
+      nos: p.nos.filter((n) => !nos.has(n.id)),
+      cordas: p.cordas.filter((c) => c.id !== selecao.corda && !nos.has(c.de) && !nos.has(c.para)),
+      desenhos: p.desenhos.filter((d) => !desenhos.has(d.id))
+    }),
+    false
+  )
+  const notas = { ...estado.notas }
+  for (const n of plano.nos) if (n.tipo === 'postit' && nos.has(n.id)) delete notas[n.arquivo]
+  definir({ notas, selecao: { ...NADA, nos: selecao.nos.filter((id) => !nos.has(id)) }, editando: null })
 }
 
-export function apagar(selecao: Selecao): void {
-  selecionar(selecao)
+export function apagar(alvo: Alvo): void {
+  selecionar(alvo, { sozinho: true })
   apagarSelecao()
+}
+
+const semGrupo = <T extends { grupo?: string }>(item: T): T => ({ ...item, grupo: undefined })
+
+/** Agrupa a seleção (2 itens ou mais): passam a ser selecionados e movidos juntos. */
+export function agrupar(): void {
+  const s = estado.selecao
+  if (s.nos.length + s.desenhos.length < 2) return
+  const grupo = novoId()
+  mudarPlano((p) => ({
+    ...p,
+    nos: p.nos.map((n) => (s.nos.includes(n.id) ? { ...n, grupo } : n)),
+    desenhos: p.desenhos.map((d) => (s.desenhos.includes(d.id) ? { ...d, grupo } : d))
+  }))
+}
+
+/** Desfaz os grupos que a seleção toca: cada item volta a ser solto (e continua selecionado). */
+export function desagrupar(): void {
+  const plano = planoAtual()
+  if (!plano) return
+  const grupos = gruposDa(plano, estado.selecao)
+  if (!grupos.size) return
+  const sai = (i: { grupo?: string }): boolean => !!i.grupo && grupos.has(i.grupo)
+  mudarPlano((p) => ({
+    ...p,
+    nos: p.nos.map((n) => (sai(n) ? semGrupo(n) : n)),
+    desenhos: p.desenhos.map((d) => (sai(d) ? semGrupo(d) : d))
+  }))
+}
+
+/** Tira só os itens selecionados do grupo deles. Grupo que sobra com um item só deixa de existir. */
+export function tirarDoGrupo(): void {
+  const s = estado.selecao
+  mudarPlano((p) => {
+    let nos = p.nos.map((n) => (s.nos.includes(n.id) ? semGrupo(n) : n))
+    let desenhos = p.desenhos.map((d) => (s.desenhos.includes(d.id) ? semGrupo(d) : d))
+    const contagem = new Map<string, number>()
+    for (const i of [...nos, ...desenhos]) if (i.grupo) contagem.set(i.grupo, (contagem.get(i.grupo) ?? 0) + 1)
+    const sozinho = (i: { grupo?: string }): boolean => !!i.grupo && contagem.get(i.grupo)! < 2
+    nos = nos.map((n) => (sozinho(n) ? semGrupo(n) : n))
+    desenhos = desenhos.map((d) => (sozinho(d) ? semGrupo(d) : d))
+    return { ...p, nos, desenhos }
+  })
+}
+
+/** Peças da seleção para alinhar: cada grupo é uma peça só (não se desmancha), cada item solto é uma. */
+function pecasDaSelecao(): Array<{ caixa: Caixa; nos: string[]; desenhos: string[] }> {
+  const plano = planoAtual()
+  const s = estado.selecao
+  if (!plano) return []
+  const pecas = new Map<string, { caixas: Caixa[]; nos: string[]; desenhos: string[] }>()
+  const peca = (chave: string): { caixas: Caixa[]; nos: string[]; desenhos: string[] } => {
+    if (!pecas.has(chave)) pecas.set(chave, { caixas: [], nos: [], desenhos: [] })
+    return pecas.get(chave)!
+  }
+  for (const n of plano.nos) {
+    if (!s.nos.includes(n.id) || n.travado) continue
+    const p = peca(n.grupo ?? n.id)
+    p.caixas.push(caixaDoNo(n))
+    p.nos.push(n.id)
+  }
+  for (const d of plano.desenhos) {
+    if (!s.desenhos.includes(d.id)) continue
+    const p = peca(d.grupo ?? d.id)
+    p.caixas.push(caixaDoDesenho(d))
+    p.desenhos.push(d.id)
+  }
+  return [...pecas.values()].map((p) => ({ caixa: uniao(p.caixas)!, nos: p.nos, desenhos: p.desenhos }))
+}
+
+function deslocarPecas(deslocamentos: Array<{ nos: string[]; desenhos: string[]; dx: number; dy: number }>): void {
+  const porNo = new Map<string, [number, number]>()
+  const porDesenho = new Map<string, [number, number]>()
+  for (const d of deslocamentos) {
+    const dx = Math.round(d.dx)
+    const dy = Math.round(d.dy)
+    d.nos.forEach((id) => porNo.set(id, [dx, dy]))
+    d.desenhos.forEach((id) => porDesenho.set(id, [dx, dy]))
+  }
+  mudarPlano((p) => ({
+    ...p,
+    nos: p.nos.map((n) => {
+      const d = porNo.get(n.id)
+      return d ? { ...n, x: n.x + d[0], y: n.y + d[1] } : n
+    }),
+    desenhos: p.desenhos.map((desenho) => {
+      const d = porDesenho.get(desenho.id)
+      return d ? { ...desenho, pontos: desenho.pontos.map(([x, y]) => [x + d[0], y + d[1]] as [number, number]) } : desenho
+    })
+  }))
+}
+
+export type Alinhamento = 'esquerda' | 'centro' | 'direita' | 'topo' | 'meio' | 'base'
+
+export function alinhar(como: Alinhamento): void {
+  const pecas = pecasDaSelecao()
+  if (pecas.length < 2) return
+  const t = uniao(pecas.map((p) => p.caixa))!
+  deslocarPecas(
+    pecas.map(({ caixa: c, nos, desenhos }) => {
+      const alvoX = { esquerda: t.x, centro: t.x + (t.largura - c.largura) / 2, direita: t.x + t.largura - c.largura }
+      const alvoY = { topo: t.y, meio: t.y + (t.altura - c.altura) / 2, base: t.y + t.altura - c.altura }
+      const dx = como in alvoX ? alvoX[como as keyof typeof alvoX] - c.x : 0
+      const dy = como in alvoY ? alvoY[como as keyof typeof alvoY] - c.y : 0
+      return { nos, desenhos, dx, dy }
+    })
+  )
+}
+
+/** Espaço igual entre as peças, da primeira à última (as pontas ficam onde estão). */
+export function distribuir(eixo: 'x' | 'y'): void {
+  const pecas = pecasDaSelecao()
+  if (pecas.length < 3) return
+  const inicio = (c: Caixa): number => (eixo === 'x' ? c.x : c.y)
+  const tamanho = (c: Caixa): number => (eixo === 'x' ? c.largura : c.altura)
+  pecas.sort((a, b) => inicio(a.caixa) - inicio(b.caixa))
+  const primeira = pecas[0].caixa
+  const fim = Math.max(...pecas.map((p) => inicio(p.caixa) + tamanho(p.caixa)))
+  const vao = (fim - inicio(primeira) - pecas.reduce((t, p) => t + tamanho(p.caixa), 0)) / (pecas.length - 1)
+  let cursor = inicio(primeira)
+  deslocarPecas(
+    pecas.map(({ caixa, nos, desenhos }) => {
+      const delta = cursor - inicio(caixa)
+      cursor += tamanho(caixa) + vao
+      return { nos, desenhos, dx: eixo === 'x' ? delta : 0, dy: eixo === 'y' ? delta : 0 }
+    })
+  )
 }
 
 // ---------- cordas e desenhos ----------

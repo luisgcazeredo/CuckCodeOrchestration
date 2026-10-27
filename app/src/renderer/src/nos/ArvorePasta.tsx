@@ -2,13 +2,13 @@ import { memo, useCallback, useEffect, useState, type ReactElement } from 'react
 import { ChevronRight, File, Folder, FolderOpen, FolderTree, RefreshCw } from 'lucide-react'
 import type { EntradaPasta, NoPasta } from '../../../shared/modelo'
 import { atualizarNo, salvarAgora } from '../estado/loja'
-import { MolduraNo } from '../quadro/MolduraNo'
+import { MolduraNo, type Marca } from '../quadro/MolduraNo'
 
 function nomeDaPasta(caminho: string): string {
   return caminho.split(/[\\/]/).filter(Boolean).pop() ?? caminho
 }
 
-export const ArvorePasta = memo(function ArvorePasta({ no, selecionado }: { no: NoPasta; selecionado: boolean }) {
+export const ArvorePasta = memo(function ArvorePasta({ no, selecionado }: { no: NoPasta; selecionado: Marca }) {
   const [conteudo, setConteudo] = useState<Record<string, EntradaPasta[] | 'erro'>>({})
   const [versao, setVersao] = useState(0)
 

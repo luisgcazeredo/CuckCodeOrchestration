@@ -97,8 +97,11 @@ export function registrarAndares(): void {
   })
 
   ipcMain.handle(CANAIS_ANDARES.situacao, async (_e, espacoId: string, andarId: string): Promise<SituacaoAndar | null> => {
-    const { pastaEspaco, andar } = localizar(espacoId, andarId)
-    if (!andar.git) return null
+    // é só leitura (a pílula pergunta a cada 5 s): andar recém-criado e ainda não salvo responde "nada"
+    const espaco = lerEspacoSalvo(espacoId)
+    const andar = espaco?.andares.find((a) => a.id === andarId)
+    if (!espaco || !andar?.git) return null
+    const pastaEspaco = espaco.pasta
     const principal = await ramoAtual(pastaEspaco)
     const destacado = (await git(pastaEspaco, ['symbolic-ref', '-q', 'HEAD'])).codigo !== 0
     const aFrente = await git(pastaEspaco, ['rev-list', '--count', `HEAD..refs/heads/${andar.git.ramo}`])

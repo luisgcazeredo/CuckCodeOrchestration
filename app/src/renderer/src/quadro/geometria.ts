@@ -33,6 +33,60 @@ export function centroDaTela(camera: Camera): Ponto {
   return telaParaQuadro({ x: viewport.largura / 2, y: viewport.altura / 2 }, camera)
 }
 
+export const caixaDoNo = (n: No): Caixa => ({ x: n.x, y: n.y, largura: n.largura, altura: n.altura })
+
+export function seTocam(a: Caixa, b: Caixa): boolean {
+  return a.x <= b.x + b.largura && b.x <= a.x + a.largura && a.y <= b.y + b.altura && b.y <= a.y + a.altura
+}
+
+/** Caixa entre dois pontos, em qualquer direção (retângulo de seleção). */
+export function caixaEntre(a: Ponto, b: Ponto): Caixa {
+  return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), largura: Math.abs(b.x - a.x), altura: Math.abs(b.y - a.y) }
+}
+
+/** Linha-guia de alinhamento, em coordenadas do quadro: vertical (x fixo) ou horizontal (y fixo). */
+export interface Guia {
+  eixo: 'x' | 'y'
+  valor: number
+  de: number
+  ate: number
+}
+
+/**
+ * Ímã de alinhamento: se a borda ou o centro de `caixa` passa a menos de `limiar` da borda ou do centro de
+ * outra, devolve o ajuste que encosta as duas e as linhas-guia para mostrar.
+ */
+export function imantar(caixa: Caixa, outras: Caixa[], limiar: number): { dx: number; dy: number; guias: Guia[] } {
+  const linhas = (c: Caixa, eixo: 'x' | 'y'): number[] =>
+    eixo === 'x' ? [c.x, c.x + c.largura / 2, c.x + c.largura] : [c.y, c.y + c.altura / 2, c.y + c.altura]
+  const ajuste = { x: 0, y: 0 }
+  const guias: Guia[] = []
+  for (const eixo of ['x', 'y'] as const) {
+    let melhor: number | null = null
+    for (const outra of outras) {
+      for (const a of linhas(caixa, eixo)) {
+        for (const b of linhas(outra, eixo)) {
+          const d = b - a
+          if (Math.abs(d) <= limiar && (melhor === null || Math.abs(d) < Math.abs(melhor))) melhor = d
+        }
+      }
+    }
+    if (melhor === null) continue
+    ajuste[eixo] = melhor
+    // a guia vai de ponta a ponta de tudo o que ficou alinhado naquela linha
+    const movida = eixo === 'x' ? { ...caixa, x: caixa.x + melhor } : { ...caixa, y: caixa.y + melhor }
+    for (const valor of new Set(linhas(movida, eixo))) {
+      const alinhadas = outras.filter((o) => linhas(o, eixo).some((b) => Math.abs(b - valor) < 0.5))
+      if (!alinhadas.length) continue
+      const todas = [movida, ...alinhadas]
+      const inicio = (c: Caixa): number => (eixo === 'x' ? c.y : c.x)
+      const fim = (c: Caixa): number => (eixo === 'x' ? c.y + c.altura : c.x + c.largura)
+      guias.push({ eixo, valor, de: Math.min(...todas.map(inicio)), ate: Math.max(...todas.map(fim)) })
+    }
+  }
+  return { dx: ajuste.x, dy: ajuste.y, guias }
+}
+
 export function caixaDoDesenho(d: Desenho): Caixa {
   const xs = d.pontos.map((p) => p[0])
   const ys = d.pontos.map((p) => p[1])

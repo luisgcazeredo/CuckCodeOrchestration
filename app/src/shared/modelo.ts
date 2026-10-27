@@ -23,6 +23,8 @@ interface NoBase {
   cor?: string
   /** Travado: não move, não redimensiona e não apaga até destravar. */
   travado?: boolean
+  /** Grupo (como o "agrupar" do Canva): itens com o mesmo grupo são selecionados e movidos juntos. */
+  grupo?: string
 }
 
 export interface NoTerminal extends NoBase {
@@ -100,6 +102,7 @@ export interface Desenho {
   cor: string
   espessura: number
   z: number
+  grupo?: string
 }
 
 export interface Camera {

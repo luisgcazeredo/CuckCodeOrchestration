@@ -343,11 +343,111 @@ export async function rodarAutoteste(
     if (cor) tela.sendInputEvent({ type: 'mouseMove', x: cor.x, y: cor.y })
     await esperar(250)
     // o clique direito selecionou o cartão de cima (a cópia, que nasceu por cima): é ele que tem que ficar verde
-    const clicado = await js<string>('window.__teste.loja.lerEstado().selecao?.id ?? ""')
+    const clicado = await js<string>('window.__teste.loja.lerEstado().selecao.nos[0] ?? ""')
     const verde = await centroDe('.menu-amostra[title="Verde"]')
     if (verde) await clicar(verde)
     const corDoPostit = await js<string>(`window.__teste.loja.acharNo('${clicado}')?.cor`)
     conferir('botão direito → Cor → Verde', corDoPostit === 'verde', `cor: ${corDoPostit}`)
+
+    // ---- seleção de vários, grupos, ímã e barrinha (num andar limpo, longe do resto) ----
+    await js(`window.__teste.loja.criarAndar('Seleção', false)`)
+    const ab = await js<Record<string, string>>(`(() => { const L = window.__teste.loja
+      L.definirCamera({ x: 0, y: 0, zoom: 1 })
+      const a = L.adicionarNo({ tipo: 'postit' }, 300, 300)
+      const b = L.adicionarNo({ tipo: 'postit' }, 700, 300)
+      const c = L.adicionarNo({ tipo: 'postit' }, 300, 650)
+      L.editar(null); L.selecionar(null)
+      return { a, b, c } })()`)
+    const tela2 = (x: number, y: number): { x: number; y: number } => ({ x: quadro.esquerda + x, y: quadro.topo + y })
+    const comTecla = async (p: { x: number; y: number }, modifiers: Array<'shift' | 'control'>): Promise<void> => {
+      tela.sendInputEvent({ type: 'mouseMove', x: p.x, y: p.y, modifiers })
+      tela.sendInputEvent({ type: 'mouseDown', x: p.x, y: p.y, button: 'left', clickCount: 1, modifiers })
+      tela.sendInputEvent({ type: 'mouseUp', x: p.x, y: p.y, button: 'left', clickCount: 1, modifiers })
+      await esperar(250)
+    }
+    const no = (id: string): Promise<{ x: number; y: number; grupo?: string } | undefined> =>
+      js(`window.__teste.loja.acharNo('${id}')`)
+    const selecionados = (): Promise<string[]> => js('window.__teste.loja.lerEstado().selecao.nos')
+    const vazio = tela2(60, 160)
+    await clicar(vazio)
+    await clicar(tela2(300, 320))
+    await comTecla(tela2(700, 320), ['shift'])
+    conferir('Shift+clique seleciona dois', (await selecionados()).length === 2, `${(await selecionados()).length} selecionados`)
+    const barra = await js<boolean>(`!!document.querySelector('.barra-selecao')`)
+    const [a0, b0] = [await no(ab.a), await no(ab.b)]
+    await arrastar(tela2(300, 320), tela2(350, 350))
+    const [a1, b1] = [await no(ab.a), await no(ab.b)]
+    conferir(
+      'arrastar leva a seleção inteira',
+      a1!.x - a0!.x === 50 && b1!.x - b0!.x === 50 && a1!.y - a0!.y === 30 && b1!.y - b0!.y === 30,
+      `A +${a1!.x - a0!.x},+${a1!.y - a0!.y} · B +${b1!.x - b0!.x},+${b1!.y - b0!.y} · barrinha ${barra ? 'apareceu' : 'NÃO apareceu'}`
+    )
+    await tecla('G')
+    const grupoA = (await no(ab.a))?.grupo
+    await clicar(vazio)
+    await clicar(tela2(350, 350))
+    const peloGrupo = (await selecionados()).length
+    await clicar(tela2(350, 350))
+    const dentro = await selecionados()
+    await arrastar(tela2(350, 350), tela2(350, 390))
+    const [a2, b2] = [await no(ab.a), await no(ab.b)]
+    conferir(
+      'agrupar (Ctrl+G): clique pega o grupo, outro clique pega só um',
+      !!grupoA && grupoA === b2?.grupo && peloGrupo === 2 && dentro.length === 1 && dentro[0] === ab.a && a2!.y - a1!.y === 40 && b2!.y === b1!.y,
+      `grupo ${grupoA ? 'ok' : 'não'} · 1º clique ${peloGrupo} · 2º clique ${dentro.length} · A desceu ${a2!.y - a1!.y}, B ${b2!.y - b1!.y}`
+    )
+    await clicar(vazio)
+    await clicar(tela2(750, 350))
+    tela.sendInputEvent({ type: 'keyDown', keyCode: 'G', modifiers: ['control', 'shift'] })
+    tela.sendInputEvent({ type: 'keyUp', keyCode: 'G', modifiers: ['control', 'shift'] })
+    await esperar(150)
+    conferir('desagrupar (Ctrl+Shift+G)', !(await no(ab.a))?.grupo && !(await no(ab.b))?.grupo)
+    // retângulo de seleção: Shift + arrastar no vazio pega os três
+    await clicar(vazio)
+    const de = tela2(60, 150)
+    const ate = tela2(900, 800)
+    tela.sendInputEvent({ type: 'mouseMove', x: de.x, y: de.y, modifiers: ['shift'] })
+    tela.sendInputEvent({ type: 'mouseDown', x: de.x, y: de.y, button: 'left', clickCount: 1, modifiers: ['shift'] })
+    for (let i = 1; i <= 8; i++) {
+      tela.sendInputEvent({ type: 'mouseMove', x: Math.round(de.x + ((ate.x - de.x) * i) / 8), y: Math.round(de.y + ((ate.y - de.y) * i) / 8), modifiers: ['shift', 'leftbuttondown'] })
+      await esperar(16)
+    }
+    tela.sendInputEvent({ type: 'mouseUp', x: ate.x, y: ate.y, button: 'left', clickCount: 1, modifiers: ['shift'] })
+    await esperar(200)
+    conferir('retângulo de seleção (Shift + arrastar)', (await selecionados()).length === 3, `${(await selecionados()).length} selecionados`)
+    // ímã: C chega a 3 px de alinhar com A e gruda; a guia aparece no meio do arrasto
+    await clicar(vazio)
+    const c0 = (await no(ab.c))!
+    const aAgora = (await no(ab.a))!
+    const desloca = aAgora.x - c0.x - 3
+    const pegaC = tela2(c0.x + 130, c0.y + 100)
+    tela.sendInputEvent({ type: 'mouseMove', x: pegaC.x, y: pegaC.y })
+    tela.sendInputEvent({ type: 'mouseDown', x: pegaC.x, y: pegaC.y, button: 'left', clickCount: 1 })
+    for (let i = 1; i <= 8; i++) {
+      tela.sendInputEvent({ type: 'mouseMove', x: Math.round(pegaC.x + (desloca * i) / 8), y: pegaC.y, button: 'left', modifiers: ['leftbuttondown'] })
+      await esperar(20)
+    }
+    await esperar(120)
+    const guias = await js<number>(`document.querySelectorAll('.guia').length`)
+    tela.sendInputEvent({ type: 'mouseUp', x: pegaC.x + desloca, y: pegaC.y, button: 'left', clickCount: 1 })
+    await esperar(200)
+    const c1 = (await no(ab.c))!
+    conferir('ímã de alinhamento com guia', c1.x === aAgora.x && guias > 0, `C x ${c0.x} → ${c1.x} (A em ${aAgora.x}) · ${guias} guias`)
+    // barrinha: a lixeira apaga o que está selecionado
+    const lixeira = await centroDe('.barra-selecao button[title^="Apagar"]')
+    if (lixeira) await clicar(lixeira)
+    conferir('barrinha da seleção → Apagar', !!lixeira && !(await no(ab.c)), lixeira ? '' : 'barrinha não apareceu')
+    // ? abre a folha de atalhos
+    await clicar(vazio)
+    tela.sendInputEvent({ type: 'char', keyCode: '?' })
+    tela.sendInputEvent({ type: 'keyDown', keyCode: '?' })
+    tela.sendInputEvent({ type: 'keyUp', keyCode: '?' })
+    await esperar(200)
+    const folha = await js<boolean>(`!!document.querySelector('.atalhos')`)
+    await print('selecao-atalhos')
+    await teclar('Escape')
+    conferir('tecla ? abre os atalhos', folha)
+    await js('window.__teste.loja.irParaAndar(null)')
 
     // ---- andar sem git: quadro separado do térreo ----
     const noTerreo = await contarPlano()
@@ -398,6 +498,13 @@ export async function rodarAutoteste(
       writeFileSync(join(andarGit.git.pasta, 'login.ts'), 'export const login = true\n')
       gitEm(andarGit.git.pasta, 'add', '.')
       gitEm(andarGit.git.pasta, 'commit', '-q', '-m', 'login no andar')
+      // a pílula do andar mostra os números do git ao vivo (lê a cada 5 s)
+      let numeros = ''
+      for (let i = 0; i < 70 && !numeros.includes('1 commit'); i++) {
+        await esperar(100)
+        numeros = await js<string>(`document.querySelector('.indicador-andar .andar-numeros')?.textContent ?? ''`)
+      }
+      conferir('andar mostra commits ao vivo', numeros.includes('1 commit'), numeros || 'nada apareceu')
       const r = await js<{ ok: boolean; mensagem: string }>(`window.__teste.loja.pousarAndar('${andarGit.id}', true, 'main')`)
       const ramos = gitEm(repo, 'branch', '--list')
       conferir(

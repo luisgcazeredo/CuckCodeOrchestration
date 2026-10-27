@@ -1,9 +1,9 @@
 import { Map as IconeMapa, Minus, Moon, PanelLeft, Plus, Scan, Sun } from 'lucide-react'
-import type { No } from '../../../shared/modelo'
 import { alternarLateral, alternarMiniMapa, definirCamera, definirTema, planoAtual, planoDe, usarLoja } from '../estado/loja'
 import { BotaoAndares, IndicadorAndar } from './Andares'
 import {
   caixaDoDesenho,
+  caixaDoNo,
   enquadrar,
   lerViewport,
   telaParaQuadro,
@@ -11,8 +11,6 @@ import {
   zoomEm,
   type Caixa
 } from '../quadro/geometria'
-
-const caixaDoNo = (n: No): Caixa => ({ x: n.x, y: n.y, largura: n.largura, altura: n.altura })
 
 function caixaDoConteudo(): Caixa | null {
   const plano = planoAtual()

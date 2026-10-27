@@ -1,21 +1,26 @@
 import { useEffect } from 'react'
 import * as loja from './estado/loja'
 import {
+  agrupar,
   apagarSelecao,
   definirEstiloDesenho,
+  desagrupar,
   desfazer,
-  duplicarNo,
+  duplicarSelecao,
   editar,
+  empurrarSelecao,
   escolherFerramenta,
   iniciar,
-  lerEstado,
   refazer,
   salvarParaFechar,
   selecionar,
+  selecionarTudo,
   usarLoja
 } from './estado/loja'
 import { Quadro } from './quadro/Quadro'
 import { DialogoNovoAndar, VistaAndares } from './ui/Andares'
+import { abrirAtalhos, Atalhos } from './ui/Atalhos'
+import { BarraSelecao } from './ui/BarraSelecao'
 import { BarraFerramentas } from './ui/BarraFerramentas'
 import { BarraLateral } from './ui/BarraLateral'
 import { BotaoLateral, CantoInferior, CantoSuperior, enquadrarTudo, zoomPeloCentro } from './ui/Controles'
@@ -37,13 +42,17 @@ function atalhos(e: KeyboardEvent): void {
   if (ctrl && e.key === '1') return (e.preventDefault(), enquadrarTudo())
   if (ctrl && tecla === 'z') return (e.preventDefault(), e.shiftKey ? refazer() : desfazer())
   if (ctrl && tecla === 'y') return (e.preventDefault(), refazer())
-  if (ctrl && tecla === 'd') {
-    e.preventDefault()
-    const sel = lerEstado().selecao
-    if (sel?.tipo === 'no') duplicarNo(sel.id)
-    return
-  }
+  if (ctrl && tecla === 'd') return (e.preventDefault(), duplicarSelecao())
+  if (ctrl && tecla === 'a') return (e.preventDefault(), selecionarTudo())
+  if (ctrl && tecla === 'g') return (e.preventDefault(), e.shiftKey ? desagrupar() : agrupar())
   if (ctrl || e.altKey) return
+  const seta: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
+  if (seta[e.key]) {
+    e.preventDefault()
+    const passo = e.shiftKey ? 10 : 1
+    return empurrarSelecao(seta[e.key][0] * passo, seta[e.key][1] * passo)
+  }
+  if (e.key === '?') return abrirAtalhos()
   if (e.key === 'Delete' || e.key === 'Backspace') return apagarSelecao()
   if (e.key === 'Escape') {
     selecionar(null)
@@ -83,6 +92,7 @@ export function App() {
         <BarraFerramentas />
         <CantoSuperior />
         {temEspaco && <CantoInferior />}
+        {carregado && temEspaco && <BarraSelecao />}
         {erroAoSalvar && (
           <div className="pilula aviso-erro" title={erroAoSalvar}>
             Não consegui salvar. Tento de novo na próxima mudança.
@@ -92,6 +102,7 @@ export function App() {
       <MenuContexto />
       <DialogoNovoAndar />
       <Perguntas />
+      <Atalhos />
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import { Folder, PanelBottom } from 'lucide-react'
 import type { NoTerminal } from '../../../shared/modelo'
-import { MolduraNo } from '../quadro/MolduraNo'
+import { MolduraNo, type Marca } from '../quadro/MolduraNo'
 import { COR_AGENTE, ICONE_AGENTE } from './icones'
 
 function pastaCurta(pasta: string): string {
@@ -11,7 +11,7 @@ function pastaCurta(pasta: string): string {
 
 interface Props {
   no: NoTerminal
-  selecionado: boolean
+  selecionado: Marca
   pastaDoEspaco: string
   indice: number
 }

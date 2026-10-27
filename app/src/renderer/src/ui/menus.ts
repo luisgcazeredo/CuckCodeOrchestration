@@ -1,4 +1,12 @@
 import {
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  AlignEndHorizontal,
+  AlignEndVertical,
+  AlignHorizontalSpaceAround,
+  AlignStartHorizontal,
+  AlignStartVertical,
+  AlignVerticalSpaceAround,
   ArrowDownToLine,
   ArrowUpToLine,
   Copy,
@@ -8,6 +16,8 @@ import {
   FolderTree,
   GitMerge,
   Globe,
+  Group,
+  Keyboard,
   Layers,
   Lock,
   Map as IconeMapa,
@@ -22,31 +32,43 @@ import {
   Sun,
   Trash2,
   Type,
+  Ungroup,
   Unlink,
   Unlock
 } from 'lucide-react'
-import type { Andar, EstadoAndar, No, NoPostIt, ResumoEspaco } from '../../../shared/modelo'
+import type { Andar, Desenho, EstadoAndar, No, NoPostIt, ResumoEspaco } from '../../../shared/modelo'
 import {
   abrirEspaco,
   adicionarNo,
+  agrupar,
+  alinhar,
   alternarMiniMapa,
-  alternarTrava,
+  alternarTravaSelecao,
   apagar,
   apagarEspaco,
+  apagarSelecao,
   atualizarNo,
   definirCorDesenho,
   definirCorNo,
+  definirCorSelecao,
   definirStatusAndar,
   definirTema,
-  duplicarNo,
+  definirTomPostIts,
+  desagrupar,
+  distribuir,
+  duplicarSelecao,
   editar,
   enviarParaTras,
+  infoDaSelecao,
   irParaAndar,
   lerEstado,
   renomearAndar,
   renomearEspaco,
+  selecionarTudo,
+  tirarDoGrupo,
   trazerParaFrente
 } from '../estado/loja'
+import { abrirAtalhos } from './Atalhos'
 import { COR_POSTIT } from '../nos/PostIt'
 import { abrirNovoAndar, apagarAndarComConfirmacao, juntarAndar } from './acoesAndar'
 import { enquadrarTudo } from './Controles'
@@ -119,11 +141,14 @@ export function itensDoFundo(x: number, y: number): ItemMenu[] {
       ]
     },
     separador,
+    { rotulo: 'Selecionar tudo', atalho: 'Ctrl+A', acao: selecionarTudo },
     { rotulo: 'Ver tudo', icone: Scan, atalho: 'Ctrl+1', acao: enquadrarTudo },
     { rotulo: 'Mini-mapa', icone: IconeMapa, marcado: miniMapa, acao: alternarMiniMapa },
     preferencias.tema === 'escuro'
       ? { rotulo: 'Tema claro', icone: Sun, acao: () => definirTema('claro') }
-      : { rotulo: 'Tema escuro', icone: Moon, acao: () => definirTema('escuro') }
+      : { rotulo: 'Tema escuro', icone: Moon, acao: () => definirTema('escuro') },
+    separador,
+    { rotulo: 'Atalhos do teclado', icone: Keyboard, atalho: '?', acao: abrirAtalhos }
   ]
 }
 
@@ -146,6 +171,75 @@ function linhaDeCores(no: No): ItemMenu {
       escolher: (c) => definirCorNo(no.id, c ?? undefined)
     }
   }
+}
+
+/** Cores para a seleção inteira; se é só post-it, os tons pastel. */
+export function linhaDeCoresDaSelecao(): ItemMenu {
+  const { nos, desenhos } = infoDaSelecao()
+  if (nos.length && !desenhos.length && nos.every((n) => n.tipo === 'postit')) {
+    const atual = new Set(nos.map((n) => n.cor))
+    return {
+      cores: {
+        valores: (Object.keys(COR_POSTIT) as Array<NoPostIt['cor']>).map((c) => ({ cor: c, nome: NOMES_POSTIT[c], amostra: COR_POSTIT[c] })),
+        atual: atual.size === 1 ? [...atual][0] : undefined,
+        escolher: (c) => c && definirTomPostIts(c as NoPostIt['cor'])
+      }
+    }
+  }
+  const cores = new Set([...nos.map((n) => n.cor ?? null), ...desenhos.map((d) => d.cor)])
+  return {
+    cores: {
+      valores: CORES_CARTAO,
+      atual: cores.size === 1 ? [...cores][0] : undefined,
+      escolher: definirCorSelecao
+    }
+  }
+}
+
+const itemTirarDoGrupo: ItemMenu = { rotulo: 'Tirar do grupo', icone: Ungroup, acao: tirarDoGrupo }
+
+/** Menu de vários itens selecionados (ou de um grupo). */
+export function itensDaSelecao(): ItemMenu[] {
+  const info = infoDaSelecao()
+  const alinhamentos: Array<[Parameters<typeof alinhar>[0], string, ItemMenu['icone']]> = [
+    ['esquerda', 'À esquerda', AlignStartVertical],
+    ['centro', 'Ao centro', AlignCenterVertical],
+    ['direita', 'À direita', AlignEndVertical],
+    ['topo', 'Em cima', AlignStartHorizontal],
+    ['meio', 'No meio', AlignCenterHorizontal],
+    ['base', 'Embaixo', AlignEndHorizontal]
+  ]
+  return [
+    { rotulo: 'Cor', icone: Paintbrush, submenu: [linhaDeCoresDaSelecao()] },
+    { rotulo: 'Duplicar', icone: Copy, atalho: 'Ctrl+D', acao: duplicarSelecao },
+    info.umGrupo
+      ? { rotulo: 'Desagrupar', icone: Ungroup, atalho: 'Ctrl+Shift+G', acao: desagrupar }
+      : { rotulo: 'Agrupar', icone: Group, atalho: 'Ctrl+G', acao: agrupar },
+    ...(info.temGrupo && !info.umGrupo ? [{ rotulo: 'Desfazer os grupos', icone: Ungroup, acao: desagrupar }] : []),
+    {
+      rotulo: 'Alinhar',
+      icone: AlignStartVertical,
+      desligado: info.pecas < 2,
+      submenu: [
+        ...alinhamentos.map(([como, rotulo, icone]) => ({ rotulo, icone, acao: () => alinhar(como) })),
+        separador,
+        { rotulo: 'Distribuir na horizontal', icone: AlignHorizontalSpaceAround, desligado: info.pecas < 3, acao: () => distribuir('x') },
+        { rotulo: 'Distribuir na vertical', icone: AlignVerticalSpaceAround, desligado: info.pecas < 3, acao: () => distribuir('y') }
+      ]
+    },
+    separador,
+    { rotulo: 'Trazer para frente', icone: ArrowUpToLine, desligado: !info.nos.length, acao: () => trazerParaFrente(info.nos.map((n) => n.id)) },
+    { rotulo: 'Enviar para trás', icone: ArrowDownToLine, desligado: !info.nos.length, acao: enviarParaTras },
+    ...(info.nos.length
+      ? [
+          info.travados
+            ? { rotulo: 'Destravar', icone: Unlock, acao: alternarTravaSelecao }
+            : { rotulo: 'Travar (não move nem apaga)', icone: Lock, acao: alternarTravaSelecao }
+        ]
+      : []),
+    separador,
+    { rotulo: `Apagar ${info.itens} itens`, icone: Trash2, atalho: 'Delete', perigo: true, acao: apagarSelecao }
+  ]
 }
 
 export function itensDoNo(no: No): ItemMenu[] {
@@ -201,12 +295,13 @@ export function itensDoNo(no: No): ItemMenu[] {
     ...especificos,
     ...(especificos.length ? [separador] : []),
     { rotulo: 'Cor', icone: Paintbrush, submenu: [linhaDeCores(no)] },
-    { rotulo: 'Duplicar', icone: Copy, atalho: 'Ctrl+D', acao: () => duplicarNo(no.id) },
+    { rotulo: 'Duplicar', icone: Copy, atalho: 'Ctrl+D', acao: duplicarSelecao },
+    ...(no.grupo ? [itemTirarDoGrupo] : []),
     { rotulo: 'Trazer para frente', icone: ArrowUpToLine, acao: () => trazerParaFrente(no.id) },
-    { rotulo: 'Enviar para trás', icone: ArrowDownToLine, acao: () => enviarParaTras(no.id) },
+    { rotulo: 'Enviar para trás', icone: ArrowDownToLine, acao: enviarParaTras },
     no.travado
-      ? { rotulo: 'Destravar', icone: Unlock, acao: () => alternarTrava(no.id) }
-      : { rotulo: 'Travar (não move nem apaga)', icone: Lock, acao: () => alternarTrava(no.id) },
+      ? { rotulo: 'Destravar', icone: Unlock, acao: alternarTravaSelecao }
+      : { rotulo: 'Travar (não move nem apaga)', icone: Lock, acao: alternarTravaSelecao },
     separador,
     {
       rotulo: 'Apagar',
@@ -223,7 +318,7 @@ export function itensDaCorda(id: string): ItemMenu[] {
   return [{ rotulo: 'Apagar ligação', icone: Unlink, perigo: true, acao: () => apagar({ tipo: 'corda', id }) }]
 }
 
-export function itensDoDesenho(id: string, corAtual: string): ItemMenu[] {
+export function itensDoDesenho({ id, cor: corAtual, grupo }: Desenho): ItemMenu[] {
   return [
     {
       rotulo: 'Cor',
@@ -238,6 +333,8 @@ export function itensDoDesenho(id: string, corAtual: string): ItemMenu[] {
         }
       ]
     },
+    { rotulo: 'Duplicar', icone: Copy, atalho: 'Ctrl+D', acao: duplicarSelecao },
+    ...(grupo ? [itemTirarDoGrupo] : []),
     separador,
     { rotulo: 'Apagar desenho', icone: Trash2, atalho: 'Delete', perigo: true, acao: () => apagar({ tipo: 'desenho', id }) }
   ]

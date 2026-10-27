@@ -2,7 +2,7 @@ import { createElement, memo, useEffect, useRef, useState, type PointerEvent } f
 import { ArrowLeft, ArrowRight, ExternalLink, Globe, RotateCw } from 'lucide-react'
 import type { NoPortal } from '../../../shared/modelo'
 import { atualizarNo } from '../estado/loja'
-import { MolduraNo } from '../quadro/MolduraNo'
+import { MolduraNo, type Marca } from '../quadro/MolduraNo'
 
 /** O que o usuário digitou vira endereço: com protocolo, como está; sem, https://; com espaço, busca. */
 export function normalizarEndereco(texto: string): string {
@@ -27,7 +27,7 @@ interface WebView extends HTMLElement {
  * Navegador no quadro. Roda isolado (sem acesso ao app, sessão própria `persist:portal` para logins
  * ficarem salvos); o processo principal confere cada portal antes de ele abrir.
  */
-export const Portal = memo(function Portal({ no, selecionado }: { no: NoPortal; selecionado: boolean }) {
+export const Portal = memo(function Portal({ no, selecionado }: { no: NoPortal; selecionado: Marca }) {
   const visor = useRef<WebView>(null)
   const [endereco, setEndereco] = useState(no.url)
   const [srcInicial] = useState(no.url)
@@ -104,7 +104,7 @@ export const Portal = memo(function Portal({ no, selecionado }: { no: NoPortal; 
           partition: 'persist:portal'
         })}
         {/* sem estar selecionado, a página não pega o mouse: dá para arrastar o cartão de qualquer ponto */}
-        {!selecionado && (
+        {selecionado !== 'sozinho' && (
           <div className="portal-escudo">
             <span>Clique para usar a página</span>
           </div>

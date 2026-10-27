@@ -6,14 +6,19 @@ import {
   adicionarNo,
   apagarDesenhosPerto,
   definirCamera,
+  estaSelecionado,
   ligar,
   pastaDoPlano,
   planoAtual,
   planoDe,
+  lerEstado,
+  quantosSelecionados,
   selecionar,
+  selecionarVarios,
   usarLoja,
   ZOOM_MAX,
-  ZOOM_MIN
+  ZOOM_MIN,
+  type Alvo
 } from '../estado/loja'
 import { Arquivo } from '../nos/Arquivo'
 import { ArvorePasta } from '../nos/ArvorePasta'
@@ -22,10 +27,10 @@ import { Portal } from '../nos/Portal'
 import { PostIt } from '../nos/PostIt'
 import { Texto } from '../nos/Texto'
 import { abrirMenu } from '../ui/MenuContexto'
-import { itensDaCorda, itensDoDesenho, itensDoFundo, itensDoNo } from '../ui/menus'
-import { CamadaCordas, CamadaDesenhos, FormaDesenho } from './Camadas'
-import { marcarGesto } from './MolduraNo'
-import { definirViewport, telaParaQuadro, zoomEm, type Ponto } from './geometria'
+import { itensDaCorda, itensDaSelecao, itensDoDesenho, itensDoFundo, itensDoNo } from '../ui/menus'
+import { CamadaCordas, CamadaDesenhos, CamadaGuias, CamadaSelecao, FormaDesenho } from './Camadas'
+import { marcarGesto, type Marca } from './MolduraNo'
+import { caixaDoDesenho, caixaDoNo, caixaEntre, definirViewport, seTocam, telaParaQuadro, zoomEm, type Ponto } from './geometria'
 
 const GRADE = 24
 /** Raio da borracha na tela, em px (no quadro ele é dividido pelo zoom). */
@@ -36,6 +41,8 @@ type Gesto =
   | { tipo: 'desenhar'; desenho: Omit<Desenho, 'id' | 'z'> }
   | { tipo: 'apagar'; chave: string }
   | { tipo: 'ligar'; de: No; ate: Ponto }
+  /** Retângulo de seleção (Shift + arrastar no vazio), em pontos da tela. */
+  | { tipo: 'laco'; inicio: Ponto; atual: Ponto }
 
 export function Quadro() {
   const plano = usarLoja((e) => (e.espaco ? planoDe(e.espaco) : null))!
@@ -144,6 +151,12 @@ export function Quadro() {
     }
 
     const noFundo = !alvo.closest('.no, .toque, .corda-toque')
+    if (e.button === 0 && noFundo && e.shiftKey && ferramenta === 'selecionar' && !espacoApertado) {
+      e.preventDefault()
+      area.current!.setPointerCapture(e.pointerId)
+      setGesto({ tipo: 'laco', inicio: tela, atual: tela })
+      return
+    }
     const arrastar = e.button === 1 || espacoApertado || (e.button === 0 && noFundo && ferramenta === 'selecionar')
     if (arrastar) {
       e.preventDefault()
@@ -186,6 +199,8 @@ export function Quadro() {
       const cam = planoAtual()!.camera
       definirCamera({ ...cam, x: cam.x + tela.x - gesto.ultimo.x, y: cam.y + tela.y - gesto.ultimo.y })
       setGesto({ ...gesto, ultimo: tela })
+    } else if (gesto.tipo === 'laco') {
+      setGesto({ ...gesto, atual: tela })
     } else if (gesto.tipo === 'apagar') {
       apagarNoPonto(tela, gesto.chave)
     } else if (gesto.tipo === 'desenhar') {
@@ -209,6 +224,16 @@ export function Quadro() {
       const [a, b] = [gesto.desenho.pontos[0], gesto.desenho.pontos[gesto.desenho.pontos.length - 1]]
       const tamanho = Math.hypot(b[0] - a[0], b[1] - a[1])
       if (gesto.desenho.ferramenta === 'lapis' || tamanho > 4) adicionarDesenho(gesto.desenho)
+    } else if (gesto?.tipo === 'laco') {
+      // pega o que o retângulo toca (somando à seleção, como o Shift pede)
+      const caixa = caixaEntre(telaParaQuadro(gesto.inicio, camera), telaParaQuadro(gesto.atual, camera))
+      if (caixa.largura * camera.zoom > 3 || caixa.altura * camera.zoom > 3) {
+        selecionarVarios(
+          plano.nos.filter((n) => seTocam(caixa, caixaDoNo(n))).map((n) => n.id),
+          plano.desenhos.filter((d) => seTocam(caixa, caixaDoDesenho(d))).map((d) => d.id),
+          true
+        )
+      }
     } else if (gesto?.tipo === 'ligar') {
       const sob = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-no-id]')
       if (sob?.dataset.noId) ligar(gesto.de.id, sob.dataset.noId)
@@ -224,19 +249,26 @@ export function Quadro() {
     const noEl = alvo.closest<HTMLElement>('[data-no-id]')
     const cordaEl = alvo.closest<SVGElement>('[data-corda-id]')
     const desenhoEl = alvo.closest<SVGElement>('[data-desenho-id]')
+    const menuDoItem = (item: Alvo): void => {
+      // clicou fora do que estava selecionado: passa a ser ele (com o grupo)
+      if (!estaSelecionado(item)) selecionar(item)
+      const s = lerEstado().selecao
+      if (s.nos.length + s.desenhos.length > 1) return abrirMenu(e.clientX, e.clientY, itensDaSelecao())
+      if (item.tipo === 'no') {
+        const no = acharNo(item.id)
+        if (no) abrirMenu(e.clientX, e.clientY, itensDoNo(no))
+      } else {
+        const d = planoAtual()?.desenhos.find((x) => x.id === item.id)
+        if (d) abrirMenu(e.clientX, e.clientY, itensDoDesenho(d))
+      }
+    }
     if (noEl?.dataset.noId) {
-      const no = acharNo(noEl.dataset.noId)
-      if (!no) return
-      selecionar({ tipo: 'no', id: no.id })
-      abrirMenu(e.clientX, e.clientY, itensDoNo(acharNo(no.id) ?? no))
+      menuDoItem({ tipo: 'no', id: noEl.dataset.noId })
     } else if (cordaEl?.dataset.cordaId) {
       selecionar({ tipo: 'corda', id: cordaEl.dataset.cordaId })
       abrirMenu(e.clientX, e.clientY, itensDaCorda(cordaEl.dataset.cordaId))
     } else if (desenhoEl?.dataset.desenhoId) {
-      const d = plano.desenhos.find((x) => x.id === desenhoEl.dataset.desenhoId)
-      if (!d) return
-      selecionar({ tipo: 'desenho', id: d.id })
-      abrirMenu(e.clientX, e.clientY, itensDoDesenho(d.id, d.cor))
+      menuDoItem({ tipo: 'desenho', id: desenhoEl.dataset.desenhoId })
     } else {
       const p = telaParaQuadro(pontoDaTela(e), camera)
       abrirMenu(e.clientX, e.clientY, itensDoFundo(p.x, p.y))
@@ -255,6 +287,8 @@ export function Quadro() {
             ? 'default'
             : 'crosshair'
   let indiceTerminal = 0
+  const sozinho = quantosSelecionados(selecao) === 1
+  const marca = (id: string): Marca => (selecao.nos.includes(id) ? (sozinho ? 'sozinho' : 'junto') : false)
 
   return (
     <div
@@ -294,7 +328,7 @@ export function Quadro() {
           provisoria={gesto?.tipo === 'ligar' ? { de: gesto.de, ate: gesto.ate } : null}
         />
         {plano.nos.map((no) => {
-          const marcado = selecao?.tipo === 'no' && selecao.id === no.id
+          const marcado = marca(no.id)
           switch (no.tipo) {
             case 'terminal':
               return <PecaTerminal key={no.id} no={no} selecionado={marcado} pastaDoEspaco={pasta} indice={++indiceTerminal} />
@@ -312,12 +346,25 @@ export function Quadro() {
               return <Portal key={no.id} no={no} selecionado={marcado} />
           }
         })}
+        <CamadaSelecao plano={plano} selecao={selecao} />
+        <CamadaGuias />
         {gesto?.tipo === 'desenhar' && (
           <svg className="camada-svg camada-provisoria">
             <FormaDesenho desenho={gesto.desenho} />
           </svg>
         )}
       </div>
+      {gesto?.tipo === 'laco' && (
+        <div
+          className="laco"
+          style={{
+            left: Math.min(gesto.inicio.x, gesto.atual.x),
+            top: Math.min(gesto.inicio.y, gesto.atual.y),
+            width: Math.abs(gesto.atual.x - gesto.inicio.x),
+            height: Math.abs(gesto.atual.y - gesto.inicio.y)
+          }}
+        />
+      )}
       {usandoBorracha && borracha && (
         <div
           className="borracha-cursor"

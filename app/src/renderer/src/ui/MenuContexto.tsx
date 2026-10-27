@@ -3,6 +3,7 @@ import { Check, ChevronRight, type LucideIcon } from 'lucide-react'
 
 export interface LinhaDeCores {
   valores: Array<{ cor: string | null; nome: string; amostra?: string }>
+  /** Cor marcada (null = "sem cor"); undefined quando a seleção tem cores diferentes. */
   atual?: string | null
   escolher: (cor: string | null) => void
 }
@@ -68,7 +69,7 @@ function Lista({ itens, x, y, aoEscolher }: { itens: ItemMenu[]; x: number; y: n
               {valores.map((v) => (
                 <button
                   key={v.nome}
-                  className={`menu-amostra ${atual === v.cor || (!atual && v.cor === null) ? 'ativa' : ''} ${v.cor ? '' : 'sem-cor'}`}
+                  className={`menu-amostra ${atual === v.cor ? 'ativa' : ''} ${v.cor ? '' : 'sem-cor'}`}
                   style={{ background: v.amostra ?? v.cor ?? undefined }}
                   title={v.nome}
                   onClick={() => {

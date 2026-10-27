@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import { File, FileArchive, FileImage, FileSpreadsheet, FileText, type LucideIcon } from 'lucide-react'
 import type { NoArquivo } from '../../../shared/modelo'
-import { MolduraNo } from '../quadro/MolduraNo'
+import { MolduraNo, type Marca } from '../quadro/MolduraNo'
 
 function iconeDe(nome: string): LucideIcon {
   const ext = nome.split('.').pop()?.toLowerCase() ?? ''
@@ -12,7 +12,7 @@ function iconeDe(nome: string): LucideIcon {
   return File
 }
 
-export const Arquivo = memo(function Arquivo({ no, selecionado }: { no: NoArquivo; selecionado: boolean }) {
+export const Arquivo = memo(function Arquivo({ no, selecionado }: { no: NoArquivo; selecionado: Marca }) {
   const Icone = iconeDe(no.nomeExibido)
   return (
     <MolduraNo no={no} selecionado={selecionado} aoClicarDuasVezes={() => void window.mp.dados.abrirArquivo(no.caminho)}>

@@ -1,7 +1,8 @@
 import { memo } from 'react'
-import type { Corda, Desenho, No } from '../../../shared/modelo'
-import { selecionar, type Selecao } from '../estado/loja'
-import { caixaDoDesenho, curvaEntre, pontasDaCorda, type Ponto } from './geometria'
+import type { Corda, Desenho, No, Plano } from '../../../shared/modelo'
+import { estaSelecionado, focarItem, selecionar, selecionarPeloClique, type Selecao } from '../estado/loja'
+import { comecarArrasto, usarGuias } from './arrasto'
+import { caixaDoDesenho, caixaDoNo, curvaEntre, pontasDaCorda, uniao, type Caixa, type Ponto } from './geometria'
 
 /** Caminho suave pelos pontos do lápis (quadráticas pelos pontos médios). */
 function caminhoLapis(pontos: Array<[number, number]>): string {
@@ -47,29 +48,28 @@ export function FormaDesenho({ desenho }: { desenho: Omit<Desenho, 'id' | 'z'> }
   return <path d={caminhoLapis(desenho.pontos)} {...comum} />
 }
 
-export const CamadaDesenhos = memo(function CamadaDesenhos({
-  desenhos,
-  selecao
-}: {
-  desenhos: Desenho[]
-  selecao: Selecao | null
-}) {
+export const CamadaDesenhos = memo(function CamadaDesenhos({ desenhos, selecao }: { desenhos: Desenho[]; selecao: Selecao }) {
   return (
     <svg className="camada-svg">
       {[...desenhos]
         .sort((a, b) => a.z - b.z)
         .map((d) => {
-          const marcado = selecao?.tipo === 'desenho' && selecao.id === d.id
+          const marcado = selecao.desenhos.includes(d.id)
           const caixa = caixaDoDesenho(d)
           return (
             <g key={d.id} data-desenho-id={d.id}>
               <FormaDesenho desenho={d} />
-              {/* área de clique mais larga que o traço */}
+              {/* área de clique mais larga que o traço; arrastar leva a seleção junto, como nos cartões */}
               <g
                 className="toque"
                 onPointerDown={(e) => {
+                  if (e.button !== 0) return
                   e.stopPropagation()
-                  selecionar({ tipo: 'desenho', id: d.id })
+                  const item = { tipo: 'desenho', id: d.id } as const
+                  if (e.shiftKey || e.ctrlKey || e.metaKey) return selecionar(item, { somar: true })
+                  const jaEstava = estaSelecionado(item)
+                  selecionarPeloClique(item)
+                  comecarArrasto(e, e.currentTarget, { tipo: 'mover' }, { aoClicar: jaEstava ? () => focarItem(item) : undefined })
                 }}
               >
                 <FormaDesenho desenho={{ ...d, cor: 'transparent', espessura: Math.max(14, d.espessura + 10) }} />
@@ -99,7 +99,7 @@ export const CamadaCordas = memo(function CamadaCordas({
 }: {
   cordas: Corda[]
   nos: No[]
-  selecao: Selecao | null
+  selecao: Selecao
   provisoria: { de: No; ate: Ponto } | null
 }) {
   const porId = new Map(nos.map((n) => [n.id, n]))
@@ -111,7 +111,7 @@ export const CamadaCordas = memo(function CamadaCordas({
         if (!a || !b) return null
         const d = curvaEntre(a, b)
         const [p1, p2] = pontasDaCorda(a, b)
-        const marcada = selecao?.tipo === 'corda' && selecao.id === c.id
+        const marcada = selecao.corda === c.id
         return (
           <g key={c.id} className={`corda ${marcada ? 'marcada' : ''}`} data-corda-id={c.id}>
             <path d={d} className="corda-linha" />
@@ -137,3 +137,60 @@ export const CamadaCordas = memo(function CamadaCordas({
     </svg>
   )
 })
+
+/**
+ * Por cima de tudo: a caixa em volta da seleção (com mais de um item) e, quando só parte de um grupo está
+ * selecionada (você "entrou" no grupo), o contorno pontilhado do grupo inteiro.
+ */
+export function CamadaSelecao({ plano, selecao }: { plano: Plano; selecao: Selecao }) {
+  const folga = 8 / plano.camera.zoom
+  const caixas: Caixa[] = []
+  const grupos = new Map<string, { caixas: Caixa[]; todos: boolean; algum: boolean }>()
+  const anotar = (grupo: string | undefined, caixa: Caixa, marcado: boolean): void => {
+    if (!grupo) return
+    const g = grupos.get(grupo) ?? { caixas: [], todos: true, algum: false }
+    g.caixas.push(caixa)
+    g.todos &&= marcado
+    g.algum ||= marcado
+    grupos.set(grupo, g)
+  }
+  for (const n of plano.nos) {
+    const marcado = selecao.nos.includes(n.id)
+    if (marcado) caixas.push(caixaDoNo(n))
+    anotar(n.grupo, caixaDoNo(n), marcado)
+  }
+  for (const d of plano.desenhos) {
+    const marcado = selecao.desenhos.includes(d.id)
+    if (marcado) caixas.push(caixaDoDesenho(d))
+    anotar(d.grupo, caixaDoDesenho(d), marcado)
+  }
+  const tudo = caixas.length > 1 ? uniao(caixas) : null
+  const tocados = [...grupos.values()].filter((g) => g.algum && !g.todos && g.caixas.length > 1)
+  const ret = (c: Caixa, f: number) => ({ x: c.x - f, y: c.y - f, width: c.largura + f * 2, height: c.altura + f * 2 })
+  if (!tudo && !tocados.length) return null
+  return (
+    <svg className="camada-svg camada-selecao">
+      {tocados.map((g, i) => (
+        <rect key={i} {...ret(uniao(g.caixas)!, folga * 1.6)} rx={10 / plano.camera.zoom} className="contorno-grupo" />
+      ))}
+      {tudo && <rect {...ret(tudo, folga)} rx={8 / plano.camera.zoom} className="contorno-conjunto" />}
+    </svg>
+  )
+}
+
+/** Linhas-guia de alinhamento enquanto arrasta. */
+export function CamadaGuias() {
+  const guias = usarGuias()
+  if (!guias.length) return null
+  return (
+    <svg className="camada-svg camada-guias">
+      {guias.map((g, i) =>
+        g.eixo === 'x' ? (
+          <line key={i} className="guia" x1={g.valor} x2={g.valor} y1={g.de} y2={g.ate} />
+        ) : (
+          <line key={i} className="guia" x1={g.de} x2={g.ate} y1={g.valor} y2={g.valor} />
+        )
+      )}
+    </svg>
+  )
+}

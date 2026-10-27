@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { GitBranch, Home, Layers, Plus } from 'lucide-react'
-import type { Andar, EstadoAndar, No, Plano } from '../../../shared/modelo'
+import type { Andar, EstadoAndar, No, Plano, SituacaoAndar } from '../../../shared/modelo'
 import { abrirVistaAndares, andarAtual, criarAndar, irParaAndar, usarLoja } from '../estado/loja'
 import { caixaDoDesenho, uniao, type Caixa } from '../quadro/geometria'
 import { abrirNovoAndar, fecharNovoAndar, novoAndar } from './acoesAndar'
@@ -32,6 +32,57 @@ function usarNiveis(): Nivel[] {
     { id: null, nome: 'Térreo', ramo: null, plano: espaco, andar: null },
     ...espaco.andares.map((a) => ({ id: a.id, nome: a.nome, ramo: a.git?.ramo ?? null, plano: a, andar: a }))
   ]
+}
+
+// ---------- números do git ao vivo ----------
+
+/** Situação do git do andar (commits à frente, arquivos fora de commit): lida agora e a cada 5 s. */
+function usarSituacao(andar: Andar | null): SituacaoAndar | null {
+  const espacoId = usarLoja((e) => e.espaco?.id ?? null)
+  const andarId = andar?.git ? andar.id : null
+  const [situacao, setSituacao] = useState<SituacaoAndar | null>(null)
+  useEffect(() => {
+    setSituacao(null)
+    if (!espacoId || !andarId) return
+    let vivo = true
+    const ler = (): void => {
+      if (document.hidden) return
+      window.mp.andares.situacao(espacoId, andarId).then(
+        (s) => vivo && setSituacao(s),
+        () => vivo && setSituacao(null)
+      )
+    }
+    ler()
+    // a primeira leitura pode chegar antes de o andar novo ser salvo: tenta de novo logo
+    const logo = setTimeout(ler, 1200)
+    const relogio = setInterval(ler, 5000)
+    return () => {
+      vivo = false
+      clearTimeout(logo)
+      clearInterval(relogio)
+    }
+  }, [espacoId, andarId])
+  return situacao
+}
+
+const plural = (n: number, um: string, varios: string): string => `${n} ${n === 1 ? um : varios}`
+
+/** "3 commits · 2 alterados", ou "em dia" quando não há nada para juntar. */
+function NumerosAndar({ andar }: { andar: Andar | null }) {
+  const s = usarSituacao(andar)
+  if (!s) return null
+  const partes = [
+    ...(s.commitsAFrente ? [plural(s.commitsAFrente, 'commit', 'commits')] : []),
+    ...(s.alterados ? [plural(s.alterados, 'alterado', 'alterados')] : [])
+  ]
+  return (
+    <span
+      className="andar-numeros"
+      title={`${plural(s.commitsAFrente, 'commit', 'commits')} que "${s.ramoPrincipal}" ainda não tem · ${plural(s.alterados, 'arquivo mudado', 'arquivos mudados')} fora de commit`}
+    >
+      {partes.length ? partes.join(' · ') : 'em dia'}
+    </span>
+  )
 }
 
 // ---------- miniatura de um plano (o que aparece em cada andar da pilha) ----------
@@ -129,7 +180,7 @@ export function VistaAndares() {
               style={{
                 width: LARGURA,
                 height: ALTURA,
-                transform: `translate(-50%, -50%) translateY(${montada ? deslocamento : 0}px) rotateX(58deg) ${aceso ? 'translateZ(24px)' : ''}`,
+                transform: `translate(-50%, -50%) translateY(${montada ? deslocamento : 0}px) rotateX(48deg) ${aceso ? 'translateZ(24px)' : ''}`,
                 transitionDelay: `${i * 40}ms`
               }}
               onPointerDown={(e) => {
@@ -201,6 +252,7 @@ export function BotaoAndares() {
                   <GitBranch size={10} /> {nivel.ramo}
                 </span>
               )}
+              <NumerosAndar andar={nivel.andar} />
             </button>
           ))}
         </div>
@@ -240,6 +292,7 @@ export function IndicadorAndar() {
           <GitBranch size={11} /> {andar.git.ramo}
         </span>
       )}
+      <NumerosAndar andar={andar} />
       {andar.status && <span className="ponto-estado" style={{ background: COR_ESTADO[andar.status.estado] }} />}
     </button>
   )

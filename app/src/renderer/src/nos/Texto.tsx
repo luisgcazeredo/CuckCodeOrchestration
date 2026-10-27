@@ -1,11 +1,11 @@
 import { memo, useEffect, useLayoutEffect, useRef } from 'react'
 import type { NoTexto } from '../../../shared/modelo'
-import { apagarSelecao, atualizarNo, editar, selecionar } from '../estado/loja'
-import { MolduraNo } from '../quadro/MolduraNo'
+import { apagar, atualizarNo, editar } from '../estado/loja'
+import { MolduraNo, type Marca } from '../quadro/MolduraNo'
 
 interface Props {
   no: NoTexto
-  selecionado: boolean
+  selecionado: Marca
   editando: boolean
 }
 
@@ -40,10 +40,8 @@ export const Texto = memo(function Texto({ no, selecionado, editando }: Props) {
 
   function sair(): void {
     // texto que ficou vazio não vira lixo no quadro
-    if (!no.texto.trim()) {
-      selecionar({ tipo: 'no', id: no.id })
-      apagarSelecao()
-    } else editar(null)
+    if (!no.texto.trim()) apagar({ tipo: 'no', id: no.id })
+    else editar(null)
   }
 
   return (
