@@ -18,6 +18,7 @@ import {
   selecionarTudo,
   usarLoja
 } from './estado/loja'
+import { cancelarGestos, emGesto } from './quadro/arrasto'
 import { Quadro } from './quadro/Quadro'
 import { DialogoNovoAndar, VistaAndares } from './ui/Andares'
 import { colar, copiarSelecao } from './ui/area'
@@ -37,6 +38,12 @@ function digitando(): boolean {
 function atalhos(e: KeyboardEvent): void {
   // escrevendo num post-it, texto ou campo, com um menu ou uma janela de confirmação aberta: o teclado é deles
   if (digitando() || menuAberto() || document.querySelector('.dialogo-fundo')) return
+  // no meio de um arrasto ou desenho, atalho nenhum mexe no quadro (desfazer no meio quebraria o histórico);
+  // Esc cancela o gesto
+  if (emGesto()) {
+    if (e.key === 'Escape') cancelarGestos()
+    return
+  }
   const ctrl = e.ctrlKey || e.metaKey
   const tecla = e.key.toLowerCase()
   if (ctrl && (e.key === '=' || e.key === '+')) return (e.preventDefault(), zoomPeloCentro(1.2))
@@ -63,6 +70,7 @@ function atalhos(e: KeyboardEvent): void {
   if (e.key === '?') return abrirAtalhos()
   if (e.key === 'Delete' || e.key === 'Backspace') return apagarSelecao()
   if (e.key === 'Escape') {
+    cancelarGestos()
     selecionar(null)
     editar(null)
     loja.abrirVistaAndares(false)

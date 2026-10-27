@@ -95,7 +95,7 @@ interface Gesto {
   /** Caixas dos cartões parados, para o ímã. */
   vizinhos: Caixa[]
   aoClicar?: () => void
-  soltar: () => void
+  soltar: (cancelar?: boolean) => void
 }
 
 let atual: Gesto | null = null
@@ -194,19 +194,25 @@ export function comecarArrasto(
   const aoEsconder = (): void => {
     if (document.hidden) soltar()
   }
-  // soltar fora da janela, trocar de janela (Alt+Tab) ou perder a captura: o gesto termina, nada fica preso
-  function soltar(): void {
+  const soltarSemCancelar = (): void => soltar()
+  // soltar fora da janela, trocar de janela (Alt+Tab) ou perder a captura: o gesto termina, nada fica preso.
+  // `cancelar` (Esc): o que se movia volta para onde estava e o clique não conta.
+  function soltar(cancelar = false): void {
     const g = atual
     if (!g) return
     atual = null
+    if (cancelar && g.arrastando) {
+      if (g.modo.tipo === 'mover') moverItens(g.originais, 0, 0, g.chave)
+      else atualizarNo(g.modo.no.id, { largura: g.modo.no.largura, altura: g.modo.no.altura }, g.chave)
+    }
     window.removeEventListener('pointermove', mover, true)
     window.removeEventListener('pointerup', soltarPeloMouse, true)
     window.removeEventListener('pointercancel', soltarPeloMouse, true)
-    window.removeEventListener('blur', soltar)
+    window.removeEventListener('blur', soltarSemCancelar)
     document.removeEventListener('visibilitychange', aoEsconder)
-    elemento.removeEventListener('lostpointercapture', soltar)
+    elemento.removeEventListener('lostpointercapture', soltarSemCancelar)
     if (!g.arrastando) {
-      g.aoClicar?.()
+      if (!cancelar) g.aoClicar?.()
       return
     }
     cancelAnimationFrame(g.quadro)
@@ -236,8 +242,20 @@ export function comecarArrasto(
   window.addEventListener('pointermove', mover, true)
   window.addEventListener('pointerup', soltarPeloMouse, true)
   window.addEventListener('pointercancel', soltarPeloMouse, true)
-  window.addEventListener('blur', soltar)
+  window.addEventListener('blur', soltarSemCancelar)
   document.addEventListener('visibilitychange', aoEsconder)
-  elemento.addEventListener('lostpointercapture', soltar)
+  elemento.addEventListener('lostpointercapture', soltarSemCancelar)
   if (opcoes.imediato) virarArrasto(atual)
 }
+
+/**
+ * Esc ou um atalho no meio de um gesto: o arrasto em andamento volta atrás, e o quadro descarta o gesto
+ * dele (desenho, retângulo de seleção, ligação), para nada continuar mexendo no quadro depois.
+ */
+export function cancelarGestos(): void {
+  atual?.soltar(true)
+  window.dispatchEvent(new Event('mp:cancelar-gesto'))
+}
+
+/** Há um gesto em andamento (arrastando cartão, desenhando, ligando, segurando espaço). */
+export const emGesto = (): boolean => atual?.arrastando === true || document.body.classList.contains('em-gesto')

@@ -62,11 +62,15 @@ export async function colar(onde?: Ponto): Promise<void> {
       const f = JSON.parse(conteudo.json) as Fragmento
       // imagens de outro espaço ganham uma cópia do arquivo neste espaço
       if (conteudo.espacoOrigem !== espaco.id) {
+        const semArquivo = new Set<string>()
         for (const n of f.nos) {
           if (n.tipo !== 'imagem') continue
           const novo = await window.mp.area.trazerImagem(conteudo.espacoOrigem, n.arquivo, espaco.id)
           if (novo) n.arquivo = novo
+          else semArquivo.add(n.id)
         }
+        // a imagem de origem não existe mais: o cartão dela não vem (chegaria quebrado)
+        f.nos = f.nos.filter((n) => !semArquivo.has(n.id))
         if (lerEstado().espaco?.id !== espaco.id) return
       }
       const caixa = uniao([...f.nos.map(caixaDoNo), ...f.desenhos.map(caixaDoDesenho)])

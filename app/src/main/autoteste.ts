@@ -437,6 +437,53 @@ export async function rodarAutoteste(
     const lixeira = await centroDe('.barra-selecao button[title^="Apagar"]')
     if (lixeira) await clicar(lixeira)
     conferir('barrinha da seleção → Apagar', !!lixeira && !(await no(ab.c)), lixeira ? '' : 'barrinha não apareceu')
+    // Esc no meio do arrasto: o cartão volta; Ctrl+Z no meio não desfaz nada (quebraria o histórico)
+    await clicar(vazio)
+    const aAntes = (await no(ab.a))!
+    const pegaA = tela2(aAntes.x + 130, aAntes.y + 80)
+    const passosAte = async (dx: number): Promise<void> => {
+      for (let i = 1; i <= 5; i++) {
+        tela.sendInputEvent({ type: 'mouseMove', x: pegaA.x + Math.round((dx * i) / 5), y: pegaA.y, button: 'left', modifiers: ['leftbuttondown'] })
+        await esperar(20)
+      }
+    }
+    tela.sendInputEvent({ type: 'mouseMove', x: pegaA.x, y: pegaA.y })
+    tela.sendInputEvent({ type: 'mouseDown', x: pegaA.x, y: pegaA.y, button: 'left', clickCount: 1 })
+    await passosAte(60)
+    const nosAntesDoZ = (await js<unknown[]>('window.__teste.loja.planoAtual().nos')).length
+    await tecla('Z')
+    const nosDepoisDoZ = (await js<unknown[]>('window.__teste.loja.planoAtual().nos')).length
+    tela.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+    tela.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+    await esperar(80)
+    await passosAte(90)
+    tela.sendInputEvent({ type: 'mouseUp', x: pegaA.x + 90, y: pegaA.y, button: 'left', clickCount: 1 })
+    await esperar(200)
+    const aDepois = (await no(ab.a))!
+    conferir(
+      'Esc no meio do arrasto devolve o cartão (e Ctrl+Z ali não faz nada)',
+      aDepois.x === aAntes.x && aDepois.y === aAntes.y && nosAntesDoZ === nosDepoisDoZ,
+      `x ${aAntes.x} → ${aDepois.x} · cartões ${nosAntesDoZ} → ${nosDepoisDoZ}`
+    )
+    // duplicar um item de dentro de um grupo: a cópia sai solta (sem "grupo de um")
+    await clicar(vazio)
+    await clicar(tela2(aAntes.x + 130, aAntes.y + 80))
+    await comTecla(tela2(750, 330), ['shift'])
+    await tecla('G')
+    await clicar(vazio)
+    await clicar(tela2(aAntes.x + 130, aAntes.y + 80))
+    await clicar(tela2(aAntes.x + 130, aAntes.y + 80))
+    await tecla('D')
+    const copiaId = await js<string>('window.__teste.loja.lerEstado().selecao.nos[0] ?? ""')
+    const copia = await no(copiaId)
+    const grupoDoPar = (await no(ab.a))?.grupo
+    conferir(
+      'duplicar item de dentro do grupo sai solto',
+      copiaId !== ab.a && !!copia && !copia.grupo && !!grupoDoPar && grupoDoPar === (await no(ab.b))?.grupo,
+      `cópia ${copia?.grupo ? 'COM grupo' : 'solta'} · par ${grupoDoPar ? 'continua agrupado' : 'perdeu o grupo'}`
+    )
+    await js('window.__teste.loja.apagarSelecao()')
+
     // ? abre a folha de atalhos
     await clicar(vazio)
     tela.sendInputEvent({ type: 'char', keyCode: '?' })

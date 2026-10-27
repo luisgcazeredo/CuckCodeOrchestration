@@ -830,9 +830,12 @@ export function colarFragmento(f: Fragmento, dx: number, dy: number, sufixoTermi
   if (!plano) return
   registrarHistorico()
   const ids = new Map<string, string>()
+  // só vira grupo na cópia o grupo que veio com dois itens ou mais (um item de dentro de um grupo vem solto)
+  const membros = new Map<string, number>()
+  for (const i of [...f.nos, ...f.desenhos]) if (i.grupo) membros.set(i.grupo, (membros.get(i.grupo) ?? 0) + 1)
   const grupos = new Map<string, string>()
   const grupoNovo = (g?: string): string | undefined => {
-    if (!g) return undefined
+    if (!g || (membros.get(g) ?? 0) < 2) return undefined
     if (!grupos.has(g)) grupos.set(g, novoId())
     return grupos.get(g)
   }
@@ -946,12 +949,13 @@ export function apagarSelecao(): void {
   if (!nos.size && !desenhos.size && !selecao.corda) return
   registrarHistorico()
   mudarPlano(
-    (p) => ({
-      ...p,
-      nos: p.nos.filter((n) => !nos.has(n.id)),
-      cordas: p.cordas.filter((c) => c.id !== selecao.corda && !nos.has(c.de) && !nos.has(c.para)),
-      desenhos: p.desenhos.filter((d) => !desenhos.has(d.id))
-    }),
+    (p) =>
+      semGruposSozinhos({
+        ...p,
+        nos: p.nos.filter((n) => !nos.has(n.id)),
+        cordas: p.cordas.filter((c) => c.id !== selecao.corda && !nos.has(c.de) && !nos.has(c.para)),
+        desenhos: p.desenhos.filter((d) => !desenhos.has(d.id))
+      }),
     false
   )
   const notas = { ...estado.notas }
@@ -966,16 +970,27 @@ export function apagar(alvo: Alvo): void {
 
 const semGrupo = <T extends { grupo?: string }>(item: T): T => ({ ...item, grupo: undefined })
 
+/** Grupo com um item só deixa de ser grupo (depois de apagar, tirar ou reagrupar parte dele). */
+function semGruposSozinhos(p: Plano): Plano {
+  const contagem = new Map<string, number>()
+  for (const i of [...p.nos, ...p.desenhos]) if (i.grupo) contagem.set(i.grupo, (contagem.get(i.grupo) ?? 0) + 1)
+  const sozinho = (i: { grupo?: string }): boolean => !!i.grupo && contagem.get(i.grupo)! < 2
+  if (![...p.nos, ...p.desenhos].some(sozinho)) return p
+  return { ...p, nos: p.nos.map((n) => (sozinho(n) ? semGrupo(n) : n)), desenhos: p.desenhos.map((d) => (sozinho(d) ? semGrupo(d) : d)) }
+}
+
 /** Agrupa a seleção (2 itens ou mais): passam a ser selecionados e movidos juntos. */
 export function agrupar(): void {
   const s = estado.selecao
   if (s.nos.length + s.desenhos.length < 2) return
   const grupo = novoId()
-  mudarPlano((p) => ({
-    ...p,
-    nos: p.nos.map((n) => (s.nos.includes(n.id) ? { ...n, grupo } : n)),
-    desenhos: p.desenhos.map((d) => (s.desenhos.includes(d.id) ? { ...d, grupo } : d))
-  }))
+  mudarPlano((p) =>
+    semGruposSozinhos({
+      ...p,
+      nos: p.nos.map((n) => (s.nos.includes(n.id) ? { ...n, grupo } : n)),
+      desenhos: p.desenhos.map((d) => (s.desenhos.includes(d.id) ? { ...d, grupo } : d))
+    })
+  )
 }
 
 /** Desfaz os grupos que a seleção toca: cada item volta a ser solto (e continua selecionado). */
@@ -995,16 +1010,13 @@ export function desagrupar(): void {
 /** Tira só os itens selecionados do grupo deles. Grupo que sobra com um item só deixa de existir. */
 export function tirarDoGrupo(): void {
   const s = estado.selecao
-  mudarPlano((p) => {
-    let nos = p.nos.map((n) => (s.nos.includes(n.id) ? semGrupo(n) : n))
-    let desenhos = p.desenhos.map((d) => (s.desenhos.includes(d.id) ? semGrupo(d) : d))
-    const contagem = new Map<string, number>()
-    for (const i of [...nos, ...desenhos]) if (i.grupo) contagem.set(i.grupo, (contagem.get(i.grupo) ?? 0) + 1)
-    const sozinho = (i: { grupo?: string }): boolean => !!i.grupo && contagem.get(i.grupo)! < 2
-    nos = nos.map((n) => (sozinho(n) ? semGrupo(n) : n))
-    desenhos = desenhos.map((d) => (sozinho(d) ? semGrupo(d) : d))
-    return { ...p, nos, desenhos }
-  })
+  mudarPlano((p) =>
+    semGruposSozinhos({
+      ...p,
+      nos: p.nos.map((n) => (s.nos.includes(n.id) ? semGrupo(n) : n)),
+      desenhos: p.desenhos.map((d) => (s.desenhos.includes(d.id) ? semGrupo(d) : d))
+    })
+  )
 }
 
 /** Peças da seleção para alinhar: cada grupo é uma peça só (não se desmancha), cada item solto é uma. */
@@ -1123,6 +1135,6 @@ export function apagarDesenhosPerto(x: number, y: number, raio: number, chaveDoG
   const tocados = plano.desenhos.filter((d) => distanciaAoDesenho(d, { x, y }) <= raio + d.espessura / 2)
   if (!tocados.length) return 0
   const fora = new Set(tocados.map((d) => d.id))
-  mudarPlano((p) => ({ ...p, desenhos: p.desenhos.filter((d) => !fora.has(d.id)) }), chaveDoGesto)
+  mudarPlano((p) => semGruposSozinhos({ ...p, desenhos: p.desenhos.filter((d) => !fora.has(d.id)) }), chaveDoGesto)
   return tocados.length
 }
