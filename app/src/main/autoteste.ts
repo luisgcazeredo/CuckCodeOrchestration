@@ -1,9 +1,11 @@
 import { app, BrowserWindow, clipboard, ClipboardItem } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PASTA_DADOS } from './dados'
+import { encerrarNavegador } from './navegador'
 
 // `npm run autoteste`: monta um quadro de exemplo numa pasta de dados temporária, tira print nos dois
 // temas, usa o mouse como um usuário (arrastar terminal, ligar dois terminais pela porta), recarrega e
@@ -185,13 +187,15 @@ export async function rodarAutoteste(
       join(pastaTeste, 'atalho-para-fora')
     )}).then((l) => 'LISTOU ' + l.map((e) => e.nome).join(','), (e) => 'bloqueado')`)
     conferir('atalho para fora da pasta é bloqueado', vazou === 'bloqueado', vazou)
-    let endereco = ''
-    for (let i = 0; i < 80 && !endereco.includes('example.com'); i++) {
+    // o portal abre no Chrome do app: a página chega em imagens dentro do cartão
+    let paginaNaTela = 0
+    for (let i = 0; i < 150 && !paginaNaTela; i++) {
       await esperar(100)
-      endereco = await js<string>(`(() => { try { return document.querySelector('webview').getURL() } catch { return '' } })()`)
+      paginaNaTela = await js<number>(`document.querySelector('.no-portal .portal-imagem')?.naturalWidth ?? 0`)
     }
-    await esperar(800)
-    conferir('portal abre um site', endereco.includes('example.com'), endereco || 'não carregou (sem internet?)')
+    const endereco = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'portal')?.url ?? ''`)
+    await esperar(500)
+    conferir('portal abre um site no Chrome do app', paginaNaTela > 0 && endereco.includes('example.com'), `${endereco} · imagem ${paginaNaTela} px`)
     // os dois cartões novos estão na tela (independe de o zoom ter mudado no meio do teste)
     const naTela = await js<boolean>(`(() => { const q = document.querySelector('.quadro').getBoundingClientRect();
       return ['.no-pasta', '.no-portal'].every((s) => { const r = document.querySelector(s).getBoundingClientRect();
@@ -607,6 +611,81 @@ export async function rodarAutoteste(
     conferir('Ctrl+K acha o cartão e vai até ele', paleta && achou.sel[0] === alvoBusca && achou.naTela, `paleta ${paleta ? 'abriu' : 'NÃO abriu'} · na tela: ${achou.naTela}`)
     await js('window.__teste.loja.irParaAndar(null)')
 
+    // ---- portal de verdade: digitar, abrir janela da página (vira cartão e sai quando ela fecha), clicar em link ----
+    const servidor = createServer((pedido, resposta) => {
+      const paginas: Record<string, string> = {
+        '/': `<!doctype html><title>inicio</title><body style="margin:0;font:16px sans-serif">
+          <input id="campo" style="position:absolute;left:20px;top:20px;width:300px;height:40px" oninput="history.replaceState(null, '', '/digitou/' + this.value)">
+          <button style="position:absolute;left:20px;top:90px;width:200px;height:50px" onclick="window.open('/popup','pop','width=420,height=320')">popup</button>
+          <a href="/segunda" style="position:absolute;left:20px;top:170px;font-size:30px">segunda página</a></body>`,
+        '/popup': '<!doctype html><title>popup</title><p>login</p><script>setTimeout(() => window.close(), 2500)</script>',
+        '/segunda': '<!doctype html><title>segunda</title><p>chegou</p>'
+      }
+      resposta.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      resposta.end(paginas[pedido.url ?? '/'] ?? 'nada')
+    })
+    await new Promise<void>((r) => servidor.listen(0, '127.0.0.1', () => r()))
+    const base = `http://127.0.0.1:${(servidor.address() as { port: number }).port}`
+    try {
+      const portal = await js<string>(`(() => { const L = window.__teste.loja; L.irParaAndar(L.lerEstado().espaco.andares.find((a) => a.nome === 'Seleção').id)
+        L.definirCamera({ x: 0, y: 0, zoom: 1 }); const id = L.adicionarNo({ tipo: 'portal', url: '${base}/' }, 600, 420); L.selecionar(null); return id })()`)
+      const cartao = `[data-no-id="${portal}"]`
+      let pronto = 0
+      for (let i = 0; i < 150 && !pronto; i++) {
+        await esperar(100)
+        pronto = await js<number>(`document.querySelector('${cartao} .portal-imagem')?.naturalWidth ?? 0`)
+      }
+      // seleciona o cartão (a película sai) e usa a página
+      await js(`window.__teste.loja.selecionar({ tipo: 'no', id: '${portal}' }, { sozinho: true })`)
+      await esperar(200)
+      const naPagina = async (x: number, y: number): Promise<{ x: number; y: number }> =>
+        js(`(() => { const t = document.querySelector('${cartao} .portal-tela'); const r = t.getBoundingClientRect();
+          return { x: Math.round(r.left + ${x} * r.width / t.clientWidth), y: Math.round(r.top + ${y} * r.height / t.clientHeight) } })()`)
+      await clicar(await naPagina(150, 40))
+      for (const letra of 'OLA') {
+        tela.sendInputEvent({ type: 'keyDown', keyCode: letra })
+        tela.sendInputEvent({ type: 'keyUp', keyCode: letra })
+        await esperar(60)
+      }
+      let digitado = ''
+      for (let i = 0; i < 30 && !digitado.toLowerCase().endsWith('/digitou/ola'); i++) {
+        await esperar(100)
+        digitado = await js<string>(`window.__teste.loja.acharNo('${portal}')?.url ?? ''`)
+      }
+      conferir('portal: clicar e digitar na página', pronto > 0 && digitado.toLowerCase().endsWith('/digitou/ola'), digitado)
+      const portais = (): Promise<number> => js<number>(`window.__teste.loja.planoAtual().nos.filter((n) => n.tipo === 'portal').length`)
+      const antesDoPopup = await portais()
+      await clicar(await naPagina(120, 115))
+      let comPopup = antesDoPopup
+      for (let i = 0; i < 40 && comPopup === antesDoPopup; i++) {
+        await esperar(100)
+        comPopup = await portais()
+      }
+      let depoisDoPopup = comPopup
+      for (let i = 0; i < 60 && depoisDoPopup !== antesDoPopup; i++) {
+        await esperar(100)
+        depoisDoPopup = await portais()
+      }
+      conferir(
+        'portal: janela aberta pela página vira cartão e sai quando ela fecha',
+        comPopup === antesDoPopup + 1 && depoisDoPopup === antesDoPopup,
+        `${antesDoPopup} → ${comPopup} → ${depoisDoPopup} portais`
+      )
+      await js(`window.__teste.loja.selecionar({ tipo: 'no', id: '${portal}' }, { sozinho: true })`)
+      await esperar(200)
+      await clicar(await naPagina(60, 190))
+      let foi = ''
+      for (let i = 0; i < 40 && !foi.endsWith('/segunda'); i++) {
+        await esperar(100)
+        foi = await js<string>(`window.__teste.loja.acharNo('${portal}')?.url ?? ''`)
+      }
+      conferir('portal: clicar em link navega (e o endereço fica salvo)', foi.endsWith('/segunda'), foi)
+      await print('portal-chrome')
+      await js(`window.__teste.loja.apagar({ tipo: 'no', id: '${portal}' }); window.__teste.loja.irParaAndar(null)`)
+    } finally {
+      servidor.close()
+    }
+
     // ---- várias janelas: outro espaço numa janela nova; um espaço nunca fica aberto em duas ----
     const meuEspaco = await js<string>('window.__teste.loja.lerEstado().espaco.id')
     const outroEspaco = await js<string | undefined>(
@@ -730,5 +809,6 @@ export async function rodarAutoteste(
   }
   for (const [nome, ok, detalhe] of resultados) console.log(`AUTOTESTE ${ok ? 'ok    ' : 'FALHOU'} ${nome} — ${detalhe}`)
   console.log(`AUTOTESTE ${passou ? 'PASSOU' : 'FALHOU'} — prints em ${pastaSaida}`)
+  await encerrarNavegador()
   app.exit(passou ? 0 : 1)
 }

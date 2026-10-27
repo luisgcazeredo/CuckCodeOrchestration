@@ -4,6 +4,7 @@ import { CANAIS_APP } from '../shared/api'
 import { registrarAndares } from './andares'
 import { registrarArea, registrarEsquemaImagem, servirImagens } from './area'
 import { idsDosEspacos, registrarDados } from './dados'
+import { encerrarNavegador, registrarNavegador, soltarAbasDaJanela } from './navegador'
 import { configurarJanelas, lembrarInicial, registrarJanelas, soltarJanela } from './janelas'
 import { encerrarTodos, registrarTerminais } from './terminais'
 import { rodarAutoteste } from './autoteste'
@@ -74,7 +75,10 @@ function criarJanela(espacoInicial: string | null = null): BrowserWindow {
   janela.once('ready-to-show', () => janela.show())
   const idConteudo = janela.webContents.id
   lembrarInicial(idConteudo, espacoInicial)
-  janela.on('closed', () => soltarJanela(idConteudo))
+  janela.on('closed', () => {
+    soltarJanela(idConteudo)
+    soltarAbasDaJanela(idConteudo)
+  })
 
   // A janela tem acesso a terminais: nunca pode virar uma página de fora. Links vão para o navegador.
   janela.webContents.setWindowOpenHandler(({ url }) => {
@@ -178,6 +182,7 @@ if (!autoteste && !app.requestSingleInstanceLock()) {
     registrarDados()
     registrarAndares()
     registrarArea()
+    registrarNavegador()
     servirImagens()
     registrarTerminais()
     criarJanela()
@@ -186,5 +191,6 @@ if (!autoteste && !app.requestSingleInstanceLock()) {
 
 app.on('window-all-closed', () => {
   encerrarTodos()
-  app.quit()
+  // o Chrome do app fecha direito antes (sem o aviso de "não foi fechado corretamente" na próxima vez)
+  void encerrarNavegador().finally(() => app.quit())
 })

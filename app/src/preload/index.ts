@@ -7,10 +7,13 @@ import {
   CANAIS_DADOS,
   CANAIS_JANELAS,
   CANAL_AVISO,
+  CANAIS_PORTAL,
   type ApiAndares,
   type ApiArea,
   type ApiDados,
   type ApiJanelas,
+  type ApiPortal,
+  type AvisoPortal,
   type AvisoJanelas,
   type ApiMaestri
 } from '../shared/api'
@@ -50,6 +53,21 @@ function distribuidor<T>(canal: string) {
   }
 }
 
+const avisosDoPortal = distribuidor<AvisoPortal>(CANAIS_PORTAL.aviso)
+const portal: ApiPortal = {
+  disponivel: () => ipcRenderer.invoke(CANAIS_PORTAL.disponivel),
+  abrir: (noId, url, alvo) => ipcRenderer.invoke(CANAIS_PORTAL.abrir, noId, url, alvo),
+  // eventos frequentes (mouse, tamanho) vão sem esperar resposta
+  tamanho: (noId, largura, altura, escala) => ipcRenderer.send(CANAIS_PORTAL.tamanho, noId, largura, altura, escala),
+  visivel: (noId, sim) => ipcRenderer.send(CANAIS_PORTAL.visivel, noId, sim),
+  entrada: (noId, entrada) => ipcRenderer.send(CANAIS_PORTAL.entrada, noId, entrada),
+  navegar: (noId, navegacao) => ipcRenderer.send(CANAIS_PORTAL.navegar, noId, navegacao),
+  responderDialogo: (noId, aceitar, texto) => ipcRenderer.send(CANAIS_PORTAL.responderDialogo, noId, aceitar, texto),
+  alternarJanela: (noId) => ipcRenderer.send(CANAIS_PORTAL.alternarJanela, noId),
+  fechar: (noId) => ipcRenderer.send(CANAIS_PORTAL.fechar, noId),
+  aoAvisar: avisosDoPortal
+}
+
 // A janela não tem acesso ao Node: só a estas funções, nesta forma.
 const api: ApiMaestri = {
   terminal: {
@@ -64,6 +82,7 @@ const api: ApiMaestri = {
   andares,
   area,
   janelas,
+  portal,
   aoPedirFechar: (salvar) => {
     ipcRenderer.on(CANAIS_APP.vaiFechar, async () => {
       const gravou = await salvar().catch(() => false)

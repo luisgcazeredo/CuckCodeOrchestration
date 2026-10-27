@@ -1,18 +1,10 @@
-import { createElement, memo, useEffect, useRef, useState, type PointerEvent } from 'react'
+import { createElement, memo, useEffect, useRef, useState, useSyncExternalStore, type PointerEvent } from 'react'
 import { ArrowLeft, ArrowRight, ExternalLink, Globe, RotateCw } from 'lucide-react'
 import type { NoPortal } from '../../../shared/modelo'
 import { atualizarNo } from '../estado/loja'
+import { normalizarEndereco } from './endereco'
+import { PortalChrome } from './PortalChrome'
 import { MolduraNo, type Marca } from '../quadro/MolduraNo'
-
-/** O que o usuário digitou vira endereço: com protocolo, como está; sem, https://; com espaço, busca. */
-export function normalizarEndereco(texto: string): string {
-  const t = texto.trim()
-  if (/^https?:\/\//i.test(t)) return t
-  if (/^[\w-]+(\.[\w-]+)+(:\d+)?(\/.*)?$/.test(t) || /^localhost(:\d+)?(\/.*)?$/.test(t)) {
-    return `${t.startsWith('localhost') ? 'http' : 'https'}://${t}`
-  }
-  return `https://www.google.com/search?q=${encodeURIComponent(t)}`
-}
 
 interface WebView extends HTMLElement {
   loadURL(url: string): Promise<void>
@@ -24,10 +16,10 @@ interface WebView extends HTMLElement {
 }
 
 /**
- * Navegador no quadro. Roda isolado (sem acesso ao app, sessão própria `persist:portal` para logins
- * ficarem salvos); o processo principal confere cada portal antes de ele abrir.
+ * Navegador embutido (reserva para quando o PC não tem Chrome nem Edge). Roda isolado (sem acesso ao app,
+ * sessão própria `persist:portal` para logins ficarem salvos); o processo principal confere cada portal.
  */
-export const Portal = memo(function Portal({ no, selecionado }: { no: NoPortal; selecionado: Marca }) {
+const PortalEmbutido = memo(function PortalEmbutido({ no, selecionado }: { no: NoPortal; selecionado: Marca }) {
   const visor = useRef<WebView>(null)
   const [endereco, setEndereco] = useState(no.url)
   const [srcInicial] = useState(no.url)
@@ -112,4 +104,26 @@ export const Portal = memo(function Portal({ no, selecionado }: { no: NoPortal; 
       </div>
     </MolduraNo>
   )
+})
+
+// ---------- qual portal usar ----------
+
+let temChrome: boolean | null = null
+const ouvintesChrome = new Set<() => void>()
+void window.mp.portal.disponivel().then((sim) => {
+  temChrome = sim
+  ouvintesChrome.forEach((o) => o())
+})
+
+/** Navegador no quadro: o Chrome do app quando há Chrome no PC; senão, o embutido. */
+export const Portal = memo(function Portal({ no, selecionado }: { no: NoPortal; selecionado: Marca }) {
+  const chrome = useSyncExternalStore(
+    (o) => {
+      ouvintesChrome.add(o)
+      return () => ouvintesChrome.delete(o)
+    },
+    () => temChrome
+  )
+  if (chrome === null) return <MolduraNo no={no} selecionado={selecionado}><div className="cartao-ferramenta" /></MolduraNo>
+  return chrome ? <PortalChrome no={no} selecionado={selecionado} /> : <PortalEmbutido no={no} selecionado={selecionado} />
 })

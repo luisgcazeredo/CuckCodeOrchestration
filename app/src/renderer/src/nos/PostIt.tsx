@@ -51,7 +51,7 @@ export const PostIt = memo(function PostIt({ no, texto, selecionado, editando }:
     const t = setTimeout(() => {
       const el = campo.current
       if (!el) return
-      el.focus()
+      el.focus({ preventScroll: true })
       el.setSelectionRange(el.value.length, el.value.length)
     }, 0)
     return () => clearTimeout(t)

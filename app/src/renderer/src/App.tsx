@@ -32,7 +32,7 @@ import { abrirPaleta, Paleta } from './ui/Paleta'
 import { Perguntas } from './ui/Perguntas'
 
 function digitando(): boolean {
-  return !!document.activeElement?.closest('input, textarea, [contenteditable]')
+  return !!document.activeElement?.closest('input, textarea, [contenteditable], [data-teclado]')
 }
 
 function atalhos(e: KeyboardEvent): void {

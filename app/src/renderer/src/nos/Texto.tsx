@@ -15,7 +15,7 @@ export const Texto = memo(function Texto({ no, selecionado, editando }: Props) {
   // foco no próximo ciclo: o clique que criou a caixa ainda está terminando
   useEffect(() => {
     if (!editando) return
-    const t = setTimeout(() => campo.current?.focus(), 0)
+    const t = setTimeout(() => campo.current?.focus({ preventScroll: true }), 0)
     return () => clearTimeout(t)
   }, [editando])
 

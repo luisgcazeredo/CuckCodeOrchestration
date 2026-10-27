@@ -76,6 +76,19 @@ export function Quadro() {
     return () => observador.disconnect()
   }, [])
 
+  // o quadro nunca rola de verdade (quem anda é a câmera): foco num cartão que passa da borda faria o
+  // navegador rolar a área e deslocar tudo; volta na hora
+  useEffect(() => {
+    const quadro = area.current!
+    const areas = [quadro, quadro.parentElement!]
+    const voltar = (e: Event): void => {
+      const el = e.currentTarget as HTMLElement
+      if (el.scrollLeft || el.scrollTop) el.scrollTo(0, 0)
+    }
+    areas.forEach((el) => el.addEventListener('scroll', voltar))
+    return () => areas.forEach((el) => el.removeEventListener('scroll', voltar))
+  }, [])
+
   // roda do mouse: rola o quadro; com Ctrl (ou pinça no touchpad), zoom no ponto do mouse
   useEffect(() => {
     const el = area.current!
@@ -100,7 +113,7 @@ export function Quadro() {
 
   // barra de espaço segurada: arrasta o quadro por cima de qualquer coisa
   useEffect(() => {
-    const digitando = (): boolean => !!document.activeElement?.closest('input, textarea, [contenteditable]')
+    const digitando = (): boolean => !!document.activeElement?.closest('input, textarea, [contenteditable], [data-teclado]')
     const baixo = (e: KeyboardEvent): void => {
       if (e.code === 'Space' && !digitando()) {
         e.preventDefault()

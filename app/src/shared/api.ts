@@ -77,6 +77,77 @@ export interface ApiArea {
   trazerImagem(arquivo: string, paraEspaco: string): Promise<string | null>
 }
 
+/** Como está a página de um portal (Chrome do app). */
+export interface EstadoPortal {
+  url: string
+  titulo: string
+  carregando: boolean
+  voltar: boolean
+  avancar: boolean
+  /** A janela de verdade do Chrome está à mostra (fora do quadro). */
+  naTela: boolean
+}
+
+/** O que o Chrome do app manda para o cartão de um portal. */
+export type AvisoPortal =
+  /** Um quadro da página (JPEG em base64). */
+  | { tipo: 'quadro'; jpeg: string }
+  | { tipo: 'estado'; estado: EstadoPortal }
+  /** A página abriu outra janela (login, link em aba nova): vira outro cartão, ligado à aba `alvo`. */
+  | { tipo: 'janelaNova'; alvo: string; url: string }
+  /** A aba fechou (a página se fechou, ou o Chrome foi fechado). */
+  | { tipo: 'fechou'; pelaPagina: boolean }
+  /** alert, confirm ou prompt da página: o cartão pergunta e responde. */
+  | { tipo: 'dialogo'; tipoDialogo: string; mensagem: string; padrao: string }
+
+/** Mouse, roda e teclado do cartão, repassados para a página. Coordenadas em pixels da página. */
+export type EntradaPortal =
+  | {
+      tipo: 'mouse'
+      evento: 'mousePressed' | 'mouseReleased' | 'mouseMoved'
+      x: number
+      y: number
+      botao: 'none' | 'left' | 'middle' | 'right'
+      botoes: number
+      cliques: number
+      modificadores: number
+    }
+  | { tipo: 'roda'; x: number; y: number; dx: number; dy: number; modificadores: number }
+  | {
+      tipo: 'tecla'
+      evento: 'keyDown' | 'rawKeyDown' | 'keyUp'
+      key: string
+      code: string
+      texto?: string
+      codigoTecla: number
+      modificadores: number
+      comandos?: string[]
+    }
+
+export type NavegacaoPortal = { tipo: 'ir'; url: string } | { tipo: 'voltar' } | { tipo: 'avancar' } | { tipo: 'recarregar' }
+
+/**
+ * Portal com o Chrome do app: um Chrome de verdade, com perfil próprio (os logins ficam), escondido fora da
+ * tela; cada cartão é uma aba, transmitida para dentro do quadro. Os agentes usam o mesmo Chrome.
+ */
+export interface ApiPortal {
+  /** Há Chrome (ou Edge) no PC? Sem ele, o portal usa o navegador embutido. */
+  disponivel(): Promise<boolean>
+  /** Liga o cartão a uma aba (nova, com `url`, ou a `alvo`, uma janela que a página abriu). */
+  abrir(noId: string, url: string, alvo?: string): Promise<boolean>
+  /** Tamanho da página em pixels CSS e a nitidez (pixels por pixel CSS). */
+  tamanho(noId: string, largura: number, altura: number, escala: number): void
+  /** Cartão fora da tela: a transmissão para (economiza CPU). */
+  visivel(noId: string, sim: boolean): void
+  entrada(noId: string, entrada: EntradaPortal): void
+  navegar(noId: string, navegacao: NavegacaoPortal): void
+  responderDialogo(noId: string, aceitar: boolean, texto?: string): void
+  /** Traz a janela do Chrome para a tela (login com passkey, extensões) ou devolve para o quadro. */
+  alternarJanela(noId: string): void
+  fechar(noId: string): void
+  aoAvisar(noId: string, ouvinte: (aviso: AvisoPortal) => void): () => void
+}
+
 /** Avisos que o processo principal manda para cada janela. */
 export type AvisoJanelas =
   /** Espaços foram criados ou apagados: ler a lista de novo. */
@@ -108,6 +179,7 @@ export interface ApiMaestri {
   andares: ApiAndares
   area: ApiArea
   janelas: ApiJanelas
+  portal: ApiPortal
   /** Chamado quando a janela vai fechar; `salvar` diz se gravou. Se não gravou, o app pergunta antes de fechar. */
   aoPedirFechar(salvar: () => Promise<boolean>): void
   autoteste: boolean
@@ -153,6 +225,19 @@ export const CANAIS_JANELAS = {
 } as const
 
 export const CANAL_AVISO = 'janelas:aviso'
+
+export const CANAIS_PORTAL = {
+  disponivel: 'portal:disponivel',
+  abrir: 'portal:abrir',
+  tamanho: 'portal:tamanho',
+  visivel: 'portal:visivel',
+  entrada: 'portal:entrada',
+  navegar: 'portal:navegar',
+  responderDialogo: 'portal:responder-dialogo',
+  alternarJanela: 'portal:alternar-janela',
+  fechar: 'portal:fechar',
+  aviso: 'portal:aviso'
+} as const
 
 export const CANAIS_AREA = {
   copiar: 'area:copiar',
