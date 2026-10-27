@@ -213,6 +213,8 @@ export function Quadro() {
     definirMouse(tela)
     if (usandoBorracha) setBorracha(tela)
     if (!gesto) return
+    // soltou o botão onde o quadro não vê (em cima do portal, fora da janela): termina o gesto aqui
+    if (e.buttons === 0) return aoSoltar(e)
     if (gesto.tipo === 'arrastar') {
       const cam = planoAtual()!.camera
       definirCamera({ ...cam, x: cam.x + tela.x - gesto.ultimo.x, y: cam.y + tela.y - gesto.ultimo.y })

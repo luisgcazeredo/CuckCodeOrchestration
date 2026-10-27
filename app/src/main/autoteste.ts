@@ -470,6 +470,25 @@ export async function rodarAutoteste(
       aDepois.x === aAntes.x && aDepois.y === aAntes.y && nosAntesDoZ === nosDepoisDoZ,
       `x ${aAntes.x} → ${aDepois.x} · cartões ${nosAntesDoZ} → ${nosDepoisDoZ}`
     )
+    // botão solto onde o app não vê (em cima da página de um portal): andar com o mouse depois não arrasta nada
+    const aSolto = (await no(ab.a))!
+    const pegaSolto = tela2(aSolto.x + 130, aSolto.y + 80)
+    tela.sendInputEvent({ type: 'mouseMove', x: pegaSolto.x, y: pegaSolto.y })
+    tela.sendInputEvent({ type: 'mouseDown', x: pegaSolto.x, y: pegaSolto.y, button: 'left', clickCount: 1 })
+    for (let i = 1; i <= 6; i++) {
+      tela.sendInputEvent({ type: 'mouseMove', x: pegaSolto.x + i * 20, y: pegaSolto.y + i * 10 })
+      await esperar(30)
+    }
+    await esperar(150)
+    const aDepoisSolto = (await no(ab.a))!
+    tela.sendInputEvent({ type: 'mouseUp', x: pegaSolto.x + 120, y: pegaSolto.y + 60, button: 'left', clickCount: 1 })
+    await esperar(150)
+    conferir(
+      'cartão não gruda no mouse quando o botão é solto fora do app',
+      aDepoisSolto.x === aSolto.x && aDepoisSolto.y === aSolto.y,
+      `x ${aSolto.x} → ${aDepoisSolto.x}, y ${aSolto.y} → ${aDepoisSolto.y}`
+    )
+
     // duplicar um item de dentro de um grupo: a cópia sai solta (sem "grupo de um")
     await clicar(vazio)
     await clicar(tela2(aAntes.x + 130, aAntes.y + 80))

@@ -97,7 +97,8 @@ export const PortalChrome = memo(function PortalChrome({ no, selecionado }: { no
     alvosPendentes.delete(no.id)
     window.mp.portal.abrir(no.id, atual.current.url, alvo).then(
       (ok) => {
-        if (!vivo) return
+        // o cartão foi apagado enquanto a aba abria: ela não pode ficar sobrando
+        if (!vivo) return void (ok && !existeNoEspaco(no.id) && window.mp.portal.fechar(no.id))
         if (!ok) return setErro('Endereço inválido: o portal só abre páginas http e https.')
         pronta.current = true
         enviarTamanho()

@@ -184,6 +184,9 @@ export function comecarArrasto(
   const mover = (ev: PointerEvent): void => {
     const g = atual
     if (!g || ev.pointerId !== g.pointerId) return
+    // o botão foi solto onde o app não vê (em cima de uma página do portal, fora da janela): o gesto acabou,
+    // senão o cartão ficaria grudado no mouse
+    if (ev.buttons === 0) return soltar()
     g.mouse = { x: ev.clientX, y: ev.clientY }
     g.semIma = ev.altKey
     if (!g.arrastando && Math.hypot(ev.clientX - g.inicioTela.x, ev.clientY - g.inicioTela.y) >= LIMIAR_ARRASTO) virarArrasto(g)

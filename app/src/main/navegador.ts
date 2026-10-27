@@ -1,18 +1,19 @@
 import { ipcMain, webContents, type WebContents } from 'electron'
-import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import type { Readable, Writable } from 'node:stream'
 import { join } from 'node:path'
 import { CANAIS_PORTAL, type AvisoPortal, type EntradaPortal, type EstadoPortal, type NavegacaoPortal } from '../shared/api'
 import { PASTA_DADOS } from './dados'
 
 // O Chrome do app: um Chrome de verdade, com perfil próprio em ~/.maestri-proprio/navegador (os logins ficam
-// lá, separados do Chrome de uso pessoal), aberto pelo app com a porta de depuração ligada e as janelas fora
-// da tela. Cada cartão de portal é uma aba numa janela própria (aba de fundo não desenha), transmitida para o
-// quadro como imagens; mouse e teclado do cartão vão para a página pelo mesmo protocolo (CDP). Os agentes
-// vão usar o mesmo Chrome pela porta (endereço em navegador.json).
+// lá, separados do Chrome de uso pessoal), aberto pelo app e com as janelas fora da tela. O app fala com ele
+// por um pipe (nenhuma porta de rede: outro programa do PC não consegue controlá-lo). Cada cartão de portal é
+// uma aba numa janela própria (aba de fundo não desenha), transmitida para o quadro como imagens; mouse e
+// teclado do cartão vão para a página pelo mesmo protocolo (CDP). Os agentes vão entrar por aqui, pelo app,
+// na integração dos terminais.
 
 const PERFIL = join(PASTA_DADOS, 'navegador')
-const PORTA_PREFERIDA = 9333
 const FORA_DA_TELA = -24000
 const ID_NO = /^[0-9a-f-]{36}$/
 const ehWeb = (url: unknown): url is string => typeof url === 'string' && /^https?:\/\//i.test(url) && url.length < 8192
@@ -31,56 +32,99 @@ function acharChrome(): string | null {
   return candidatos.find((c) => existsSync(c)) ?? null
 }
 
-// ---------- conexão CDP com o navegador ----------
+// ---------- conexão CDP com o navegador (por pipe: só o app fala com este Chrome) ----------
 
 type Ouvinte = (metodo: string, params: Record<string, unknown>, sessao?: string) => void
 
+/** Tempo máximo de um comando: um Chrome travado não pode prender o app. */
+const LIMITE_COMANDO = 15000
+/** Com tantos comandos sem resposta, os eventos de mouse e de quadro esperam (o Chrome está atrasado). */
+const FILA_MAXIMA = 400
+
 class Conexao {
   private proximo = 0
-  private pendentes = new Map<number, { resolver: (r: Record<string, unknown>) => void; rejeitar: (e: Error) => void }>()
+  private pendentes = new Map<
+    number,
+    { resolver: (r: Record<string, unknown>) => void; rejeitar: (e: Error) => void; relogio: ReturnType<typeof setTimeout> }
+  >()
   private ouvintes = new Set<Ouvinte>()
+  private resto = ''
   aberta = true
 
-  constructor(private ws: WebSocket, aoFechar: () => void) {
-    ws.addEventListener('message', (m) => {
-      const d = JSON.parse(String(m.data)) as { id?: number; result?: Record<string, unknown>; error?: { message: string }; method?: string; params?: Record<string, unknown>; sessionId?: string }
-      if (d.id !== undefined) {
-        const p = this.pendentes.get(d.id)
-        this.pendentes.delete(d.id)
-        if (d.error) p?.rejeitar(new Error(d.error.message))
-        else p?.resolver(d.result ?? {})
-      } else if (d.method) {
-        this.ouvintes.forEach((o) => o(d.method!, d.params ?? {}, d.sessionId))
+  constructor(
+    private escrita: Writable,
+    leitura: Readable,
+    aoFechar: () => void
+  ) {
+    // cada mensagem do Chrome termina com um \0
+    leitura.on('data', (pedaco: Buffer) => {
+      this.resto += pedaco.toString('utf8')
+      let fim: number
+      while ((fim = this.resto.indexOf('\0')) >= 0) {
+        const texto = this.resto.slice(0, fim)
+        this.resto = this.resto.slice(fim + 1)
+        this.receber(texto)
       }
     })
-    ws.addEventListener('close', () => {
+    let fechou = false
+    const encerrar = (): void => {
+      if (fechou) return
+      fechou = true
       this.aberta = false
-      this.pendentes.forEach((p) => p.rejeitar(new Error('o Chrome do app fechou')))
+      this.pendentes.forEach((p) => {
+        clearTimeout(p.relogio)
+        p.rejeitar(new Error('o Chrome do app fechou'))
+      })
       this.pendentes.clear()
       aoFechar()
-    })
+    }
+    leitura.on('close', encerrar)
+    leitura.on('error', encerrar)
+    escrita.on('error', encerrar)
+  }
+
+  private receber(texto: string): void {
+    const d = JSON.parse(texto) as {
+      id?: number
+      result?: Record<string, unknown>
+      error?: { message: string }
+      method?: string
+      params?: Record<string, unknown>
+      sessionId?: string
+    }
+    if (d.id !== undefined) {
+      const p = this.pendentes.get(d.id)
+      if (!p) return
+      clearTimeout(p.relogio)
+      this.pendentes.delete(d.id)
+      if (d.error) p.rejeitar(new Error(d.error.message))
+      else p.resolver(d.result ?? {})
+    } else if (d.method) {
+      this.ouvintes.forEach((o) => o(d.method!, d.params ?? {}, d.sessionId))
+    }
   }
 
   enviar<T = Record<string, unknown>>(metodo: string, params: Record<string, unknown> = {}, sessao?: string): Promise<T> {
     if (!this.aberta) return Promise.reject(new Error('o Chrome do app fechou'))
     const id = ++this.proximo
     return new Promise((resolver, rejeitar) => {
-      this.pendentes.set(id, { resolver: resolver as (r: Record<string, unknown>) => void, rejeitar })
-      this.ws.send(JSON.stringify({ id, method: metodo, params, sessionId: sessao }))
+      const relogio = setTimeout(() => {
+        this.pendentes.delete(id)
+        rejeitar(new Error(`o Chrome do app não respondeu (${metodo})`))
+      }, LIMITE_COMANDO)
+      this.pendentes.set(id, { resolver: resolver as (r: Record<string, unknown>) => void, rejeitar, relogio })
+      this.escrita.write(JSON.stringify({ id, method: metodo, params, sessionId: sessao }) + '\0')
     })
   }
 
   /** Sem esperar resposta (mouse, confirmação de quadro): erro de aba que já fechou não interessa. */
   disparar(metodo: string, params: Record<string, unknown> = {}, sessao?: string): void {
+    if (this.pendentes.size > FILA_MAXIMA) return
     this.enviar(metodo, params, sessao).catch(() => undefined)
   }
 
   ouvir(o: Ouvinte): void {
     this.ouvintes.add(o)
-  }
-
-  fechar(): void {
-    this.ws.close()
   }
 }
 
@@ -89,78 +133,83 @@ let conexao: Promise<Conexao> | null = null
 
 const esperar = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
-async function endpointVivo(porta: string): Promise<string | null> {
-  try {
-    const r = await fetch(`http://127.0.0.1:${porta}/json/version`, { signal: AbortSignal.timeout(1500) })
-    return ((await r.json()) as { webSocketDebuggerUrl?: string }).webSocketDebuggerUrl ?? null
-  } catch {
-    return null
-  }
+/**
+ * Um Chrome com este perfil que ficou aberto de uma vez em que o app caiu: o perfil fica preso nele, e o novo
+ * só repassaria o pedido e sairia. Fecha esse que sobrou (o caminho do perfil vai por variável de ambiente).
+ */
+function fecharSobra(): Promise<void> {
+  const comando = [
+    `Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'"`,
+    `Where-Object { $_.CommandLine -and $_.CommandLine.Contains($env:MP_PERFIL) }`,
+    `ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
+  ].join(' | ')
+  return new Promise((resolver) => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', comando],
+      { windowsHide: true, timeout: 15000, env: { ...process.env, MP_PERFIL: `--user-data-dir=${PERFIL}` } },
+      () => resolver()
+    )
+  })
 }
 
-function portaDoArquivo(): string | null {
-  try {
-    return readFileSync(join(PERFIL, 'DevToolsActivePort'), 'utf8').split('\n')[0].trim() || null
-  } catch {
-    return null
-  }
+function lancar(exe: string): { filho: ChildProcess; escrita: Writable; leitura: Readable } {
+  const filho = spawn(
+    exe,
+    [
+      `--user-data-dir=${PERFIL}`,
+      // sem porta de rede: o app fala com o Chrome por um canal que só ele tem
+      '--remote-debugging-pipe',
+      '--no-first-run',
+      '--no-default-browser-check',
+      // sites (o login do Google, por exemplo) recusam navegador que se diz automatizado
+      '--disable-blink-features=AutomationControlled',
+      // janela fora da tela continua desenhando (é o que o quadro mostra)
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-background-timer-throttling',
+      `--window-position=${FORA_DA_TELA},${FORA_DA_TELA}`,
+      '--window-size=1280,800',
+      'about:blank'
+    ],
+    { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] }
+  )
+  return { filho, escrita: filho.stdio[3] as Writable, leitura: filho.stdio[4] as Readable }
 }
 
-/** Liga o Chrome do app (ou reaproveita o que já está aberto com este perfil) e conecta. */
+/** Liga o Chrome do app e conecta. */
 async function conectar(): Promise<Conexao> {
   const exe = acharChrome()
   if (!exe) throw new Error('não achei o Chrome nem o Edge neste PC')
-  let porta = portaDoArquivo()
-  let endereco = porta ? await endpointVivo(porta) : null
-  if (!endereco) {
-    rmSync(join(PERFIL, 'DevToolsActivePort'), { force: true })
-    for (const tentativa of [PORTA_PREFERIDA, 0]) {
-      processo = spawn(
-        exe,
-        [
-          `--user-data-dir=${PERFIL}`,
-          `--remote-debugging-port=${tentativa}`,
-          '--no-first-run',
-          '--no-default-browser-check',
-          // sites (o login do Google, por exemplo) recusam navegador que se diz automatizado
-          '--disable-blink-features=AutomationControlled',
-          // janela fora da tela continua desenhando (é o que o quadro mostra)
-          '--disable-backgrounding-occluded-windows',
-          '--disable-renderer-backgrounding',
-          '--disable-background-timer-throttling',
-          `--window-position=${FORA_DA_TELA},${FORA_DA_TELA}`,
-          '--window-size=1280,800',
-          'about:blank'
-        ],
-        { stdio: 'ignore', windowsHide: false }
-      )
-      processo.on('exit', () => (processo = null))
-      for (let i = 0; i < 60 && !endereco; i++) {
-        await esperar(150)
-        porta = portaDoArquivo()
-        endereco = porta ? await endpointVivo(porta) : null
-      }
-      if (endereco) break
-      processo?.kill()
+  for (let tentativa = 1; tentativa <= 2; tentativa++) {
+    const { filho, escrita, leitura } = lancar(exe)
+    processo = filho
+    filho.on('exit', () => {
+      if (processo === filho) processo = null
+    })
+    let estabelecida = false
+    const c = new Conexao(escrita, leitura, () => {
+      // tentativa que não chegou a responder não mexe em nada
+      if (!estabelecida) return
+      conexao = null
+      adotaveis.clear()
+      // o Chrome fechou (pelo usuário ou caiu): cada cartão fica sabendo e oferece abrir de novo
+      for (const aba of [...abas.values()]) avisar(aba, { tipo: 'fechou', pelaPagina: false })
+      abas.clear()
+    })
+    c.ouvir(aoEvento)
+    try {
+      await c.enviar('Browser.getVersion')
+      await c.enviar('Target.setDiscoverTargets', { discover: true })
+      estabelecida = true
+      return c
+    } catch {
+      // não respondeu: quase sempre um Chrome antigo com o mesmo perfil, que ficou aberto
+      filho.kill()
+      if (tentativa === 1) await fecharSobra()
     }
   }
-  if (!endereco || !porta) throw new Error('o Chrome do app não respondeu')
-  // os agentes leem daqui onde o Chrome do app está
-  writeFileSync(join(PASTA_DADOS, 'navegador.json'), JSON.stringify({ endereco: `http://127.0.0.1:${porta}`, perfil: PERFIL }, null, 2))
-  const ws = new WebSocket(endereco)
-  await new Promise<void>((resolver, rejeitar) => {
-    ws.addEventListener('open', () => resolver(), { once: true })
-    ws.addEventListener('error', () => rejeitar(new Error('não consegui falar com o Chrome do app')), { once: true })
-  })
-  const c = new Conexao(ws, () => {
-    conexao = null
-    // o Chrome fechou (pelo usuário ou caiu): cada cartão fica sabendo e oferece abrir de novo
-    for (const aba of [...abas.values()]) avisar(aba, { tipo: 'fechou', pelaPagina: false })
-    abas.clear()
-  })
-  c.ouvir(aoEvento)
-  await c.enviar('Target.setDiscoverTargets', { discover: true })
-  return c
+  throw new Error('o Chrome do app não respondeu')
 }
 
 function garantir(): Promise<Conexao> {
@@ -248,7 +297,17 @@ async function posicionar(c: Conexao, janela: number, naTela: boolean): Promise<
   await c.enviar('Browser.setWindowBounds', { windowId: janela, bounds }).catch(() => undefined)
 }
 
+/** A janela do app que pediu ainda existe? (pode ter fechado enquanto o Chrome respondia) */
+const donoVivo = (dono: number): boolean => {
+  const w = webContents.fromId(dono)
+  return !!w && !w.isDestroyed()
+}
+
 async function ligarAba(c: Conexao, dono: number, noId: string, alvo: string): Promise<Aba> {
+  if (!donoVivo(dono)) {
+    c.disparar('Target.closeTarget', { targetId: alvo })
+    throw new Error('a janela fechou')
+  }
   const { sessionId } = await c.enviar<{ sessionId: string }>('Target.attachToTarget', { targetId: alvo, flatten: true })
   const { windowId } = await c.enviar<{ windowId: number }>('Browser.getWindowForTarget', { targetId: alvo })
   await posicionar(c, windowId, false)
@@ -264,6 +323,10 @@ async function ligarAba(c: Conexao, dono: number, noId: string, alvo: string): P
     transmitindo: false,
     naTela: false,
     estado: { url: info.targetInfo.url, titulo: info.targetInfo.title, carregando: false, voltar: false, avancar: false, naTela: false }
+  }
+  if (!donoVivo(dono)) {
+    c.disparar('Target.closeTarget', { targetId: alvo })
+    throw new Error('a janela fechou')
   }
   abas.set(chave(dono, noId), aba)
   await c.enviar('Page.enable', {}, sessionId)
@@ -288,8 +351,10 @@ function aoEvento(metodo: string, params: Record<string, unknown>, sessao?: stri
     if (metodo === 'Target.targetInfoChanged') {
       const info = params.targetInfo as { targetId: string; url: string; title: string }
       const aba = abaDoAlvo(info.targetId)
-      if (aba && (aba.estado.url !== info.url || aba.estado.titulo !== info.title)) {
-        mudarEstado(aba, { url: info.url, titulo: info.title })
+      // endereço que não é página web (erro do Chrome, about:) não vira o endereço salvo do cartão
+      const url = ehWeb(info.url) ? info.url : aba?.estado.url
+      if (aba && url && (aba.estado.url !== url || aba.estado.titulo !== info.title)) {
+        mudarEstado(aba, { url, titulo: info.title })
         void atualizarHistorico(cx, aba)
       }
       return
@@ -341,6 +406,8 @@ async function adotarJanelaNova(c: Conexao, info: { targetId: string; openerId?:
   if (info.type !== 'page' || !info.openerId) return
   const origem = abaDoAlvo(info.openerId)
   if (!origem) return
+  // depois de cada espera: o cartão de origem continua aí? se não, a janela nova fecha (não sobra no Chrome)
+  const origemViva = (): boolean => abas.get(chave(origem.dono, origem.noId)) === origem && donoVivo(origem.dono)
   try {
     const { windowId } = await c.enviar<{ windowId: number }>('Browser.getWindowForTarget', { targetId: info.targetId })
     let alvo = info.targetId
@@ -353,14 +420,20 @@ async function adotarJanelaNova(c: Conexao, info: { targetId: string; openerId?:
       }
       await c.enviar('Target.closeTarget', { targetId: info.targetId })
       await c.enviar('Target.activateTarget', { targetId: origem.alvo }).catch(() => undefined)
-      if (!ehWeb(url)) return
+      if (!ehWeb(url) || !origemViva()) return
       alvo = (await c.enviar<{ targetId: string }>('Target.createTarget', { url, newWindow: true, background: true })).targetId
     } else {
       await posicionar(c, windowId, false)
     }
+    // espera o endereço de verdade (janela de login costuma nascer em branco e ir para o site logo depois)
+    let url = ''
+    for (let i = 0; i < 30 && !ehWeb(url); i++) {
+      if (i) await esperar(100)
+      url = (await c.enviar<{ targetInfo: { url: string } }>('Target.getTargetInfo', { targetId: alvo })).targetInfo.url
+    }
+    if (!origemViva() || !ehWeb(url)) return c.disparar('Target.closeTarget', { targetId: alvo })
     adotaveis.set(alvo, origem.dono)
-    const url = (await c.enviar<{ targetInfo: { url: string } }>('Target.getTargetInfo', { targetId: alvo })).targetInfo.url
-    avisar(origem, { tipo: 'janelaNova', alvo, url: ehWeb(url) ? url : origem.estado.url })
+    avisar(origem, { tipo: 'janelaNova', alvo, url })
   } catch {
     // a janela nova fechou antes de ser adotada
   }
@@ -369,6 +442,11 @@ async function adotarJanelaNova(c: Conexao, info: { targetId: string; openerId?:
 /** Fecha as abas de uma janela do app (ela fechou). */
 export function soltarAbasDaJanela(dono: number): void {
   const c = conexao
+  for (const [alvo, quem] of [...adotaveis]) {
+    if (quem !== dono) continue
+    adotaveis.delete(alvo)
+    void c?.then((cx) => cx.disparar('Target.closeTarget', { targetId: alvo }))
+  }
   for (const aba of [...abas.values()]) {
     if (aba.dono !== dono) continue
     abas.delete(chave(aba.dono, aba.noId))
@@ -445,10 +523,20 @@ export function registrarNavegador(): void {
 
   ipcMain.handle(CANAIS_PORTAL.disponivel, () => acharChrome() !== null)
 
-  ipcMain.handle(CANAIS_PORTAL.abrir, async (evento, noId: string, url: string, alvoPedido?: string): Promise<boolean> => {
-    if (typeof noId !== 'string' || !ID_NO.test(noId)) return false
+  // dois pedidos seguidos para o mesmo cartão (ele remontou) esperam o primeiro: nunca duas abas para um cartão
+  const abrindo = new Map<string, Promise<boolean>>()
+  ipcMain.handle(CANAIS_PORTAL.abrir, (evento, noId: string, url: string, alvoPedido?: string): Promise<boolean> => {
+    if (typeof noId !== 'string' || !ID_NO.test(noId)) return Promise.resolve(false)
+    const k = chave(evento.sender.id, noId)
+    const antes = abrindo.get(k) ?? Promise.resolve(true)
+    const agora = antes.catch(() => false).then(() => abrir(evento.sender.id, noId, url, alvoPedido))
+    abrindo.set(k, agora)
+    void agora.finally(() => abrindo.get(k) === agora && abrindo.delete(k)).catch(() => undefined)
+    return agora
+  })
+
+  async function abrir(dono: number, noId: string, url: string, alvoPedido?: string): Promise<boolean> {
     const c = await garantir()
-    const dono = evento.sender.id
     const existente = abas.get(chave(dono, noId))
     if (existente) {
       // a janela recarregou ou o cartão voltou à tela: a aba continua a mesma
@@ -467,7 +555,7 @@ export function registrarNavegador(): void {
     }
     await ligarAba(c, dono, noId, alvo)
     return true
-  })
+  }
 
   ipcMain.on(CANAIS_PORTAL.tamanho, (evento, noId, largura, altura, escala) => {
     if (![largura, altura, escala].every((n) => typeof n === 'number' && Number.isFinite(n))) return
