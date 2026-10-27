@@ -73,13 +73,20 @@ export interface NoPortal extends NoBase {
   url: string
 }
 
+/** Imagem colada (print): o arquivo mora em `imagens/` do espaço. */
+export interface NoImagem extends NoBase {
+  tipo: 'imagem'
+  /** Nome do arquivo .png dentro de `imagens/` do espaço. */
+  arquivo: string
+}
+
 export interface EntradaPasta {
   nome: string
   caminho: string
   ehPasta: boolean
 }
 
-export type No = NoTerminal | NoPostIt | NoTexto | NoArquivo | NoPasta | NoPortal
+export type No = NoTerminal | NoPostIt | NoTexto | NoArquivo | NoPasta | NoPortal | NoImagem
 export type TipoNo = No['tipo']
 
 /** Ligação entre dois terminais: é a permissão de um agente falar com o outro (integração depois). */

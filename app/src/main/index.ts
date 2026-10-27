@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, Menu, session, shell } from 'electron'
 import { join } from 'node:path'
 import { CANAIS_APP } from '../shared/api'
 import { registrarAndares } from './andares'
+import { registrarArea, registrarEsquemaImagem, servirImagens } from './area'
 import { registrarDados } from './dados'
 import { encerrarTodos, registrarTerminais } from './terminais'
 import { rodarAutoteste } from './autoteste'
@@ -135,6 +136,9 @@ app.on('web-contents-created', (_evento, conteudo) => {
   })
 })
 
+// antes de o app ficar pronto: o esquema das imagens do quadro precisa ser declarado cedo
+registrarEsquemaImagem()
+
 // Sem o menu padrão do Electron: os atalhos dele (zoom da página, recarregar) brigam com os do quadro.
 Menu.setApplicationMenu(null)
 
@@ -156,6 +160,8 @@ if (!autoteste && !app.requestSingleInstanceLock()) {
     portal.setUserAgent(portal.getUserAgent().replace(/ (Electron|maestri-proprio|Maestri ?Proprio)\/\S+/gi, ''))
     registrarDados()
     registrarAndares()
+    registrarArea()
+    servirImagens()
     registrarTerminais()
     criarJanela()
   })

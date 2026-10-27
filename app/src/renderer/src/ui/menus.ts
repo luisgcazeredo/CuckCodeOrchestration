@@ -9,6 +9,7 @@ import {
   AlignVerticalSpaceAround,
   ArrowDownToLine,
   ArrowUpToLine,
+  ClipboardPaste,
   Copy,
   ExternalLink,
   FileText,
@@ -27,6 +28,7 @@ import {
   Pencil,
   Plus,
   Scan,
+  Scissors,
   SquareTerminal,
   StickyNote,
   Sun,
@@ -69,6 +71,7 @@ import {
   trazerParaFrente
 } from '../estado/loja'
 import { abrirAtalhos } from './Atalhos'
+import { colar, copiarSelecao } from './area'
 import { COR_POSTIT } from '../nos/PostIt'
 import { abrirNovoAndar, apagarAndarComConfirmacao, juntarAndar } from './acoesAndar'
 import { enquadrarTudo } from './Controles'
@@ -129,6 +132,7 @@ export function itensDoFundo(x: number, y: number): ItemMenu[] {
     { rotulo: 'Anexar arquivo…', icone: Paperclip, acao: () => void anexarArquivoEm(x, y) },
     { rotulo: 'Árvore de uma pasta…', icone: FolderTree, acao: () => void arvoreEm(x, y) },
     { rotulo: 'Portal (navegador)', icone: Globe, acao: () => portalEm(x, y) },
+    { rotulo: 'Colar aqui', icone: ClipboardPaste, atalho: 'Ctrl+V', acao: () => void colar({ x, y }) },
     separador,
     {
       rotulo: 'Andares',
@@ -196,6 +200,12 @@ export function linhaDeCoresDaSelecao(): ItemMenu {
   }
 }
 
+const itensDeCopia: ItemMenu[] = [
+  { rotulo: 'Copiar', icone: Copy, atalho: 'Ctrl+C', acao: () => void copiarSelecao() },
+  { rotulo: 'Recortar', icone: Scissors, atalho: 'Ctrl+X', acao: () => void copiarSelecao(true) },
+  { rotulo: 'Duplicar', icone: Copy, atalho: 'Ctrl+D', acao: duplicarSelecao }
+]
+
 const itemTirarDoGrupo: ItemMenu = { rotulo: 'Tirar do grupo', icone: Ungroup, acao: tirarDoGrupo }
 
 /** Menu de vários itens selecionados (ou de um grupo). */
@@ -211,7 +221,7 @@ export function itensDaSelecao(): ItemMenu[] {
   ]
   return [
     { rotulo: 'Cor', icone: Paintbrush, submenu: [linhaDeCoresDaSelecao()] },
-    { rotulo: 'Duplicar', icone: Copy, atalho: 'Ctrl+D', acao: duplicarSelecao },
+    ...itensDeCopia,
     info.umGrupo
       ? { rotulo: 'Desagrupar', icone: Ungroup, atalho: 'Ctrl+Shift+G', acao: desagrupar }
       : { rotulo: 'Agrupar', icone: Group, atalho: 'Ctrl+G', acao: agrupar },
@@ -295,7 +305,7 @@ export function itensDoNo(no: No): ItemMenu[] {
     ...especificos,
     ...(especificos.length ? [separador] : []),
     { rotulo: 'Cor', icone: Paintbrush, submenu: [linhaDeCores(no)] },
-    { rotulo: 'Duplicar', icone: Copy, atalho: 'Ctrl+D', acao: duplicarSelecao },
+    ...itensDeCopia,
     ...(no.grupo ? [itemTirarDoGrupo] : []),
     { rotulo: 'Trazer para frente', icone: ArrowUpToLine, acao: () => trazerParaFrente(no.id) },
     { rotulo: 'Enviar para trás', icone: ArrowDownToLine, acao: enviarParaTras },

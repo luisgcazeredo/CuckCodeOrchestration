@@ -19,12 +19,14 @@ import {
 } from './estado/loja'
 import { Quadro } from './quadro/Quadro'
 import { DialogoNovoAndar, VistaAndares } from './ui/Andares'
+import { colar, copiarSelecao } from './ui/area'
 import { abrirAtalhos, Atalhos } from './ui/Atalhos'
 import { BarraSelecao } from './ui/BarraSelecao'
 import { BarraFerramentas } from './ui/BarraFerramentas'
 import { BarraLateral } from './ui/BarraLateral'
 import { BotaoLateral, CantoInferior, CantoSuperior, enquadrarTudo, zoomPeloCentro } from './ui/Controles'
 import { MenuContexto, menuAberto } from './ui/MenuContexto'
+import { abrirPaleta, Paleta } from './ui/Paleta'
 import { Perguntas } from './ui/Perguntas'
 
 function digitando(): boolean {
@@ -45,6 +47,10 @@ function atalhos(e: KeyboardEvent): void {
   if (ctrl && tecla === 'd') return (e.preventDefault(), duplicarSelecao())
   if (ctrl && tecla === 'a') return (e.preventDefault(), selecionarTudo())
   if (ctrl && tecla === 'g') return (e.preventDefault(), e.shiftKey ? desagrupar() : agrupar())
+  if (ctrl && tecla === 'c') return (e.preventDefault(), void copiarSelecao())
+  if (ctrl && tecla === 'x') return (e.preventDefault(), void copiarSelecao(true))
+  if (ctrl && tecla === 'v') return (e.preventDefault(), void colar())
+  if (ctrl && tecla === 'k') return (e.preventDefault(), abrirPaleta())
   if (ctrl || e.altKey) return
   const seta: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
   if (seta[e.key]) {
@@ -103,6 +109,7 @@ export function App() {
       <DialogoNovoAndar />
       <Perguntas />
       <Atalhos />
+      <Paleta />
     </div>
   )
 }

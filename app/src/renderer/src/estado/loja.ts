@@ -624,11 +624,20 @@ export function acharNo(id: string): No | undefined {
 
 export type NovoNo =
   | { tipo: 'terminal'; preset: PresetAgente }
-  | { tipo: 'postit' }
-  | { tipo: 'texto' }
+  /** `texto`: já nasce escrito (colado); sem ele, abre para digitar. */
+  | { tipo: 'postit'; texto?: string }
+  | { tipo: 'texto'; texto?: string }
   | { tipo: 'arquivo'; caminho: string; nome: string }
   | { tipo: 'pasta'; caminho: string }
   | { tipo: 'portal'; url: string }
+  /** Imagem já gravada em `imagens/` do espaço; largura e altura em pixels da imagem. */
+  | { tipo: 'imagem'; arquivo: string; largura: number; altura: number }
+
+/** Tamanho com que uma imagem colada entra no quadro: inteira até 640 de largura (ou 480 de altura). */
+function tamanhoDaImagem(largura: number, altura: number): { largura: number; altura: number } {
+  const escala = Math.min(1, 640 / Math.max(largura, 1), 480 / Math.max(altura, 1))
+  return { largura: Math.max(40, Math.round(largura * escala)), altura: Math.max(40, Math.round(altura * escala)) }
+}
 
 /** Cria um nó com o centro em (x, y) do quadro e já o seleciona. */
 export function adicionarNo(novo: NovoNo, x: number, y: number): string {
@@ -653,11 +662,16 @@ export function adicionarNo(novo: NovoNo, x: number, y: number): string {
     }
     case 'postit':
       no = { ...base, ...centrado(260, 160), tipo: 'postit', arquivo: `${base.id}.md`, cor: estado.preferencias.corPostItPadrao }
-      definir({ notas: { ...estado.notas, [no.arquivo]: '' } })
+      definir({ notas: { ...estado.notas, [no.arquivo]: novo.texto ?? '' } })
       break
     case 'texto':
-      no = { ...base, ...centrado(240, 48), tipo: 'texto', texto: '', tamanhoFonte: 24, mono: false }
+      no = { ...base, ...centrado(novo.texto ? 420 : 240, 48), tipo: 'texto', texto: novo.texto ?? '', tamanhoFonte: 24, mono: false }
       break
+    case 'imagem': {
+      const { largura, altura } = tamanhoDaImagem(novo.largura, novo.altura)
+      no = { ...base, ...centrado(largura, altura), tipo: 'imagem', arquivo: novo.arquivo }
+      break
+    }
     case 'arquivo':
       no = { ...base, ...centrado(180, 140), tipo: 'arquivo', caminho: novo.caminho, nomeExibido: novo.nome }
       break
@@ -671,7 +685,7 @@ export function adicionarNo(novo: NovoNo, x: number, y: number): string {
   mudarPlano((p) => ({ ...p, nos: [...p.nos, no] }), false)
   definir({
     selecao: { ...NADA, nos: [no.id] },
-    editando: no.tipo === 'postit' || no.tipo === 'texto' ? no.id : null,
+    editando: (novo.tipo === 'postit' || novo.tipo === 'texto') && !novo.texto ? no.id : null,
     ferramenta: 'selecionar'
   })
   return no.id

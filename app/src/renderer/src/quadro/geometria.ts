@@ -19,6 +19,17 @@ export const definirViewport = (largura: number, altura: number): void => {
 }
 export const lerViewport = (): { largura: number; altura: number } => viewport
 
+// Onde o mouse está sobre o quadro (na tela), para colar ali; null com o mouse fora do quadro.
+let mouse: Ponto | null = null
+export const definirMouse = (p: Ponto | null): void => {
+  mouse = p
+}
+
+/** Ponto do quadro onde colar: embaixo do mouse, ou no meio da tela. */
+export function pontoParaColar(camera: Camera): Ponto {
+  return mouse ? telaParaQuadro(mouse, camera) : centroDaTela(camera)
+}
+
 export function telaParaQuadro(p: Ponto, camera: Camera): Ponto {
   return { x: (p.x - camera.x) / camera.zoom, y: (p.y - camera.y) / camera.zoom }
 }

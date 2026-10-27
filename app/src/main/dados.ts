@@ -35,6 +35,7 @@ const PASTA_ESPACOS = join(RAIZ, 'espacos')
 
 const ID_VALIDO = /^[0-9a-f-]{36}$/
 const NOTA_VALIDA = /^[\w-]{1,80}\.md$/
+export const IMAGEM_VALIDA = /^[0-9a-f-]{36}\.png$/
 
 function lerJson<T>(caminho: string, padrao: T): T {
   try {
@@ -58,6 +59,21 @@ function gravarJson(caminho: string, valor: unknown): void {
 function pastaDoEspaco(id: string): string {
   if (!ID_VALIDO.test(id)) throw new Error('id de espaço inválido')
   return join(PASTA_ESPACOS, id)
+}
+
+/** Prints colados no quadro (`mp-imagem://`), um .png por imagem. */
+export function pastaImagens(espacoId: string): string {
+  return join(pastaDoEspaco(espacoId), 'imagens')
+}
+
+/** Apaga as imagens que nenhum cartão (do térreo ou de andar) usa mais. Roda ao abrir o espaço. */
+function limparImagens(espaco: Espaco): void {
+  const pasta = pastaImagens(espaco.id)
+  if (!existsSync(pasta)) return
+  const usadas = new Set(planos(espaco).flatMap((p) => p.nos.flatMap((n) => (n.tipo === 'imagem' ? [n.arquivo] : []))))
+  for (const arquivo of readdirSync(pasta)) {
+    if (IMAGEM_VALIDA.test(arquivo) && !usadas.has(arquivo)) rmSync(join(pasta, arquivo), { force: true })
+  }
 }
 
 /** Todos os planos do espaço: o térreo e cada andar. */
@@ -192,7 +208,7 @@ function dentroDeUmaArvore(caminho: string): boolean {
   })
 }
 
-const TIPOS_DE_NO = new Set(['terminal', 'postit', 'texto', 'arquivo', 'pasta', 'portal'])
+const TIPOS_DE_NO = new Set(['terminal', 'postit', 'texto', 'arquivo', 'pasta', 'portal', 'imagem'])
 const LIMITE_JSON = 20 * 1024 * 1024
 
 function planoValido(p: Plano): boolean {
@@ -207,6 +223,7 @@ function planoValido(p: Plano): boolean {
         typeof n.id === 'string' &&
         [n.x, n.y, n.largura, n.altura, n.z].every(Number.isFinite) &&
         (n.tipo !== 'postit' || NOTA_VALIDA.test(n.arquivo)) &&
+        (n.tipo !== 'imagem' || IMAGEM_VALIDA.test(n.arquivo)) &&
         (n.tipo !== 'pasta' || typeof n.caminho === 'string') &&
         (n.tipo !== 'portal' || /^https?:\/\//.test(n.url))
     )
@@ -261,6 +278,7 @@ export function registrarDados(): void {
   ipcMain.handle(CANAIS_DADOS.carregarEspaco, (_e, id: string): EspacoCarregado | null => {
     const espaco = lerEspaco(id)
     if (!espaco) return null
+    limparImagens(espaco)
     const pastaNotas = join(pastaDoEspaco(id), 'notas')
     const notas: Record<string, string> = {}
     for (const no of planos(espaco).flatMap((p) => p.nos)) {

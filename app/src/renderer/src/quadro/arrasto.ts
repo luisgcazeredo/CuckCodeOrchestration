@@ -13,7 +13,8 @@ const MINIMO = {
   texto: { largura: 60, altura: 32 },
   arquivo: { largura: 120, altura: 100 },
   pasta: { largura: 200, altura: 160 },
-  portal: { largura: 320, altura: 220 }
+  portal: { largura: 320, altura: 220 },
+  imagem: { largura: 40, altura: 40 }
 } as const
 
 /** Quanto o mouse anda antes de um clique virar arrasto. */
@@ -140,6 +141,8 @@ function passo(): void {
       largura: Math.round(Math.max(minimo.largura, no.largura + dx)),
       altura: Math.round(Math.max(minimo.altura, no.altura + dy))
     }
+    // imagem não deforma: a altura acompanha a largura
+    if (no.tipo === 'imagem') mudanca.altura = Math.round((mudanca.largura * no.altura) / no.largura)
     const agoraNo = planoAtual()?.nos.find((n) => n.id === no.id)
     if (agoraNo && (agoraNo.largura !== mudanca.largura || agoraNo.altura !== mudanca.altura)) atualizarNo(no.id, mudanca, g.chave)
   }

@@ -3,8 +3,10 @@ import {
   CANAIS,
   CANAIS_ANDARES,
   CANAIS_APP,
+  CANAIS_AREA,
   CANAIS_DADOS,
   type ApiAndares,
+  type ApiArea,
   type ApiDados,
   type ApiMaestri
 } from '../shared/api'
@@ -18,6 +20,7 @@ function chamadas<T>(canais: Record<string, string>): T {
 
 const dados = chamadas<ApiDados>(CANAIS_DADOS)
 const andares = chamadas<ApiAndares>(CANAIS_ANDARES)
+const area = chamadas<ApiArea>(CANAIS_AREA)
 
 // Um ouvinte de IPC por canal, repassando só para o cartão daquele terminal:
 // com muitos terminais, a saída de um não acorda os outros.
@@ -49,6 +52,7 @@ const api: ApiMaestri = {
   },
   dados,
   andares,
+  area,
   aoPedirFechar: (salvar) => {
     ipcRenderer.on(CANAIS_APP.vaiFechar, async () => {
       const gravou = await salvar().catch(() => false)

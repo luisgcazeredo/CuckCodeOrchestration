@@ -1,4 +1,4 @@
-import { app, type BrowserWindow } from 'electron'
+import { app, clipboard, ClipboardItem, type BrowserWindow } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -447,6 +447,103 @@ export async function rodarAutoteste(
     await print('selecao-atalhos')
     await teclar('Escape')
     conferir('tecla ? abre os atalhos', folha)
+
+    // ---- copiar e colar (Ctrl+C / Ctrl+V), print, texto e marca falsa ----
+    const guardada = await clipboard.read().catch(() => [])
+    try {
+      const plano = (): Promise<{ nos: Array<{ id: string; tipo: string; arquivo?: string; texto?: string }> }> =>
+        js('window.__teste.loja.planoAtual()')
+      const notaDe = (arquivo: string): Promise<string> => js(`window.__teste.loja.lerEstado().notas[${JSON.stringify(arquivo)}] ?? ''`)
+      const original = await js<string>(`(() => { const L = window.__teste.loja
+        const id = L.adicionarNo({ tipo: 'postit', texto: 'cartão copiado' }, 300, 1000); L.selecionar(null); return id })()`)
+      await clicar(vazio)
+      await js(`window.__teste.loja.definirCamera({ x: 0, y: -700, zoom: 1 })`)
+      await clicar(tela2(300, 300))
+      await tecla('C')
+      await esperar(200)
+      tela.sendInputEvent({ type: 'mouseMove', x: quadro.esquerda + 700, y: quadro.topo + 300 })
+      await esperar(100)
+      const antesDeColar = (await plano()).nos.length
+      await tecla('V')
+      await esperar(400)
+      const depois = await plano()
+      const colado = depois.nos.find((n) => n.tipo === 'postit' && n.id !== original && !Object.values(ab).includes(n.id))
+      const textoColado = colado?.arquivo ? await notaDe(colado.arquivo) : ''
+      const arquivoOriginal = depois.nos.find((n) => n.id === original)?.arquivo
+      conferir(
+        'copiar e colar cartão (Ctrl+C, Ctrl+V)',
+        depois.nos.length === antesDeColar + 1 && textoColado === 'cartão copiado' && colado?.arquivo !== arquivoOriginal,
+        `${antesDeColar} → ${depois.nos.length} · "${textoColado}"`
+      )
+      // print: a imagem vira cartão e aparece de verdade (esquema mp-imagem e CSP)
+      const print = (await tela.capturePage({ x: 0, y: 0, width: 240, height: 140 })).toPNG()
+      await clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(print)], { type: 'image/png' }) })])
+      await tecla('V')
+      let imagem: { id: string; arquivo: string } | null = null
+      let carregou = 0
+      for (let i = 0; i < 30 && !carregou; i++) {
+        await esperar(100)
+        imagem = await js(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'imagem') ?? null`)
+        carregou = imagem ? await js<number>(`document.querySelector('[data-no-id="${imagem.id}"] img')?.naturalWidth ?? 0`) : 0
+      }
+      const espacoAtual = await js<string>('window.__teste.loja.lerEstado().espaco.id')
+      const arquivoImagem = imagem ? join(PASTA_DADOS, 'espacos', espacoAtual, 'imagens', imagem.arquivo) : ''
+      conferir('colar print vira imagem no quadro', !!imagem && existsSync(arquivoImagem) && carregou > 0, imagem ? `${carregou} px de largura` : 'não colou')
+      // texto comum vira texto no quadro
+      await clipboard.writeText('texto colado')
+      await tecla('V')
+      await esperar(300)
+      conferir('colar texto vira cartão de texto', (await plano()).nos.some((n) => n.tipo === 'texto' && n.texto === 'texto colado'))
+      // marca do app com assinatura errada (o que um site poderia tentar): vira texto, nunca cartão
+      const falsa = Buffer.from(JSON.stringify({ espacoOrigem: espacoAtual, json: '{"nos":[],"desenhos":[],"cordas":[],"notas":{}}' })).toString('base64')
+      await clipboard.write([
+        new ClipboardItem({ 'text/plain': 'marca falsa', 'text/html': `<span data-maestri-proprio="${falsa}.${'0'.repeat(64)}"></span>` })
+      ])
+      await tecla('V')
+      await esperar(300)
+      conferir('cópia sem a assinatura do app vira só texto', (await plano()).nos.some((n) => n.tipo === 'texto' && n.texto === 'marca falsa'))
+      // imagem apagada some do disco quando o espaço é aberto de novo
+      if (imagem) {
+        await js(`(() => { const L = window.__teste.loja; L.apagar({ tipo: 'no', id: '${imagem.id}' }) })()`)
+        await js('window.__teste.loja.salvarAgora()')
+        const outro = await js<string>(`(async () => { const L = window.__teste.loja; const atual = L.lerEstado().espaco.id
+          await L.criarEspaco('Outro espaço', ${JSON.stringify(tmpdir())}); const outro = L.lerEstado().espaco.id
+          await L.abrirEspaco(atual); return outro })()`)
+        conferir('imagem apagada sai do disco ao reabrir', !existsSync(arquivoImagem), arquivoImagem.split(/[\\/]/).pop() ?? '')
+        // e colar em outro espaço: o cartão chega com o texto
+        await js(`(() => { const L = window.__teste.loja; L.selecionar({ tipo: 'no', id: '${original}' }) })()`)
+        await tecla('C')
+        await esperar(200)
+        await js(`window.__teste.loja.abrirEspaco('${outro}')`)
+        await esperar(300)
+        await clicar(vazio)
+        await tecla('V')
+        await esperar(400)
+        const noOutro = await plano()
+        const chegou = noOutro.nos.find((n) => n.tipo === 'postit')
+        conferir('colar em outro espaço', !!chegou?.arquivo && (await notaDe(chegou.arquivo)) === 'cartão copiado', `${noOutro.nos.length} cartões lá`)
+        await js(`window.__teste.loja.abrirEspaco('${espacoAtual}')`)
+        await esperar(300)
+      }
+    } finally {
+      if (guardada.length) await clipboard.write(guardada).catch(() => undefined)
+    }
+
+    // ---- Ctrl+K: achar o cartão pelo nome e ir até ele ----
+    await js(`(() => { const L = window.__teste.loja; L.irParaAndar(L.lerEstado().espaco.andares.find((a) => a.nome === 'Seleção').id)
+      const id = L.adicionarNo({ tipo: 'postit', texto: '# Plano de lançamento' }, 5000, 5000); window.__alvoBusca = id
+      L.selecionar(null); L.definirCamera({ x: 0, y: 0, zoom: 1 }) })()`)
+    await clicar(vazio)
+    await tecla('K')
+    const paleta = await js<boolean>(`!!document.querySelector('.paleta')`)
+    await digitar('lancamento')
+    await teclar('Enter')
+    await esperar(200)
+    const alvoBusca = await js<string>('window.__alvoBusca')
+    const achou = await js<{ sel: string[]; naTela: boolean }>(`(() => { const L = window.__teste.loja
+      const r = document.querySelector('[data-no-id="${alvoBusca}"]')?.getBoundingClientRect(); const q = document.querySelector('.quadro').getBoundingClientRect()
+      return { sel: L.lerEstado().selecao.nos, naTela: !!r && r.left >= q.left && r.right <= q.right && r.top >= q.top && r.bottom <= q.bottom } })()`)
+    conferir('Ctrl+K acha o cartão e vai até ele', paleta && achou.sel[0] === alvoBusca && achou.naTela, `paleta ${paleta ? 'abriu' : 'NÃO abriu'} · na tela: ${achou.naTela}`)
     await js('window.__teste.loja.irParaAndar(null)')
 
     // ---- andar sem git: quadro separado do térreo ----

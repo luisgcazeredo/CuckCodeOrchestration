@@ -57,10 +57,29 @@ export interface ApiAndares {
   apagar(espacoId: string, andarId: string, apagarRamo: boolean, forcar: boolean): Promise<ResultadoGit>
 }
 
+/** O que estava na área de transferência, já interpretado pelo processo principal. */
+export type ConteudoArea =
+  /** Cartões copiados neste app (a assinatura confere). */
+  | { tipo: 'fragmento'; json: string; espacoOrigem: string }
+  /** Imagem (print), já gravada como arquivo do espaço. */
+  | { tipo: 'imagem'; arquivo: string; largura: number; altura: number }
+  | { tipo: 'texto'; texto: string }
+  | { tipo: 'nada' }
+
+export interface ApiArea {
+  /** Copia cartões (JSON assinado pelo app), com um texto simples para quem colar fora do app. */
+  copiar(json: string, espacoOrigem: string, texto: string): Promise<void>
+  /** Lê a área de transferência. Uma imagem é gravada em `imagens/` do espaço `espacoId`. */
+  colar(espacoId: string): Promise<ConteudoArea>
+  /** Copia uma imagem de outro espaço para este e devolve o nome novo (null se ela não existe mais). */
+  trazerImagem(deEspaco: string, arquivo: string, paraEspaco: string): Promise<string | null>
+}
+
 export interface ApiMaestri {
   terminal: ApiTerminal
   dados: ApiDados
   andares: ApiAndares
+  area: ApiArea
   /** Chamado quando a janela vai fechar; `salvar` diz se gravou. Se não gravou, o app pergunta antes de fechar. */
   aoPedirFechar(salvar: () => Promise<boolean>): void
   autoteste: boolean
@@ -95,6 +114,12 @@ export const CANAIS_DADOS = {
   listarPasta: 'dados:listar-pasta',
   apagarEspaco: 'dados:apagar-espaco',
   mostrarNoExplorer: 'dados:mostrar-no-explorer'
+} as const
+
+export const CANAIS_AREA = {
+  copiar: 'area:copiar',
+  colar: 'area:colar',
+  trazerImagem: 'area:trazer-imagem'
 } as const
 
 export const CANAIS_ANDARES = {
