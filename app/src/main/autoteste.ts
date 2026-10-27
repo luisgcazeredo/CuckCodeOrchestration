@@ -5,7 +5,7 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PASTA_DADOS } from './dados'
-import { encerrarNavegador } from './navegador'
+import { encerrarNavegador, janelasNaBarra } from './navegador'
 
 // `npm run autoteste`: monta um quadro de exemplo numa pasta de dados temporária, tira print nos dois
 // temas, usa o mouse como um usuário (arrastar terminal, ligar dois terminais pela porta), recarrega e
@@ -196,6 +196,17 @@ export async function rodarAutoteste(
     const endereco = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'portal')?.url ?? ''`)
     await esperar(500)
     conferir('portal abre um site no Chrome do app', paginaNaTela > 0 && endereco.includes('example.com'), `${endereco} · imagem ${paginaNaTela} px`)
+    // as janelas do Chrome do app (fora da tela) não podem aparecer na barra de tarefas
+    let naTarefas = { total: -1, naBarra: -1 }
+    for (let i = 0; i < 40 && !(naTarefas.total >= 2 && naTarefas.naBarra === 0); i++) {
+      await esperar(250)
+      naTarefas = await janelasNaBarra()
+    }
+    conferir(
+      'Chrome do app fora da barra de tarefas',
+      naTarefas.total >= 2 && naTarefas.naBarra === 0,
+      `${naTarefas.total} janelas do Chrome do app, ${naTarefas.naBarra} ainda na barra`
+    )
     // os dois cartões novos estão na tela (independe de o zoom ter mudado no meio do teste)
     const naTela = await js<boolean>(`(() => { const q = document.querySelector('.quadro').getBoundingClientRect();
       return ['.no-pasta', '.no-portal'].every((s) => { const r = document.querySelector(s).getBoundingClientRect();

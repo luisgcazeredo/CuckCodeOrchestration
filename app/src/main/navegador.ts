@@ -202,6 +202,7 @@ async function conectar(): Promise<Conexao> {
       await c.enviar('Browser.getVersion')
       await c.enviar('Target.setDiscoverTargets', { discover: true })
       estabelecida = true
+      arrumarBarra()
       return c
     } catch {
       // não respondeu: quase sempre um Chrome antigo com o mesmo perfil, que ficou aberto
@@ -218,6 +219,131 @@ function garantir(): Promise<Conexao> {
     conexao.catch(() => (conexao = null))
   }
   return conexao
+}
+
+// ---------- barra de tarefas ----------
+
+// As janelas do Chrome do app ficam fora da tela, mas o Windows mostraria um botão de cada uma na barra de
+// tarefas. Um ajudante (PowerShell que fica aberto, sem janela) marca as janelas fora da tela como "janela de
+// ferramenta", que não aparece na barra nem no Alt+Tab; a que estiver na tela (login) volta ao normal.
+
+const SCRIPT_BARRA = `
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class BarraMP {
+  delegate bool Cada(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(Cada f, IntPtr l);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out Ret r);
+  [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr h, uint c);
+  [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] static extern IntPtr Ler(IntPtr h, int i);
+  [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] static extern IntPtr Gravar(IntPtr h, int i, IntPtr v);
+  [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int c);
+  public struct Ret { public int Esq, Topo, Dir, Base; }
+  const long FERRAMENTA = 0x80, APLICATIVO = 0x40000;
+  static int Passar(uint alvo, bool mudar, bool todas) {
+    int n = 0;
+    EnumWindows((h, l) => {
+      uint pid;
+      GetWindowThreadProcessId(h, out pid);
+      if (pid != alvo || !IsWindowVisible(h) || GetWindow(h, 4) != IntPtr.Zero) return true;
+      var c = new StringBuilder(64);
+      GetClassName(h, c, 64);
+      if (c.ToString() != "Chrome_WidgetWin_1") return true;
+      Ret r;
+      GetWindowRect(h, out r);
+      bool fora = r.Esq < -10000;
+      if (todas) { n++; return true; }
+      long ex = Ler(h, -20).ToInt64();
+      long novo = fora ? ((ex | FERRAMENTA) & ~APLICATIVO) : (ex & ~FERRAMENTA);
+      if (novo == ex) return true;
+      n++;
+      if (mudar) {
+        ShowWindow(h, 0);
+        Gravar(h, -20, new IntPtr(novo));
+        ShowWindow(h, 4);
+      }
+      return true;
+    }, IntPtr.Zero);
+    return n;
+  }
+  public static int Ajustar(uint alvo) { return Passar(alvo, true, false); }
+  public static int Contar(uint alvo) { return Passar(alvo, false, false); }
+  public static int Total(uint alvo) { return Passar(alvo, false, true); }
+}
+'@
+while ($null -ne ($linha = [Console]::In.ReadLine())) {
+  $p = $linha.Split(' ')
+  if ($p[0] -eq 'a') { [void][BarraMP]::Ajustar([uint32]$p[1]) }
+  elseif ($p[0] -eq 'c') { [Console]::Out.WriteLine([BarraMP]::Contar([uint32]$p[1])); [Console]::Out.Flush() }
+  elseif ($p[0] -eq 't') { [Console]::Out.WriteLine([BarraMP]::Total([uint32]$p[1])); [Console]::Out.Flush() }
+}
+`
+
+let ajudante: ChildProcess | null = null
+let respostas: Array<(linha: string) => void> = []
+
+function ajudanteBarra(): ChildProcess | null {
+  if (process.platform !== 'win32') return null
+  if (ajudante && ajudante.exitCode === null && !ajudante.killed) return ajudante
+  const filho = spawn(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(SCRIPT_BARRA, 'utf16le').toString('base64')],
+    { stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true }
+  )
+  let resto = ''
+  filho.stdout!.on('data', (d: Buffer) => {
+    resto += d.toString('utf8')
+    let fim: number
+    while ((fim = resto.indexOf('\n')) >= 0) {
+      const linha = resto.slice(0, fim).trim()
+      resto = resto.slice(fim + 1)
+      respostas.shift()?.(linha)
+    }
+  })
+  filho.on('exit', () => {
+    if (ajudante === filho) ajudante = null
+    respostas.forEach((r) => r('-1'))
+    respostas = []
+  })
+  filho.stdin!.on('error', () => undefined)
+  ajudante = filho
+  return filho
+}
+
+let esperaBarra: ReturnType<typeof setTimeout> | undefined
+let segundaPassada: ReturnType<typeof setTimeout> | undefined
+
+/** Depois de criar, mover ou mostrar janelas do Chrome do app: arruma a barra de tarefas (e confere de novo logo depois). */
+function arrumarBarra(): void {
+  clearTimeout(esperaBarra)
+  clearTimeout(segundaPassada)
+  const passar = (): void => {
+    const pid = processo?.pid
+    if (pid) ajudanteBarra()?.stdin!.write(`a ${pid}\n`)
+  }
+  esperaBarra = setTimeout(passar, 200)
+  segundaPassada = setTimeout(passar, 1500)
+}
+
+function perguntarAjudante(comando: 'c' | 't'): Promise<number> {
+  const pid = processo?.pid
+  const h = ajudanteBarra()
+  if (!pid || !h) return Promise.resolve(-1)
+  return new Promise((resolver) => {
+    respostas.push((linha) => resolver(Number(linha)))
+    h.stdin!.write(`${comando} ${pid}\n`)
+  })
+}
+
+/** Para o autoteste: janelas do Chrome do app que o ajudante enxerga, e quantas delas ainda estão na barra. */
+export async function janelasNaBarra(): Promise<{ total: number; naBarra: number }> {
+  return { total: await perguntarAjudante('t'), naBarra: await perguntarAjudante('c') }
 }
 
 // ---------- abas (uma por cartão) ----------
@@ -295,6 +421,7 @@ async function posicionar(c: Conexao, janela: number, naTela: boolean): Promise<
     ? { left: 120, top: 80, width: 1280, height: 860, windowState: 'normal' }
     : { left: FORA_DA_TELA, top: FORA_DA_TELA, width: 1280, height: 800, windowState: 'normal' }
   await c.enviar('Browser.setWindowBounds', { windowId: janela, bounds }).catch(() => undefined)
+  arrumarBarra()
 }
 
 /** A janela do app que pediu ainda existe? (pode ter fechado enquanto o Chrome respondia) */
@@ -456,6 +583,7 @@ export function soltarAbasDaJanela(dono: number): void {
 
 /** Ao sair do app: fecha o Chrome do app direito (sem o aviso de "não foi fechado corretamente"). */
 export async function encerrarNavegador(): Promise<void> {
+  ajudante?.kill()
   if (!conexao || !processo) return
   try {
     const c = await conexao
