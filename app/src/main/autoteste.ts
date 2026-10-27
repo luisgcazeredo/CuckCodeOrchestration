@@ -1,4 +1,4 @@
-import { app, clipboard, ClipboardItem, type BrowserWindow } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -545,6 +545,48 @@ export async function rodarAutoteste(
       return { sel: L.lerEstado().selecao.nos, naTela: !!r && r.left >= q.left && r.right <= q.right && r.top >= q.top && r.bottom <= q.bottom } })()`)
     conferir('Ctrl+K acha o cartão e vai até ele', paleta && achou.sel[0] === alvoBusca && achou.naTela, `paleta ${paleta ? 'abriu' : 'NÃO abriu'} · na tela: ${achou.naTela}`)
     await js('window.__teste.loja.irParaAndar(null)')
+
+    // ---- várias janelas: outro espaço numa janela nova; um espaço nunca fica aberto em duas ----
+    const meuEspaco = await js<string>('window.__teste.loja.lerEstado().espaco.id')
+    const outroEspaco = await js<string | undefined>(
+      `window.__teste.loja.lerEstado().espacos.find((e) => e.nome === 'Outro espaço')?.id`
+    )
+    if (!outroEspaco) throw new Error('o espaço "Outro espaço" do teste de colar não existe')
+    await js(`window.mp.janelas.nova('${outroEspaco}')`)
+    let segunda: BrowserWindow | undefined
+    let segundaPronta = false
+    for (let i = 0; i < 100 && !segundaPronta; i++) {
+      await esperar(100)
+      segunda = BrowserWindow.getAllWindows().find((j) => j !== janela && !j.isDestroyed())
+      segundaPronta = !!segunda && !segunda.webContents.isLoading() &&
+        (await segunda.webContents
+          .executeJavaScript(`window.__teste?.loja.lerEstado().espaco?.id === '${outroEspaco}'`)
+          .catch(() => false))
+    }
+    const tituloSegunda = segunda ? segunda.webContents.getTitle() : ''
+    conferir('Ctrl+Shift+N: outro espaço numa janela nova', segundaPronta && tituloSegunda.startsWith('Outro espaço'), tituloSegunda || 'a janela não abriu')
+    // a primeira janela não consegue abrir nem gravar o espaço que está na segunda
+    await js(`window.__teste.loja.abrirEspaco('${outroEspaco}')`)
+    const continuaNoMeu = (await js<string>('window.__teste.loja.lerEstado().espaco.id')) === meuEspaco
+    const sabeDaOutra = await js<boolean>(`window.__teste.loja.lerEstado().emOutrasJanelas.includes('${outroEspaco}')`)
+    const gravacao = await js<string>(`window.mp.dados.carregarEspaco('${outroEspaco}')
+      .then((c) => window.mp.dados.salvarEspaco(c)).then(() => 'GRAVOU', () => 'recusado')`)
+    conferir(
+      'espaço aberto em outra janela fica com ela',
+      continuaNoMeu && sabeDaOutra && gravacao === 'recusado',
+      `continua no seu: ${continuaNoMeu} · sabe da outra: ${sabeDaOutra} · gravar de fora: ${gravacao}`
+    )
+    // fechou a segunda: o espaço fica livre para a primeira
+    if (segunda) {
+      segunda.close()
+      for (let i = 0; i < 50 && !segunda.isDestroyed(); i++) await esperar(100)
+    }
+    await esperar(200)
+    await js(`window.__teste.loja.abrirEspaco('${outroEspaco}')`)
+    const abriuDepois = (await js<string>('window.__teste.loja.lerEstado().espaco.id')) === outroEspaco
+    conferir('fechar a janela solta o espaço', abriuDepois)
+    await js(`window.__teste.loja.abrirEspaco('${meuEspaco}')`)
+    janela.focus()
 
     // ---- andar sem git: quadro separado do térreo ----
     const noTerreo = await contarPlano()

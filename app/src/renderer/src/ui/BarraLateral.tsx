@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Folder, FolderOpen, GitBranch, Layers, Plus, Search, SquareTerminal } from 'lucide-react'
+import { AppWindow, Folder, FolderOpen, GitBranch, Layers, Plus, Search, SquareTerminal } from 'lucide-react'
 import type { ResumoEspaco } from '../../../shared/modelo'
-import { abrirEspaco, criarEspaco, lerEstado, renomearEspaco, usarLoja } from '../estado/loja'
+import { abrirEspaco, abrirNovaJanela, criarEspaco, lerEstado, renomearEspaco, usarLoja } from '../estado/loja'
 import { COR_ESTADO } from './Andares'
 import { Dialogo } from './Dialogo'
 import { abrirMenu } from './MenuContexto'
@@ -43,6 +43,7 @@ function NovoEspaco({ aoFechar }: { aoFechar: () => void }) {
 export function BarraLateral() {
   const espacos = usarLoja((e) => e.espacos)
   const espacoAberto = usarLoja((e) => e.espaco)
+  const emOutras = usarLoja((e) => e.emOutrasJanelas)
   const [filtro, setFiltro] = useState('')
   const [criando, setCriando] = useState(false)
   const [renomeando, setRenomeando] = useState<string | null>(null)
@@ -66,6 +67,9 @@ export function BarraLateral() {
           <Search size={15} />
           <input placeholder="Filtrar" value={filtro} onChange={(e) => setFiltro(e.target.value)} />
         </div>
+        <button className="botao-icone" title="Nova janela, para outro espaço ao mesmo tempo (Ctrl+Shift+N)" onClick={() => abrirNovaJanela()}>
+          <AppWindow size={17} />
+        </button>
         <button className="botao-icone" title="Novo espaço de trabalho" onClick={() => setCriando(true)}>
           <Plus size={18} />
         </button>
@@ -74,11 +78,13 @@ export function BarraLateral() {
       <ul className="lista-espacos">
         {visiveis.map((e) => {
           const ativo = e.id === espacoAberto?.id
+          const fora = emOutras.includes(e.id)
           return (
             <li key={e.id} className="grupo-espaco">
               <div
-                className={`linha-espaco ${ativo && !espacoAberto?.andarAtivo ? 'ativo' : ''} ${ativo ? 'aberto' : ''}`}
-                title={e.pasta}
+                className={`linha-espaco ${ativo && !espacoAberto?.andarAtivo ? 'ativo' : ''} ${ativo ? 'aberto' : ''} ${fora ? 'em-outra-janela' : ''}`}
+                title={fora ? `${e.pasta}
+Aberto em outra janela: clique para ir até ela` : e.pasta}
                 onClick={() => void abrirEspaco(e.id, null)}
                 onDoubleClick={() => setRenomeando(e.id)}
                 onContextMenu={(ev) => {
@@ -105,6 +111,7 @@ export function BarraLateral() {
                 ) : (
                   <span className="espaco-nome">{e.nome}</span>
                 )}
+                {fora && <AppWindow size={13} className="selo-janela" />}
                 {e.terminais > 0 && (
                   <span className="selo" title={`${e.terminais} terminais`}>
                     <SquareTerminal size={12} />

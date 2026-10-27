@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import {
+  AppWindow,
   ClipboardPaste,
   FolderTree,
   Folder,
@@ -22,6 +23,7 @@ import {
 import type { No } from '../../../shared/modelo'
 import {
   abrirEspaco,
+  abrirNovaJanela,
   adicionarNo,
   alternarMiniMapa,
   definirCamera,
@@ -120,7 +122,7 @@ function irAteCartao(no: No): void {
 }
 
 function montarItens(): Item[] {
-  const { espaco, espacos, notas, preferencias, miniMapa } = lerEstado()
+  const { espaco, espacos, notas, preferencias, miniMapa, emOutrasJanelas } = lerEstado()
   const plano = planoAtual()
   if (!espaco || !plano) return []
   const centro = (): { x: number; y: number } => centroDaTela(planoAtual()!.camera)
@@ -144,6 +146,7 @@ function montarItens(): Item[] {
     criar('Árvore de uma pasta…', FolderTree, (x, y) => void arvoreEm(x, y)),
     criar('Colar', ClipboardPaste, (x, y) => void colar({ x, y })),
     { rotulo: 'Novo andar…', grupo: 'Comando', icone: Plus, acao: abrirNovoAndar },
+    { rotulo: 'Nova janela', grupo: 'Comando', icone: AppWindow, detalhe: 'Ctrl+Shift+N', acao: () => abrirNovaJanela() },
     { rotulo: 'Ver tudo', grupo: 'Comando', icone: Scan, detalhe: 'Ctrl+1', acao: enquadrarTudo },
     { rotulo: 'Selecionar tudo', grupo: 'Comando', icone: Scan, detalhe: 'Ctrl+A', acao: selecionarTudo },
     { rotulo: miniMapa ? 'Esconder mini-mapa' : 'Mostrar mini-mapa', grupo: 'Comando', icone: IconeMapa, acao: alternarMiniMapa },
@@ -167,7 +170,15 @@ function montarItens(): Item[] {
       : []),
     ...espacos
       .filter((r) => r.id !== espaco.id)
-      .map((r): Item => ({ rotulo: r.nome, grupo: 'Espaço', icone: Folder, acao: () => void abrirEspaco(r.id) }))
+      .map(
+        (r): Item => ({
+          rotulo: r.nome,
+          grupo: 'Espaço',
+          icone: emOutrasJanelas.includes(r.id) ? AppWindow : Folder,
+          detalhe: emOutrasJanelas.includes(r.id) ? 'outra janela' : undefined,
+          acao: () => void abrirEspaco(r.id)
+        })
+      )
   ]
 }
 

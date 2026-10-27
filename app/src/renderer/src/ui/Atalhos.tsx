@@ -39,6 +39,7 @@ const SECOES: Array<[string, Array<[string, string]>]> = [
       ['Ctrl + Shift + G', 'Desagrupa'],
       ['Clique de novo num grupo', 'Pega só aquele item, sem desagrupar'],
       ['Ctrl + D', 'Duplica'],
+      ['Ctrl + C / X / V', 'Copia, recorta e cola (também entre espaços e janelas; print vira imagem)'],
       ['Setas (Shift: 10 px)', 'Empurra a seleção'],
       ['Alt ao arrastar', 'Solta o ímã das guias'],
       ['Delete', 'Apaga']
@@ -52,6 +53,8 @@ const SECOES: Array<[string, Array<[string, string]>]> = [
       ['Roda / Ctrl + roda', 'Rola / zoom'],
       ['Ctrl + − / + / 0', 'Zoom: menos, mais, 100%'],
       ['Ctrl + 1', 'Ver tudo'],
+      ['Ctrl + K', 'Busca: cartão, andar, espaço ou comando'],
+      ['Ctrl + Shift + N', 'Nova janela (outro espaço ao mesmo tempo)'],
       ['?', 'Esta folha']
     ]
   ]

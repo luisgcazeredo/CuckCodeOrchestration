@@ -45,6 +45,8 @@ export interface ApiDados {
   apagarEspaco(id: string): Promise<void>
   /** Mostra no Explorer: pasta de espaço ou de andar, arquivo anexado, ou algo dentro de uma árvore do quadro. */
   mostrarNoExplorer(caminho: string): Promise<string>
+  /** Renomeia um espaço que não está aberto nesta janela (se estiver em outra, ela é que renomeia). */
+  renomearEspaco(id: string, nome: string): Promise<void>
 }
 
 export interface ApiAndares {
@@ -75,11 +77,35 @@ export interface ApiArea {
   trazerImagem(deEspaco: string, arquivo: string, paraEspaco: string): Promise<string | null>
 }
 
+/** Avisos que o processo principal manda para cada janela. */
+export type AvisoJanelas =
+  /** Espaços foram criados ou apagados: ler a lista de novo. */
+  | { tipo: 'lista' }
+  /** Um espaço mudou (salvo ou renomeado em outra janela). */
+  | { tipo: 'resumo'; resumo: ResumoEspaco }
+  /** Espaços abertos nas outras janelas. */
+  | { tipo: 'abertos'; ids: string[] }
+  /** Outra janela pediu para renomear o espaço que esta mostra. */
+  | { tipo: 'renomear'; espacoId: string; nome: string }
+  /** Tema ou outra preferência mudou em outra janela. */
+  | { tipo: 'preferencias' }
+
+export interface ApiJanelas {
+  /** Fica com o espaço nesta janela. false: ele já está aberto em outra janela, que vem para a frente. */
+  reservar(espacoId: string): Promise<boolean>
+  /** Abre uma janela nova. Com espaço, mostra ele (se já estiver aberto em outra, traz aquela para a frente). */
+  nova(espacoId: string | null): Promise<void>
+  /** Com que espaço esta janela começa e quais estão abertos nas outras. */
+  inicio(): Promise<{ espacoId: string | null; abertosEmOutras: string[] }>
+  aoAvisar(ouvinte: (aviso: AvisoJanelas) => void): void
+}
+
 export interface ApiMaestri {
   terminal: ApiTerminal
   dados: ApiDados
   andares: ApiAndares
   area: ApiArea
+  janelas: ApiJanelas
   /** Chamado quando a janela vai fechar; `salvar` diz se gravou. Se não gravou, o app pergunta antes de fechar. */
   aoPedirFechar(salvar: () => Promise<boolean>): void
   autoteste: boolean
@@ -113,8 +139,17 @@ export const CANAIS_DADOS = {
   abrirArquivo: 'dados:abrir-arquivo',
   listarPasta: 'dados:listar-pasta',
   apagarEspaco: 'dados:apagar-espaco',
-  mostrarNoExplorer: 'dados:mostrar-no-explorer'
+  mostrarNoExplorer: 'dados:mostrar-no-explorer',
+  renomearEspaco: 'dados:renomear-espaco'
 } as const
+
+export const CANAIS_JANELAS = {
+  reservar: 'janelas:reservar',
+  nova: 'janelas:nova',
+  inicio: 'janelas:inicio'
+} as const
+
+export const CANAL_AVISO = 'janelas:aviso'
 
 export const CANAIS_AREA = {
   copiar: 'area:copiar',

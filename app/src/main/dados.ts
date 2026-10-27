@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, dialog, ipcMain, shell, webContents } from 'electron'
 import { randomUUID } from 'node:crypto'
 import {
   existsSync,
@@ -26,6 +26,7 @@ import {
   type ResumoEspaco
 } from '../shared/modelo'
 import { CANAIS_DADOS } from '../shared/api'
+import { avisar, avisarTodas, donoDe, esquecerEspaco, exigirDono } from './janelas'
 
 // Tudo do app mora numa pasta só, em JSON e markdown legíveis. O autoteste usa uma pasta temporária limpa.
 const AUTOTESTE = process.argv.includes('--autoteste')
@@ -103,6 +104,11 @@ function lerEspaco(id: string): Espaco | null {
   const caminho = join(pastaDoEspaco(id), 'espaco.json')
   const espaco = existsSync(caminho) ? lerJson<Espaco | null>(caminho, null) : null
   return espaco ? completar(espaco) : null
+}
+
+/** Ids dos espaços, na ordem da lista. */
+export function idsDosEspacos(): string[] {
+  return lerManifesto()
 }
 
 /** O espaço como está em disco (os andares usam isto para achar ramo e pasta sem confiar na janela). */
@@ -289,8 +295,9 @@ export function registrarDados(): void {
     return { espaco, notas }
   })
 
-  ipcMain.handle(CANAIS_DADOS.salvarEspaco, (_e, carregado: EspacoCarregado): ResumoEspaco => {
+  ipcMain.handle(CANAIS_DADOS.salvarEspaco, (evento, carregado: EspacoCarregado): ResumoEspaco => {
     const { espaco, notas } = validarParaSalvar(carregado)
+    exigirDono(evento, espaco.id)
     const pasta = pastaDoEspaco(espaco.id)
     const pastaNotas = join(pasta, 'notas')
     mkdirSync(pastaNotas, { recursive: true })
@@ -306,14 +313,34 @@ export function registrarDados(): void {
     for (const arquivo of readdirSync(pastaNotas)) {
       if (NOTA_VALIDA.test(arquivo) && !emUso.has(arquivo)) rmSync(join(pastaNotas, arquivo))
     }
-    return resumo(espaco)
+    const r = resumo(espaco)
+    avisarTodas({ tipo: 'resumo', resumo: r }, evento.sender)
+    return r
+  })
+
+  // espaço aberto em outra janela: ela é que renomeia (e grava); fechado: renomeia direto no disco
+  ipcMain.handle(CANAIS_DADOS.renomearEspaco, (_e, id: string, nome: string) => {
+    const limpo = String(nome ?? '').trim().slice(0, 120)
+    if (!limpo || !lerManifesto().includes(id)) return
+    const janela = donoDe(id)
+    const conteudo = janela !== undefined ? webContents.fromId(janela) : undefined
+    if (conteudo) return avisar(conteudo, { tipo: 'renomear', espacoId: id, nome: limpo })
+    const espaco = lerEspaco(id)
+    if (!espaco) return
+    espaco.nome = limpo
+    gravarJson(join(pastaDoEspaco(id), 'espaco.json'), espaco)
+    avisarTodas({ tipo: 'resumo', resumo: resumo(espaco) })
   })
 
   // apaga só o espaço do app (quadro, post-its); a pasta do projeto e os ramos do git ficam
-  ipcMain.handle(CANAIS_DADOS.apagarEspaco, (_e, id: string) => {
+  ipcMain.handle(CANAIS_DADOS.apagarEspaco, (evento, id: string) => {
     if (!lerManifesto().includes(id)) throw new Error('espaço não encontrado')
+    const janela = donoDe(id)
+    if (janela !== undefined && janela !== evento.sender.id) throw new Error('este espaço está aberto em outra janela; feche-a antes')
     gravarManifesto(lerManifesto().filter((outro) => outro !== id))
     rmSync(pastaDoEspaco(id), { recursive: true, force: true })
+    esquecerEspaco(id)
+    avisarTodas({ tipo: 'lista' }, evento.sender)
   })
 
   ipcMain.handle(CANAIS_DADOS.mostrarNoExplorer, (_e, caminho: string) => {
@@ -330,9 +357,11 @@ export function registrarDados(): void {
     return ''
   })
 
-  ipcMain.handle(CANAIS_DADOS.criarEspaco, (_e, nome: string, pasta: string): ResumoEspaco => {
+  ipcMain.handle(CANAIS_DADOS.criarEspaco, (evento, nome: string, pasta: string): ResumoEspaco => {
     const valida = typeof pasta === 'string' && existsSync(pasta) && statSync(pasta).isDirectory()
-    return resumo(criarEspaco(String(nome ?? ''), valida ? pasta : homedir()))
+    const novo = resumo(criarEspaco(String(nome ?? ''), valida ? pasta : homedir()))
+    avisarTodas({ tipo: 'lista' }, evento.sender)
+    return novo
   })
 
   ipcMain.handle(CANAIS_DADOS.carregarPreferencias, (): Preferencias =>
@@ -344,9 +373,10 @@ export function registrarDados(): void {
     })
   )
 
-  ipcMain.handle(CANAIS_DADOS.salvarPreferencias, (_e, preferencias: Preferencias) =>
+  ipcMain.handle(CANAIS_DADOS.salvarPreferencias, (evento, preferencias: Preferencias) => {
     gravarJson(join(RAIZ, 'preferencias.json'), preferencias)
-  )
+    avisarTodas({ tipo: 'preferencias' }, evento.sender)
+  })
 
   ipcMain.handle(CANAIS_DADOS.carregarEstado, (): EstadoJanela =>
     lerJson<EstadoJanela>(join(RAIZ, 'estado.json'), { versao: 1, espacoAtivo: null, lateralAberta: true })

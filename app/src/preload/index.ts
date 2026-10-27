@@ -5,9 +5,13 @@ import {
   CANAIS_APP,
   CANAIS_AREA,
   CANAIS_DADOS,
+  CANAIS_JANELAS,
+  CANAL_AVISO,
   type ApiAndares,
   type ApiArea,
   type ApiDados,
+  type ApiJanelas,
+  type AvisoJanelas,
   type ApiMaestri
 } from '../shared/api'
 
@@ -21,6 +25,12 @@ function chamadas<T>(canais: Record<string, string>): T {
 const dados = chamadas<ApiDados>(CANAIS_DADOS)
 const andares = chamadas<ApiAndares>(CANAIS_ANDARES)
 const area = chamadas<ApiArea>(CANAIS_AREA)
+const janelas: ApiJanelas = {
+  ...chamadas<Omit<ApiJanelas, 'aoAvisar'>>(CANAIS_JANELAS),
+  aoAvisar: (ouvinte) => {
+    ipcRenderer.on(CANAL_AVISO, (_evento, aviso: AvisoJanelas) => ouvinte(aviso))
+  }
+}
 
 // Um ouvinte de IPC por canal, repassando só para o cartão daquele terminal:
 // com muitos terminais, a saída de um não acorda os outros.
@@ -53,6 +63,7 @@ const api: ApiMaestri = {
   dados,
   andares,
   area,
+  janelas,
   aoPedirFechar: (salvar) => {
     ipcRenderer.on(CANAIS_APP.vaiFechar, async () => {
       const gravou = await salvar().catch(() => false)

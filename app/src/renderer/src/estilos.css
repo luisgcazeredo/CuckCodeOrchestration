@@ -1712,3 +1712,14 @@ kbd {
   text-align: center;
   color: var(--texto-suave);
 }
+
+/* ---------- várias janelas ---------- */
+
+.linha-espaco.em-outra-janela .espaco-nome {
+  opacity: 0.6;
+}
+
+.selo-janela {
+  flex-shrink: 0;
+  color: var(--destaque);
+}

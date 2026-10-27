@@ -3,7 +3,8 @@ import { join } from 'node:path'
 import { CANAIS_APP } from '../shared/api'
 import { registrarAndares } from './andares'
 import { registrarArea, registrarEsquemaImagem, servirImagens } from './area'
-import { registrarDados } from './dados'
+import { idsDosEspacos, registrarDados } from './dados'
+import { configurarJanelas, lembrarInicial, registrarJanelas, soltarJanela } from './janelas'
 import { encerrarTodos, registrarTerminais } from './terminais'
 import { rodarAutoteste } from './autoteste'
 
@@ -39,10 +40,17 @@ function pedirSalvamento(janela: BrowserWindow): Promise<boolean> {
   })
 }
 
-function criarJanela(): BrowserWindow {
+let autotesteRodando = false
+
+/** Uma janela do app. `espacoInicial`: o espaço que ela mostra ao abrir (null = o último usado). */
+function criarJanela(espacoInicial: string | null = null): BrowserWindow {
+  // janela nova aparece um pouco deslocada da que está na frente, para não esconder uma atrás da outra
+  const frente = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  const posicao = frente && !frente.isDestroyed() && !frente.isMaximized() ? { x: frente.getBounds().x + 36, y: frente.getBounds().y + 36 } : {}
   const janela = new BrowserWindow({
     width: 1280,
     height: 820,
+    ...posicao,
     minWidth: 640,
     minHeight: 420,
     title: 'Maestri Próprio',
@@ -64,6 +72,9 @@ function criarJanela(): BrowserWindow {
   })
 
   janela.once('ready-to-show', () => janela.show())
+  const idConteudo = janela.webContents.id
+  lembrarInicial(idConteudo, espacoInicial)
+  janela.on('closed', () => soltarJanela(idConteudo))
 
   // A janela tem acesso a terminais: nunca pode virar uma página de fora. Links vão para o navegador.
   janela.webContents.setWindowOpenHandler(({ url }) => {
@@ -120,7 +131,11 @@ function criarJanela(): BrowserWindow {
     janela.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  if (autoteste) janela.webContents.once('did-finish-load', () => rodarAutoteste(janela, pedirSalvamento))
+  // o autoteste roda na primeira janela; as outras que ele abrir são só parte do teste
+  if (autoteste && !autotesteRodando) {
+    autotesteRodando = true
+    janela.webContents.once('did-finish-load', () => rodarAutoteste(janela, pedirSalvamento))
+  }
   return janela
 }
 
@@ -142,7 +157,7 @@ registrarEsquemaImagem()
 // Sem o menu padrão do Electron: os atalhos dele (zoom da página, recarregar) brigam com os do quadro.
 Menu.setApplicationMenu(null)
 
-// Uma janela só: abrir o atalho de novo traz a que já está aberta.
+// Um processo só: abrir o atalho de novo traz a janela que já está aberta (mais janelas: Ctrl+Shift+N).
 if (!autoteste && !app.requestSingleInstanceLock()) {
   app.quit()
 } else {
@@ -158,6 +173,8 @@ if (!autoteste && !app.requestSingleInstanceLock()) {
     // o portal se apresenta como Chrome comum: com "Electron" no nome, sites como o login do Google recusam
     const portal = session.fromPartition('persist:portal')
     portal.setUserAgent(portal.getUserAgent().replace(/ (Electron|maestri-proprio|Maestri ?Proprio)\/\S+/gi, ''))
+    configurarJanelas(criarJanela, idsDosEspacos)
+    registrarJanelas()
     registrarDados()
     registrarAndares()
     registrarArea()

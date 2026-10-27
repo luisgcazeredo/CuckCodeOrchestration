@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import * as loja from './estado/loja'
 import {
+  abrirNovaJanela,
   agrupar,
   apagarSelecao,
   definirEstiloDesenho,
@@ -51,6 +52,7 @@ function atalhos(e: KeyboardEvent): void {
   if (ctrl && tecla === 'x') return (e.preventDefault(), void copiarSelecao(true))
   if (ctrl && tecla === 'v') return (e.preventDefault(), void colar())
   if (ctrl && tecla === 'k') return (e.preventDefault(), abrirPaleta())
+  if (ctrl && e.shiftKey && tecla === 'n') return (e.preventDefault(), abrirNovaJanela())
   if (ctrl || e.altKey) return
   const seta: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
   if (seta[e.key]) {
@@ -79,6 +81,12 @@ export function App() {
   const lateralAberta = usarLoja((e) => e.lateralAberta)
   const ferramenta = usarLoja((e) => e.ferramenta)
   const erroAoSalvar = usarLoja((e) => e.erroAoSalvar)
+  const nomeDoEspaco = usarLoja((e) => e.espaco?.nome)
+
+  // com várias janelas, a barra de tarefas e o Alt+Tab mostram qual espaço está em cada uma
+  useEffect(() => {
+    document.title = nomeDoEspaco ? `${nomeDoEspaco} — Maestri Próprio` : 'Maestri Próprio'
+  }, [nomeDoEspaco])
 
   useEffect(() => {
     void iniciar()

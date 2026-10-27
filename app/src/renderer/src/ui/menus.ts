@@ -7,6 +7,7 @@ import {
   AlignStartHorizontal,
   AlignStartVertical,
   AlignVerticalSpaceAround,
+  AppWindow,
   ArrowDownToLine,
   ArrowUpToLine,
   ClipboardPaste,
@@ -41,6 +42,7 @@ import {
 import type { Andar, Desenho, EstadoAndar, No, NoPostIt, ResumoEspaco } from '../../../shared/modelo'
 import {
   abrirEspaco,
+  abrirNovaJanela,
   adicionarNo,
   agrupar,
   alinhar,
@@ -354,8 +356,16 @@ export function itensDoDesenho({ id, cor: corAtual, grupo }: Desenho): ItemMenu[
 
 export function itensDoEspaco(r: ResumoEspaco): ItemMenu[] {
   const ativo = lerEstado().espaco?.id === r.id
+  const fora = lerEstado().emOutrasJanelas.includes(r.id)
   return [
-    ...(ativo ? [] : [{ rotulo: 'Abrir', acao: () => void abrirEspaco(r.id) }]),
+    ...(fora
+      ? [{ rotulo: 'Ir para a janela dele', icone: AppWindow, acao: () => void abrirEspaco(r.id) }]
+      : ativo
+        ? []
+        : [
+            { rotulo: 'Abrir', acao: () => void abrirEspaco(r.id) },
+            { rotulo: 'Abrir em nova janela', icone: AppWindow, atalho: 'Ctrl+Shift+N', acao: () => abrirNovaJanela(r.id) }
+          ]),
     {
       rotulo: 'Renomear…',
       icone: Pencil,
@@ -365,19 +375,24 @@ export function itensDoEspaco(r: ResumoEspaco): ItemMenu[] {
       }
     },
     { rotulo: 'Mostrar pasta no Explorer', icone: FolderOpen, acao: () => void window.mp.dados.mostrarNoExplorer(r.pasta) },
-    {
-      rotulo: 'Novo andar…',
-      icone: Layers,
-      acao: async () => {
-        await abrirEspaco(r.id)
-        abrirNovoAndar()
-      }
-    },
+    ...(fora
+      ? []
+      : [
+          {
+            rotulo: 'Novo andar…',
+            icone: Layers,
+            acao: async () => {
+              await abrirEspaco(r.id)
+              abrirNovoAndar()
+            }
+          }
+        ]),
     separador,
     {
-      rotulo: 'Apagar espaço…',
+      rotulo: fora ? 'Apagar espaço… (feche a janela dele antes)' : 'Apagar espaço…',
       icone: Trash2,
       perigo: true,
+      desligado: fora,
       acao: async () => {
         const resposta = await confirmar({
           titulo: `Apagar o espaço "${r.nome}"?`,

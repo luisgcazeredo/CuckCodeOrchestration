@@ -17,6 +17,7 @@ import {
   type ResumoEspaco,
   type Tema
 } from '../../../shared/modelo'
+import type { AvisoJanelas } from '../../../shared/api'
 import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, uniao, type Caixa } from '../quadro/geometria'
 
 export type Ferramenta = 'selecionar' | 'postit' | 'texto' | 'desenho'
@@ -54,6 +55,8 @@ export interface EstadoUI {
   erroAoSalvar: string | null
   /** Vista de andares (a pilha em perspectiva) aberta. */
   vistaAndares: boolean
+  /** Espaços abertos em outras janelas (esta não pode abrir: traz a outra para a frente). */
+  emOutrasJanelas: string[]
 }
 
 let estado: EstadoUI = {
@@ -69,7 +72,8 @@ let estado: EstadoUI = {
   editando: null,
   miniMapa: false,
   erroAoSalvar: null,
-  vistaAndares: false
+  vistaAndares: false,
+  emOutrasJanelas: []
 }
 
 const ouvintes = new Set<() => void>()
@@ -270,15 +274,44 @@ function mudarPlano(mudar: (plano: Plano) => Plano, chave?: string | false): voi
 // ---------- início e espaços ----------
 
 export async function iniciar(): Promise<void> {
-  const [preferencias, janela, espacos] = await Promise.all([
+  window.mp.janelas.aoAvisar(receberAviso)
+  const [preferencias, janela, espacos, inicio] = await Promise.all([
     window.mp.dados.carregarPreferencias(),
     window.mp.dados.carregarEstado(),
-    window.mp.dados.listarEspacos()
+    window.mp.dados.listarEspacos(),
+    window.mp.janelas.inicio()
   ])
-  definir({ preferencias, espacos, lateralAberta: janela.lateralAberta })
-  const ativo = espacos.find((e) => e.id === janela.espacoAtivo) ?? espacos[0]
-  if (ativo) await abrirEspaco(ativo.id)
+  definir({ preferencias, espacos, lateralAberta: janela.lateralAberta, emOutrasJanelas: inicio.abertosEmOutras })
+  // o espaço pedido para esta janela; senão o último usado, se estiver livre; senão o primeiro livre
+  const livre = (id: string | null): boolean => !!id && espacos.some((e) => e.id === id) && !inicio.abertosEmOutras.includes(id)
+  const ativo = [inicio.espacoId, janela.espacoAtivo, ...espacos.map((e) => e.id)].find(livre)
+  if (ativo) await abrirEspaco(ativo)
   definir({ carregado: true })
+}
+
+/** O que as outras janelas (pelo processo principal) avisam. */
+function receberAviso(aviso: AvisoJanelas): void {
+  switch (aviso.tipo) {
+    case 'lista':
+      void window.mp.dados.listarEspacos().then((espacos) => definir({ espacos }))
+      return
+    case 'resumo':
+      definir({ espacos: estado.espacos.map((r) => (r.id === aviso.resumo.id ? aviso.resumo : r)) })
+      return
+    case 'abertos':
+      definir({ emOutrasJanelas: aviso.ids })
+      return
+    case 'renomear':
+      if (estado.espaco?.id === aviso.espacoId) void renomearEspaco(aviso.espacoId, aviso.nome)
+      return
+    case 'preferencias':
+      void window.mp.dados.carregarPreferencias().then((preferencias) => definir({ preferencias }))
+  }
+}
+
+/** Abre uma janela nova (com o espaço pedido, ou com o primeiro livre). */
+export function abrirNovaJanela(espacoId: string | null = null): void {
+  void window.mp.janelas.nova(espacoId)
 }
 
 let pedidoDeAbertura = 0
@@ -292,6 +325,8 @@ export async function abrirEspaco(id: string, andarId?: string | null): Promise<
   const pedido = ++pedidoDeAbertura
   // não salvou: fica onde está (o aviso de erro aparece) para a mudança não se perder
   if (!(await salvarAgora())) return
+  // aberto em outra janela: ela vem para a frente e esta fica como está
+  if (pedido !== pedidoDeAbertura || !(await window.mp.janelas.reservar(id))) return
   const carregado = await window.mp.dados.carregarEspaco(id)
   if (!carregado || pedido !== pedidoDeAbertura) return
   zerarHistorico()
@@ -321,10 +356,8 @@ export async function renomearEspaco(id: string, nome: string): Promise<void> {
     definir({ espacos: estado.espacos.map((r) => (r.id === id ? { ...r, nome: limpo } : r)) })
     return
   }
-  const carregado = await window.mp.dados.carregarEspaco(id)
-  if (!carregado) return
-  const resumo = await window.mp.dados.salvarEspaco({ ...carregado, espaco: { ...carregado.espaco, nome: limpo } })
-  definir({ espacos: estado.espacos.map((r) => (r.id === id ? resumo : r)) })
+  // aberto em outra janela ou fechado: o processo principal cuida (e avisa todas as janelas)
+  await window.mp.dados.renomearEspaco(id, limpo)
 }
 
 /** Apaga o espaço do app. Se era o aberto, abre outro (ou fica vazio). */
@@ -339,7 +372,9 @@ export async function apagarEspaco(id: string): Promise<void> {
   if (estado.espaco?.id === id) {
     definir({ espaco: null, notas: {}, espacos, selecao: NADA, editando: null })
     zerarHistorico()
-    if (espacos[0]) await abrirEspaco(espacos[0].id)
+    // o próximo livre (os abertos em outras janelas são delas)
+    const livre = espacos.find((e) => !estado.emOutrasJanelas.includes(e.id))
+    if (livre) await abrirEspaco(livre.id)
     else salvarJanela()
   } else definir({ espacos })
 }

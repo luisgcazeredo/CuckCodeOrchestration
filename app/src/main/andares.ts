@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path'
 import type { Andar, ResultadoGit, SituacaoAndar } from '../shared/modelo'
 import { CANAIS_ANDARES } from '../shared/api'
 import { PASTA_DADOS, lerEspacoSalvo } from './dados'
+import { exigirDono } from './janelas'
 
 // Andares com git: cada um é um worktree num ramo próprio, guardado em ~/.maestri-proprio/andares/<espaço>/,
 // fora das pastas de projeto. O git roda direto (execFile, sem shell), sempre com a pasta lida do disco.
@@ -65,7 +66,8 @@ export function registrarAndares(): void {
     return { repositorio: true, ramo: await ramoAtual(espaco.pasta) }
   })
 
-  ipcMain.handle(CANAIS_ANDARES.criar, async (_e, espacoId: string, nome: string, usarGit: boolean): Promise<Andar> => {
+  ipcMain.handle(CANAIS_ANDARES.criar, async (evento, espacoId: string, nome: string, usarGit: boolean): Promise<Andar> => {
+    exigirDono(evento, espacoId)
     const espaco = lerEspacoSalvo(espacoId)
     if (!espaco) throw new Error('espaço não encontrado')
     const limpo = String(nome ?? '').trim().slice(0, 60) || 'Novo andar'
@@ -122,7 +124,8 @@ export function registrarAndares(): void {
    */
   ipcMain.handle(
     CANAIS_ANDARES.pousar,
-    async (_e, espacoId: string, andarId: string, apagarRamo: boolean, destino: string): Promise<ResultadoGit> => {
+    async (evento, espacoId: string, andarId: string, apagarRamo: boolean, destino: string): Promise<ResultadoGit> => {
+      exigirDono(evento, espacoId)
       const { pastaEspaco, andar } = localizar(espacoId, andarId)
       if (!andar.git) return { ok: true, mensagem: 'andar sem git: nada para juntar' }
       const { ramo, pasta } = andar.git
@@ -188,7 +191,8 @@ export function registrarAndares(): void {
   /** Apaga o andar: remove o worktree e, se pedido, o ramo. `forcar` descarta mudanças fora de commit. */
   ipcMain.handle(
     CANAIS_ANDARES.apagar,
-    async (_e, espacoId: string, andarId: string, apagarRamo: boolean, forcar: boolean): Promise<ResultadoGit> => {
+    async (evento, espacoId: string, andarId: string, apagarRamo: boolean, forcar: boolean): Promise<ResultadoGit> => {
+      exigirDono(evento, espacoId)
       const { pastaEspaco, andar } = localizar(espacoId, andarId)
       if (!andar.git) return { ok: true, mensagem: 'andar apagado' }
       const { ramo, pasta } = andar.git
