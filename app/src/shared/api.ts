@@ -1,5 +1,6 @@
 // Contrato entre a janela (renderer) e o processo principal, exposto pelo preload em window.mp.
 import type {
+  Agente,
   Andar,
   EntradaPasta,
   EspacoCarregado,
@@ -10,21 +11,63 @@ import type {
   SituacaoAndar
 } from './modelo'
 
-export interface OpcoesTerminal {
+/** O que o processo principal precisa para manter o processo de um cartão de terminal. */
+export interface EspecTerminal {
+  /** Id do cartão: é também o id do processo. */
+  id: string
+  nome: string
+  agente: Agente
+  /** Linha digitada quando o shell abre (vazia = só o shell). */
+  comando: string
+  /** Pasta onde abre (a do cartão, a do andar ou a do espaço). */
+  pasta: string
+  /** Conversa do agente para retomar (Claude: escolhida ao criar; Codex: descoberta depois). */
+  sessao?: string
+  /** Cartão do agente que abriu este pelo `mpro abrir`. */
+  criadoPor?: string
+}
+
+/** Retrato do terminal para um cartão que acabou de se ligar a ele. */
+export interface RetratoTerminal {
+  /** Tela e histórico, prontos para escrever no xterm. */
+  retrato: string
   colunas: number
   linhas: number
-  /** Pasta onde o terminal abre; sem ela, a pasta do usuário. */
-  pasta?: string
+  /** Código de saída, se o processo já terminou. */
+  saiu: number | null
 }
 
 export interface ApiTerminal {
-  criar(opcoes: OpcoesTerminal): Promise<string>
+  /**
+   * Diz ao processo principal quais terminais o espaço tem (todos os andares) e as cordas entre eles.
+   * Cria os que faltam e encerra (depois de uma folga, para o Ctrl+Z) os que saíram do quadro.
+   * Devolve as conversas do Codex descobertas enquanto o espaço não estava aberto.
+   */
+  sincronizar(espacoId: string, terminais: EspecTerminal[], cordas: Array<[string, string]>): Promise<Record<string, string>>
+  /** Liga o cartão ao processo: devolve o retrato e passa a receber a saída. */
+  ligar(id: string): Promise<RetratoTerminal | null>
+  desligar(id: string): void
   escrever(id: string, dados: string): void
   redimensionar(id: string, colunas: number, linhas: number): void
-  encerrar(id: string): void
+  /** Processo que terminou: abre de novo (retomando a conversa do agente). */
+  reiniciar(id: string): Promise<void>
   /** Saída de um terminal só. Devolve a função que cancela a inscrição. */
   aoReceber(id: string, ouvinte: (dados: string) => void): () => void
   aoSair(id: string, ouvinte: (codigo: number) => void): () => void
+  /** O processo principal descobriu a conversa do agente (Codex) de um cartão. */
+  aoDescobrirSessao(ouvinte: (id: string, sessao: string) => void): void
+}
+
+/** Pedidos que um agente faz pelo `mpro` e que mexem no quadro (só a janela dona do espaço pode). */
+export type PedidoDoAgente =
+  | { tipo: 'abrir'; espacoId: string; criador: string; agente: Agente; nome?: string; pasta?: string }
+  | { tipo: 'fechar'; espacoId: string; id: string }
+
+export type RespostaAoAgente = { ok: true; id?: string; nome?: string } | { ok: false; erro: string }
+
+export interface ApiAgentes {
+  /** A janela atende os pedidos dos agentes para o espaço que ela mostra. */
+  aoPedir(atender: (pedido: PedidoDoAgente) => Promise<RespostaAoAgente> | RespostaAoAgente): void
 }
 
 export interface ApiDados {
@@ -180,6 +223,7 @@ export interface ApiMaestri {
   area: ApiArea
   janelas: ApiJanelas
   portal: ApiPortal
+  agentes: ApiAgentes
   /** Chamado quando a janela vai fechar; `salvar` diz se gravou. Se não gravou, o app pergunta antes de fechar. */
   aoPedirFechar(salvar: () => Promise<boolean>): void
   autoteste: boolean
@@ -191,12 +235,20 @@ export const CANAIS_APP = {
 } as const
 
 export const CANAIS = {
-  criar: 'terminal:criar',
+  sincronizar: 'terminal:sincronizar',
+  ligar: 'terminal:ligar',
+  desligar: 'terminal:desligar',
   escrever: 'terminal:escrever',
   redimensionar: 'terminal:redimensionar',
-  encerrar: 'terminal:encerrar',
+  reiniciar: 'terminal:reiniciar',
   dados: 'terminal:dados',
-  saida: 'terminal:saida'
+  saida: 'terminal:saida',
+  sessao: 'terminal:sessao'
+} as const
+
+export const CANAIS_AGENTES = {
+  pedido: 'agentes:pedido',
+  resposta: 'agentes:resposta'
 } as const
 
 export const CANAIS_DADOS = {

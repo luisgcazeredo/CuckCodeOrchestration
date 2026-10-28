@@ -8,6 +8,7 @@ import {
   type Desenho,
   type Espaco,
   type No,
+  type NoTerminal,
   type NoPostIt,
   type PincelDesenho,
   type Plano,
@@ -17,7 +18,7 @@ import {
   type ResumoEspaco,
   type Tema
 } from '../../../shared/modelo'
-import type { AvisoJanelas } from '../../../shared/api'
+import type { AvisoJanelas, EspecTerminal, PedidoDoAgente, RespostaAoAgente } from '../../../shared/api'
 import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, uniao, type Caixa } from '../quadro/geometria'
 
 export type Ferramenta = 'selecionar' | 'postit' | 'texto' | 'desenho'
@@ -94,6 +95,7 @@ export function usarLoja<T>(seletor: (e: EstadoUI) => T): T {
 
 function definir(parcial: Partial<EstadoUI>): void {
   estado = { ...estado, ...parcial }
+  if ('espaco' in parcial) sincronizarTerminais()
   ouvintes.forEach((o) => o())
 }
 
@@ -221,15 +223,32 @@ function aplicarInstantaneo(i: Instantaneo): void {
   // desfazer mexe no conteúdo, não na vista: câmera, página aberta no portal e pastas abertas ficam como estão
   const atual = planoDe(estado.espaco!)
   const vista = new Map(atual.nos.map((n) => [n.id, n] as const))
+  // o que os agentes fizeram não entra no desfazer do usuário: sessão aberta por agente fica, a fechada não volta
+  const naEpoca = new Set(i.plano.nos.map((n) => n.id))
+  const doAgente = atual.nos.filter((n) => n.tipo === 'terminal' && n.criadoPor && !naEpoca.has(n.id))
+  const idsDoAgente = new Set(doAgente.map((n) => n.id))
+  const nos = [
+    ...i.plano.nos
+      .filter((n) => !fechadosPorAgente.has(n.id))
+      .map((n) => {
+        const agoraNo = vista.get(n.id)
+        if (n.tipo === 'portal' && agoraNo?.tipo === 'portal') return { ...n, url: agoraNo.url }
+        if (n.tipo === 'pasta' && agoraNo?.tipo === 'pasta') return { ...n, expandidas: agoraNo.expandidas }
+        // a conversa do agente é descoberta depois: a cópia antiga não a apaga
+        if (n.tipo === 'terminal' && agoraNo?.tipo === 'terminal') return { ...n, sessao: agoraNo.sessao ?? n.sessao }
+        return n
+      }),
+    ...doAgente
+  ]
+  const existe = new Set(nos.map((n) => n.id))
   const plano: Plano = {
     ...i.plano,
     camera: atual.camera,
-    nos: i.plano.nos.map((n) => {
-      const agoraNo = vista.get(n.id)
-      if (n.tipo === 'portal' && agoraNo?.tipo === 'portal') return { ...n, url: agoraNo.url }
-      if (n.tipo === 'pasta' && agoraNo?.tipo === 'pasta') return { ...n, expandidas: agoraNo.expandidas }
-      return n
-    })
+    nos,
+    cordas: [
+      ...i.plano.cordas.filter((c) => existe.has(c.de) && existe.has(c.para)),
+      ...atual.cordas.filter((c) => (idsDoAgente.has(c.de) || idsDoAgente.has(c.para)) && existe.has(c.de) && existe.has(c.para))
+    ]
   }
   // post-its deste plano voltam ao texto da época; post-its de outros planos não são tocados
   const notas = { ...estado.notas }
@@ -275,6 +294,8 @@ function mudarPlano(mudar: (plano: Plano) => Plano, chave?: string | false): voi
 
 export async function iniciar(): Promise<void> {
   window.mp.janelas.aoAvisar(receberAviso)
+  window.mp.terminal.aoDescobrirSessao((id, sessao) => anotarSessoes({ [id]: sessao }))
+  window.mp.agentes.aoPedir(atenderAgente)
   const [preferencias, janela, espacos, inicio] = await Promise.all([
     window.mp.dados.carregarPreferencias(),
     window.mp.dados.carregarEstado(),
@@ -698,7 +719,9 @@ export function adicionarNo(novo: NovoNo, x: number, y: number): string {
         tipo: 'terminal',
         nome: mesmos ? `${novo.preset.nome} ${mesmos + 1}` : novo.preset.nome,
         agente: novo.preset.agente,
-        comando: novo.preset.comando
+        comando: novo.preset.comando,
+        // o Claude aceita o id da conversa desde o começo: com ele, o cartão retoma a mesma conversa ao reabrir
+        sessao: novo.preset.agente === 'claude' ? novoId() : undefined
       }
       break
     }
@@ -858,7 +881,12 @@ export function colarFragmento(f: Fragmento, dx: number, dy: number, sufixoTermi
         copia.arquivo = `${id}.md`
         notas[copia.arquivo] = f.notas[(n as NoPostIt).arquivo] ?? ''
       }
-      if (copia.tipo === 'terminal') copia.nome += sufixoTerminal
+      // a cópia é outra conversa e é do usuário: não leva a sessão nem quem a abriu
+      if (copia.tipo === 'terminal') {
+        copia.nome += sufixoTerminal
+        copia.sessao = copia.agente === 'claude' ? novoId() : undefined
+        copia.criadoPor = undefined
+      }
       return copia
     })
   const desenhos: Desenho[] = f.desenhos.map((d) => ({
@@ -1144,4 +1172,103 @@ export function apagarDesenhosPerto(x: number, y: number, raio: number, chaveDoG
   const fora = new Set(tocados.map((d) => d.id))
   mudarPlano((p) => semGruposSozinhos({ ...p, desenhos: p.desenhos.filter((d) => !fora.has(d.id)) }), chaveDoGesto)
   return tocados.length
+}
+
+// ---------- terminais: os processos moram no processo principal ----------
+
+/** Cartões fechados por um agente (`mpro fechar`): o desfazer do usuário não os traz de volta. */
+const fechadosPorAgente = new Set<string>()
+let firmaTerminais = ''
+
+/** Pasta onde os terminais de um plano abrem: a do andar (worktree) ou a do projeto. */
+function pastaDe(espaco: Espaco, plano: Plano): string {
+  return (plano !== espaco && (plano as Andar).git?.pasta) || espaco.pasta
+}
+
+/**
+ * Manda ao processo principal os terminais do espaço (todos os andares) e as cordas, sempre que mudarem.
+ * Ele cria os processos que faltam e encerra os dos cartões apagados.
+ */
+function sincronizarTerminais(): void {
+  const e = estado.espaco
+  if (!e) return
+  const especs: EspecTerminal[] = []
+  const cordas: Array<[string, string]> = []
+  for (const plano of [e, ...e.andares]) {
+    for (const n of plano.nos) {
+      if (n.tipo !== 'terminal') continue
+      const { id, nome, agente, comando, sessao, criadoPor } = n
+      especs.push({ id, nome, agente, comando, pasta: n.pasta || pastaDe(e, plano), sessao, criadoPor })
+    }
+    for (const c of plano.cordas) cordas.push([c.de, c.para])
+  }
+  const firma = e.id + JSON.stringify(especs) + JSON.stringify(cordas)
+  if (firma === firmaTerminais) return
+  firmaTerminais = firma
+  window.mp.terminal.sincronizar(e.id, especs, cordas).then(anotarSessoes, () => (firmaTerminais = ''))
+}
+
+/** Muda um cartão de terminal em qualquer plano (térreo ou andar), fora do desfazer. */
+function mudarTerminal(id: string, mudar: (n: NoTerminal) => NoTerminal): void {
+  const trocar = (p: Plano): Plano =>
+    p.nos.some((n) => n.id === id) ? { ...p, nos: p.nos.map((n) => (n.id === id && n.tipo === 'terminal' ? mudar(n) : n)) } : p
+  mudarEspaco((e) => ({ ...e, ...trocar(e), andares: e.andares.map((a) => ({ ...a, ...trocar(a) })) }), false)
+}
+
+/** O processo principal descobriu a conversa (Codex) de cartões: fica salva para retomar. */
+function anotarSessoes(descobertas: Record<string, string>): void {
+  for (const [id, sessao] of Object.entries(descobertas)) mudarTerminal(id, (n) => (n.sessao === sessao ? n : { ...n, sessao }))
+}
+
+const tocam = (a: Caixa, b: Caixa, folga: number): boolean =>
+  a.x < b.x + b.largura + folga && b.x < a.x + a.largura + folga && a.y < b.y + b.altura + folga && b.y < a.y + a.altura + folga
+
+/** Um agente pediu pelo `mpro`: abrir uma sessão nova (ao lado dele, ligada a ele) ou fechar uma que ele abriu. */
+function atenderAgente(pedido: PedidoDoAgente): RespostaAoAgente {
+  const e = estado.espaco
+  if (!e || e.id !== pedido.espacoId) return { ok: false, erro: 'o espaço deste terminal não está aberto nesta janela' }
+  const planos: Plano[] = [e, ...e.andares]
+
+  if (pedido.tipo === 'fechar') {
+    const plano = planos.find((p) => p.nos.some((n) => n.id === pedido.id))
+    if (!plano) return { ok: false, erro: 'esse cartão não está mais no quadro' }
+    fechadosPorAgente.add(pedido.id)
+    const tirar = (p: Plano): Plano =>
+      p === plano
+        ? { ...p, nos: p.nos.filter((n) => n.id !== pedido.id), cordas: p.cordas.filter((c) => c.de !== pedido.id && c.para !== pedido.id) }
+        : p
+    mudarEspaco((x) => ({ ...x, ...tirar(x), andares: x.andares.map((a) => ({ ...a, ...tirar(a) })) }), false)
+    definir({ selecao: { ...estado.selecao, nos: estado.selecao.nos.filter((id) => id !== pedido.id) } })
+    return { ok: true }
+  }
+
+  const plano = planos.find((p) => p.nos.some((n) => n.id === pedido.criador))
+  const criador = plano?.nos.find((n) => n.id === pedido.criador)
+  if (!plano || !criador) return { ok: false, erro: 'o seu cartão não está no quadro' }
+  const preset =
+    estado.preferencias.presets.find((p) => p.agente === pedido.agente) ?? PRESETS_PADRAO.find((p) => p.agente === pedido.agente)!
+  const nomes = new Set(planos.flatMap((p) => p.nos.flatMap((n) => (n.tipo === 'terminal' ? [n.nome.toLowerCase()] : []))))
+  const base = pedido.nome || preset.nome
+  let nome = base
+  for (let i = 2; nomes.has(nome.toLowerCase()); i++) nome = `${base} ${i}`
+  // ao lado de quem abriu; descendo até achar um lugar livre
+  const caixa: Caixa = { x: criador.x + criador.largura + 80, y: criador.y, largura: 720, altura: 460 }
+  for (let i = 0; i < 30 && plano.nos.some((n) => tocam(caixa, caixaDoNo(n), 30)); i++) caixa.y += caixa.altura + 60
+  const no: NoTerminal = {
+    id: novoId(),
+    z: proximoZ(plano),
+    criadoEm: agora(),
+    ...caixa,
+    tipo: 'terminal',
+    nome,
+    agente: preset.agente,
+    comando: preset.comando,
+    pasta: pedido.pasta,
+    sessao: preset.agente === 'claude' ? novoId() : undefined,
+    criadoPor: criador.id
+  }
+  const corda: Corda = { id: novoId(), de: criador.id, para: no.id, criadoEm: agora() }
+  const por = (p: Plano): Plano => (p === plano ? { ...p, nos: [...p.nos, no], cordas: [...p.cordas, corda] } : p)
+  mudarEspaco((x) => ({ ...x, ...por(x), andares: x.andares.map((a) => ({ ...a, ...por(a) })) }), false)
+  return { ok: true, id: no.id, nome }
 }

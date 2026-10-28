@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import {
   CANAIS,
+  CANAIS_AGENTES,
   CANAIS_ANDARES,
   CANAIS_APP,
   CANAIS_AREA,
@@ -15,7 +16,8 @@ import {
   type ApiPortal,
   type AvisoPortal,
   type AvisoJanelas,
-  type ApiMaestri
+  type ApiMaestri,
+  type PedidoDoAgente
 } from '../shared/api'
 
 /** Cada canal vira uma função que chama o processo principal e devolve a resposta. */
@@ -71,12 +73,28 @@ const portal: ApiPortal = {
 // A janela não tem acesso ao Node: só a estas funções, nesta forma.
 const api: ApiMaestri = {
   terminal: {
-    criar: (opcoes) => ipcRenderer.invoke(CANAIS.criar, opcoes),
+    sincronizar: (espacoId, terminais, cordas) => ipcRenderer.invoke(CANAIS.sincronizar, espacoId, terminais, cordas),
+    ligar: (id) => ipcRenderer.invoke(CANAIS.ligar, id),
+    desligar: (id) => ipcRenderer.send(CANAIS.desligar, id),
     escrever: (id, dados) => ipcRenderer.send(CANAIS.escrever, id, dados),
     redimensionar: (id, colunas, linhas) => ipcRenderer.send(CANAIS.redimensionar, id, colunas, linhas),
-    encerrar: (id) => ipcRenderer.send(CANAIS.encerrar, id),
+    reiniciar: (id) => ipcRenderer.invoke(CANAIS.reiniciar, id),
     aoReceber: distribuidor<string>(CANAIS.dados),
-    aoSair: distribuidor<number>(CANAIS.saida)
+    aoSair: distribuidor<number>(CANAIS.saida),
+    aoDescobrirSessao: (ouvinte) => {
+      ipcRenderer.on(CANAIS.sessao, (_evento, id: string, sessao: string) => ouvinte(id, sessao))
+    }
+  },
+  agentes: {
+    aoPedir: (atender) => {
+      ipcRenderer.on(CANAIS_AGENTES.pedido, async (_evento, id: string, pedido: PedidoDoAgente) => {
+        const resposta = await Promise.resolve(atender(pedido)).catch((erro: unknown) => ({
+          ok: false as const,
+          erro: erro instanceof Error ? erro.message : String(erro)
+        }))
+        ipcRenderer.send(CANAIS_AGENTES.resposta, id, resposta)
+      })
+    }
   },
   dados,
   andares,

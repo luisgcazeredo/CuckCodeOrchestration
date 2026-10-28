@@ -271,6 +271,13 @@ function validarParaSalvar(carregado: EspacoCarregado): EspacoCarregado {
   return carregado
 }
 
+let aoApagarEspaco: (id: string) => void = () => {}
+
+/** Quem precisa saber que um espaço foi apagado (os terminais dele morrem junto). */
+export function quandoApagarEspaco(fazer: (id: string) => void): void {
+  aoApagarEspaco = fazer
+}
+
 export function registrarDados(): void {
   garantirInicio()
 
@@ -340,6 +347,7 @@ export function registrarDados(): void {
     gravarManifesto(lerManifesto().filter((outro) => outro !== id))
     rmSync(pastaDoEspaco(id), { recursive: true, force: true })
     esquecerEspaco(id)
+    aoApagarEspaco(id)
     avisarTodas({ tipo: 'lista' }, evento.sender)
   })
 

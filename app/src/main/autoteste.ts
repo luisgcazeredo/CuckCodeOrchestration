@@ -1,11 +1,13 @@
 import { app, BrowserWindow, clipboard, ClipboardItem } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PASTA_DADOS } from './dados'
 import { encerrarNavegador, janelasNaBarra } from './navegador'
+import { encerrarTodos, linhaDeComando, sessaoPorId, telaDe } from './terminais'
 
 // `npm run autoteste`: monta um quadro de exemplo numa pasta de dados temporária, tira print nos dois
 // temas, usa o mouse como um usuário (arrastar terminal, ligar dois terminais pela porta), recarrega e
@@ -833,12 +835,235 @@ export async function rodarAutoteste(
       conferir('apagar andar com git', r.ok && !existsSync(outro.git.pasta) && andaresRestantes === 0, r.mensagem)
     }
 
+    // ---- terminais de verdade e o `mpro` (integração, 28/10/2026) ----
+    const pastaTerminais = join(tmpdir(), `maestri-proprio-autoteste-terminais-${Date.now()}`)
+    mkdirSync(pastaTerminais, { recursive: true })
+    await js(`window.__teste.loja.criarEspaco('Terminais', ${JSON.stringify(pastaTerminais)})`)
+    await esperar(300)
+    const espacoTerminais = await js<string>('window.__teste.loja.lerEstado().espaco.id')
+    const presetShell = `window.__teste.loja.lerEstado().preferencias.presets.find((p) => p.agente === 'shell')`
+    const chefe = await js<string>(`(() => { const L = window.__teste.loja; L.definirCamera({ x: 0, y: 0, zoom: 1 })
+      return L.adicionarNo({ tipo: 'terminal', preset: ${presetShell} }, 560, 320) })()`)
+    const telaNoApp = async (id: string): Promise<string> => {
+      const s = sessaoPorId(id)
+      return s ? telaDe(s, 300) : ''
+    }
+    const telaNoCartao = (id: string): Promise<string> =>
+      js<string>(`(() => { const t = window.__terminais?.[${JSON.stringify(id)}]; if (!t) return ''
+        const b = t.buffer.active; const linhas = []
+        for (let y = 0; y < b.length; y++) linhas.push(b.getLine(y)?.translateToString(true) ?? '')
+        return linhas.join('\\n') })()`)
+    const aguardar = async (ler: () => Promise<string>, procurado: string | RegExp, ms = 20_000): Promise<string> => {
+      let texto = ''
+      for (const limite = Date.now() + ms; Date.now() < limite; await esperar(200)) {
+        texto = await ler()
+        if (typeof procurado === 'string' ? texto.includes(procurado) : procurado.test(texto)) break
+      }
+      return texto
+    }
+    // seleciona o cartão (o terminal pega o foco) e digita a linha pelo teclado
+    const comando = async (id: string, linha: string): Promise<void> => {
+      await js(`window.__teste.loja.selecionar({ tipo: 'no', id: ${JSON.stringify(id)} })`)
+      await esperar(250)
+      await digitar(linha)
+      await teclar('Return')
+    }
+    const ultimas = (texto: string, n = 2): string => texto.split('\n').filter((l) => l.trim()).slice(-n).join(' | ')
+
+    await aguardar(() => telaNoApp(chefe), /PS .*>/)
+    await comando(chefe, 'echo "MP-$(2+3)"')
+    const eco = await aguardar(() => telaNoCartao(chefe), /^MP-5/m)
+    conferir('terminal de verdade: digita no cartão e o PowerShell responde', /^MP-5/m.test(eco), ultimas(eco))
+
+    // zoom: depois de parar, o xterm é redesenhado com a fonte × zoom, e as colunas do processo ficam as mesmas
+    const colunas = sessaoPorId(chefe)?.espelho.cols
+    await js('window.__teste.loja.definirCamera({ x: -300, y: -150, zoom: 1.6 })')
+    await esperar(900)
+    const nitido = await js<{ escala: string; fonte: number }>(`(() => ({
+      escala: document.querySelector('[data-no-id="${chefe}"] .terminal-caixa')?.dataset.escala ?? '',
+      fonte: window.__terminais?.['${chefe}']?.options.fontSize ?? 0 }))()`)
+    await print('terminal-zoom')
+    conferir(
+      'zoom redesenha o texto no tamanho real, sem mudar as colunas',
+      nitido.escala === '1.6' && nitido.fonte > 19 && sessaoPorId(chefe)?.espelho.cols === colunas,
+      `escala ${nitido.escala} · fonte ${nitido.fonte.toFixed(1)} · colunas ${colunas} → ${sessaoPorId(chefe)?.espelho.cols}`
+    )
+    await js('window.__teste.loja.definirCamera({ x: 0, y: 0, zoom: 1 })')
+
+    // trocar de espaço não encerra o processo; ao voltar, o cartão se liga de novo e a tela volta
+    const pid = sessaoPorId(chefe)?.processo?.pid
+    const espacoVizinho = await js<string>(`(() => { const e = window.__teste.loja.lerEstado()
+      return e.espacos.find((x) => x.id !== e.espaco.id && !e.emOutrasJanelas.includes(x.id)).id })()`)
+    await js(`window.__teste.loja.abrirEspaco('${espacoVizinho}')`)
+    await esperar(500)
+    const vivoFora = sessaoPorId(chefe)?.processo?.pid === pid && sessaoPorId(chefe)?.vistas.size === 0
+    await js(`window.__teste.loja.abrirEspaco('${espacoTerminais}')`)
+    const deVolta = await aguardar(() => telaNoCartao(chefe), /^MP-5/m, 5000)
+    conferir(
+      'trocar de espaço e voltar: o processo segue e a tela volta',
+      vivoFora && sessaoPorId(chefe)?.processo?.pid === pid && /^MP-5/m.test(deVolta),
+      `pid ${pid} · vivo fora: ${vivoFora}`
+    )
+
+    // fora da tela por um tempo: o cartão para de desenhar (o processo segue) e volta igual
+    await js('window.__teste.loja.definirCamera({ x: -40000, y: 0, zoom: 1 })')
+    await esperar(2500)
+    const descarregou =
+      (await js<boolean>(`!!document.querySelector('[data-no-id="${chefe}"] .terminal-descarregado')`)) && sessaoPorId(chefe)?.vistas.size === 0
+    await js('window.__teste.loja.definirCamera({ x: 0, y: 0, zoom: 1 })')
+    const voltou = await aguardar(() => telaNoCartao(chefe), /^MP-5/m, 5000)
+    conferir('fora da tela o cartão para de desenhar e volta igual', descarregou && /^MP-5/m.test(voltou), `descarregou: ${descarregou}`)
+
+    // o `mpro` dentro do terminal: quem, abrir (com pedido e espera), ver, permissão pela corda, fechar
+    await comando(chefe, 'mpro quem')
+    const quem = await aguardar(() => telaNoApp(chefe), 'Você é "PowerShell"')
+    conferir('mpro quem (o comando existe dentro do terminal)', quem.includes('Você é "PowerShell"'), ultimas(quem, 3))
+
+    await comando(chefe, "mpro abrir shell --nome Ajudante --pedido 'echo AJUDANTE-$(3*3)' --esperar --tempo 40")
+    const abriu = await aguardar(() => telaNoApp(chefe), /terminou\. Tela:[\s\S]*AJUDANTE-9/, 60_000)
+    const ajudante = await js<{ id: string; criadoPor: string; corda: boolean } | null>(`(() => {
+      const p = window.__teste.loja.planoAtual()
+      const n = p.nos.find((x) => x.tipo === 'terminal' && x.nome === 'Ajudante'); if (!n) return null
+      return { id: n.id, criadoPor: n.criadoPor, corda: p.cordas.some((c) => c.de === '${chefe}' && c.para === n.id) } })()`)
+    conferir(
+      'mpro abrir: sessão nova ao lado, ligada, com o pedido feito',
+      !!ajudante && ajudante.criadoPor === chefe && ajudante.corda && /AJUDANTE-9/.test(abriu),
+      ajudante ? `corda: ${ajudante.corda} · ${ultimas(abriu)}` : `cartão não apareceu · ${ultimas(abriu, 4)}`
+    )
+
+    const solto = await js<string>(`(() => { const L = window.__teste.loja
+      const id = L.adicionarNo({ tipo: 'terminal', preset: ${presetShell} }, 560, 1100); L.atualizarNo(id, { nome: 'Solto' }); return id })()`)
+    await aguardar(() => telaNoApp(solto), /PS .*>/)
+    await comando(chefe, 'mpro pedir Solto "echo NAO-DEVIA"')
+    const recusou = await aguardar(() => telaNoApp(chefe), 'ninguém ligado a você se chama "Solto"', 15_000)
+    await comando(chefe, 'mpro ver Ajudante --linhas 20')
+    const viu = await aguardar(() => telaNoApp(chefe), /"Ajudante" · livre[\s\S]*AJUDANTE-9/, 15_000)
+    conferir(
+      'mpro ver lê a tela do outro; sem corda, recusa',
+      /"Ajudante" · livre/.test(viu) && recusou.includes('ninguém ligado') && !(await telaNoApp(solto)).includes('NAO-DEVIA'),
+      ultimas(viu)
+    )
+
+    const gitBash = [join(process.env.LOCALAPPDATA ?? '', 'Programs', 'Git', 'bin', 'bash.exe'), 'C:\\Program Files\\Git\\bin\\bash.exe'].find(
+      (c) => existsSync(c)
+    )
+    if (gitBash) {
+      // o Claude Code roda comandos pelo Git Bash: lá vale o script sh, não o .cmd
+      await comando(chefe, `& '${gitBash}' -c 'mpro quem >/dev/null && echo BASH-MPRO-OK'`)
+      const bash = await aguardar(() => telaNoApp(chefe), /^BASH-MPRO-OK/m, 20_000)
+      conferir('mpro também funciona pelo Git Bash', /^BASH-MPRO-OK/m.test(bash), ultimas(bash))
+    }
+
+    await comando(chefe, 'mpro fechar Solto')
+    await aguardar(() => telaNoApp(chefe), /mpro: ninguém ligado a você se chama "Solto"[\s\S]*mpro: ninguém ligado a você se chama "Solto"/, 15_000)
+    await comando(chefe, 'mpro fechar Ajudante')
+    await aguardar(() => telaNoApp(chefe), 'Fechei "Ajudante"', 15_000)
+    await esperar(300)
+    const sobrou = await js<string[]>(`window.__teste.loja.planoAtual().nos.filter((n) => n.tipo === 'terminal').map((n) => n.nome)`)
+    conferir(
+      'mpro fechar: só fecha o que ele abriu, e o cartão some',
+      !sobrou.includes('Ajudante') && sobrou.includes('Solto') && !!ajudante && !sessaoPorId(ajudante.id),
+      sobrou.join(', ')
+    )
+
+    // apagar o cartão: o processo espera a folga (o Ctrl+Z traz o cartão com ele vivo); depois encerra
+    const pidSolto = sessaoPorId(solto)?.processo?.pid
+    await js(`(() => { const L = window.__teste.loja; L.selecionar({ tipo: 'no', id: '${solto}' }); L.apagarSelecao(); L.desfazer() })()`)
+    await esperar(2500)
+    const continua = !!pidSolto && sessaoPorId(solto)?.processo?.pid === pidSolto
+    await js(`(() => { const L = window.__teste.loja; L.selecionar({ tipo: 'no', id: '${solto}' }); L.apagarSelecao() })()`)
+    await esperar(2500)
+    conferir('apagar terminal: Ctrl+Z na folga mantém o processo; depois ele encerra', continua && !sessaoPorId(solto), `continuou: ${continua}`)
+
+    // retomar a conversa: o Claude nasce com o id escolhido e volta com --resume; o Codex volta com `codex resume`
+    const pastaClaudeTeste = join(tmpdir(), `maestri-proprio-autoteste-claude-${Date.now()}`)
+    process.env.CLAUDE_CONFIG_DIR = pastaClaudeTeste
+    const conversa = randomUUID()
+    const especClaude = { id: randomUUID(), nome: 'C', agente: 'claude' as const, comando: 'claude --model opus', pasta: pastaTerminais, sessao: conversa }
+    const inicial = linhaDeComando(especClaude)
+    mkdirSync(join(pastaClaudeTeste, 'projects', 'qualquer'), { recursive: true })
+    writeFileSync(join(pastaClaudeTeste, 'projects', 'qualquer', `${conversa}.jsonl`), '{}\n')
+    const retomada = linhaDeComando(especClaude)
+    const codex = linhaDeComando({ ...especClaude, agente: 'codex', comando: 'codex --no-daemon' })
+    delete process.env.CLAUDE_CONFIG_DIR
+    const claudeNovo = await js<string>(`(() => { const L = window.__teste.loja
+      const id = L.adicionarNo({ tipo: 'terminal', preset: L.lerEstado().preferencias.presets.find((p) => p.agente === 'claude') }, 1600, 300)
+      return L.planoAtual().nos.find((n) => n.id === id).sessao ?? '' })()`)
+    conferir(
+      'retomar conversa: Claude --session-id e depois --resume; Codex resume',
+      inicial === `claude --model opus --session-id ${conversa}` &&
+        retomada === `claude --model opus --resume ${conversa}` &&
+        codex === `codex resume ${conversa} --no-daemon` &&
+        /^[0-9a-f-]{36}$/.test(claudeNovo),
+      `${inicial} · ${retomada} · ${codex} · cartão novo: ${claudeNovo ? 'com id' : 'sem id'}`
+    )
+
+    // opcional (gasta um pouco da conta): `MP_AGENTES_DE_VERDADE=1 npm run autoteste` abre um Claude e um Codex de
+    // verdade pelo `mpro`, na pasta do app; a resposta (uma conta) não aparece no texto do pedido
+    if (process.env.MP_AGENTES_DE_VERDADE) {
+      const pastaApp = app.getAppPath()
+      // `confiar`: as teclas que aceitam a pergunta de confiança na pasta, se ela aparecer (no Claude o cursor começa no "não")
+      const casos = [
+        { agente: 'claude', nome: 'Claudinho', pergunta: 'Quanto é 21 vezes 2? Responda só com o número seguido de -OK.', resposta: '42-OK', confiar: 'baixo enter' },
+        { agente: 'codex', nome: 'Codexinho', pergunta: 'Quanto é 30 mais 7? Responda só com o número seguido de -OK.', resposta: '37-OK', confiar: 'enter' }
+      ]
+      for (const caso of casos) {
+        // o cartão do chefe na tela: fora dela por mais de 1,5 s, ele descarrega e o teclado não chega
+        await js('window.__teste.loja.definirCamera({ x: 0, y: 0, zoom: 1 })')
+        await esperar(300)
+        await comando(
+          chefe,
+          `mpro abrir ${caso.agente} --nome ${caso.nome} --pasta '${pastaApp}' --pedido '${caso.pergunta}' --esperar --tempo 150; echo FIM-ABRIR-${caso.nome}`
+        )
+        let saida = await aguardar(() => telaNoApp(chefe), new RegExp(`^FIM-ABRIR-${caso.nome}`, 'm'), 200_000)
+        const id = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.nome === '${caso.nome}')?.id ?? ''`)
+        // pasta nova para o agente: confiança, servidores MCP do projeto, aviso de atualização… O `mpro` não digita
+        // em cima de pergunta; o teste responde pelo `mpro teclas` (a regra do agente é decidir ou perguntar ao usuário)
+        for (let i = 0; i < 4 && !saida.includes(caso.resposta); i++) {
+          const naTela = (await telaNoApp(id)).split('\n').slice(-25).join('\n')
+          const teclas = /I trust this folder|Trust and continue/i.test(naTela)
+            ? caso.confiar
+            : /MCP servers/i.test(naTela)
+              ? 'esc'
+              : /update now/i.test(naTela)
+                ? 'baixo enter'
+                : null
+          if (teclas) {
+            await comando(chefe, `mpro teclas ${caso.nome} ${teclas}; echo FIM-T${i}-${caso.nome}`)
+            await aguardar(() => telaNoApp(chefe), new RegExp(`^FIM-T${i}-${caso.nome}`, 'm'), 30_000)
+            await esperar(5000)
+          }
+          await comando(chefe, `mpro pedir ${caso.nome} '${caso.pergunta}' --tempo 150; echo FIM-P${i}-${caso.nome}`)
+          saida = await aguardar(() => telaNoApp(chefe), new RegExp(`^FIM-P${i}-${caso.nome}`, 'm'), 200_000)
+        }
+        // o Claude grava a conversa com o id que demos; o do Codex é descoberto pelo arquivo dele (a cada 5 s)
+        let retomar = ''
+        for (let i = 0; i < 40 && !/--resume|codex resume/.test(retomar); i++) {
+          await esperar(500)
+          const s = sessaoPorId(id)
+          retomar = s ? linhaDeComando(s.espec) : ''
+        }
+        await js(`(() => { const L = window.__teste.loja; const n = L.planoAtual().nos.find((x) => x.id === '${id}')
+          if (n) L.definirCamera({ x: -n.x + 60, y: -n.y + 60, zoom: 1 }) })()`)
+        await esperar(800)
+        await print(`agente-${caso.agente}`)
+        conferir(
+          `${caso.agente} de verdade: abre pelo mpro, responde e a conversa fica para retomar`,
+          saida.includes(caso.resposta) && /--resume|codex resume/.test(retomar),
+          `${saida.includes(caso.resposta) ? 'respondeu' : ultimas(saida, 6)} · ${retomar}`
+        )
+        await comando(chefe, `mpro fechar ${caso.nome}`)
+        await aguardar(() => telaNoApp(chefe), `Fechei "${caso.nome}"`, 15_000)
+      }
+    }
+
     passou = resultados.every(([, ok]) => ok)
   } catch (erro) {
     console.error('AUTOTESTE ERRO', erro)
   }
   for (const [nome, ok, detalhe] of resultados) console.log(`AUTOTESTE ${ok ? 'ok    ' : 'FALHOU'} ${nome} — ${detalhe}`)
   console.log(`AUTOTESTE ${passou ? 'PASSOU' : 'FALHOU'} — prints em ${pastaSaida}`)
+  encerrarTodos()
   await encerrarNavegador()
   app.exit(passou ? 0 : 1)
 }

@@ -34,6 +34,10 @@ export interface NoTerminal extends NoBase {
   comando: string
   /** Pasta própria; sem ela, a pasta do espaço. */
   pasta?: string
+  /** Conversa do agente, para retomar ao reabrir (Claude: escolhida ao criar; Codex: descoberta depois). */
+  sessao?: string
+  /** Cartão do agente que abriu este pelo `mpro abrir` (só ele pode fechar). */
+  criadoPor?: string
 }
 
 export type CorPostIt = 'amarelo' | 'rosa' | 'azul' | 'verde' | 'roxo'
@@ -89,7 +93,7 @@ export interface EntradaPasta {
 export type No = NoTerminal | NoPostIt | NoTexto | NoArquivo | NoPasta | NoPortal | NoImagem
 export type TipoNo = No['tipo']
 
-/** Ligação entre dois terminais: é a permissão de um agente falar com o outro (integração depois). */
+/** Ligação entre dois terminais: é a permissão de um agente falar com o outro pelo `mpro`. */
 export interface Corda {
   id: string
   de: string

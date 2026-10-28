@@ -3,10 +3,11 @@ import { join } from 'node:path'
 import { CANAIS_APP } from '../shared/api'
 import { registrarAndares } from './andares'
 import { registrarArea, registrarEsquemaImagem, servirImagens } from './area'
-import { idsDosEspacos, registrarDados } from './dados'
+import { registrarComandos } from './comandos'
+import { idsDosEspacos, quandoApagarEspaco, registrarDados } from './dados'
 import { encerrarNavegador, registrarNavegador, soltarAbasDaJanela } from './navegador'
 import { configurarJanelas, lembrarInicial, registrarJanelas, soltarJanela } from './janelas'
-import { encerrarTodos, registrarTerminais } from './terminais'
+import { encerrarDoEspaco, encerrarTodos, registrarTerminais } from './terminais'
 import { rodarAutoteste } from './autoteste'
 
 const autoteste = process.argv.includes('--autoteste')
@@ -185,6 +186,8 @@ if (!autoteste && !app.requestSingleInstanceLock()) {
     registrarNavegador()
     servirImagens()
     registrarTerminais()
+    registrarComandos()
+    quandoApagarEspaco(encerrarDoEspaco)
     criarJanela()
   })
 }
