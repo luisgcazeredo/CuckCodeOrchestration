@@ -94,6 +94,8 @@ const api: ApiMaestri = {
         }))
         ipcRenderer.send(CANAIS_AGENTES.resposta, id, resposta)
       })
+      // A janela nova ainda pode estar carregando quando um agente pede um cartão neste espaço.
+      ipcRenderer.send(CANAIS_AGENTES.pronta)
     }
   },
   dados,

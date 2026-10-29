@@ -185,6 +185,19 @@ function todosOsEspacos(): Espaco[] {
   })
 }
 
+/** Resumo para quem precisa enxergar os espaços sem ter uma janela dona deles. */
+export function resumosDosEspacos(): ResumoEspaco[] {
+  return todosOsEspacos().map(resumo)
+}
+
+/** Cria pelo comando do agente e avisa as janelas para não deixarem a lista velha. */
+export function criarEspacoDoAgente(nome: string, pasta: string): ResumoEspaco {
+  const valido = typeof pasta === 'string' && existsSync(pasta) && statSync(pasta).isDirectory()
+  const novo = resumo(criarEspaco(nome, valido ? pasta : homedir()))
+  avisarTodas({ tipo: 'lista' })
+  return novo
+}
+
 /** Nós de todos os espaços e de todos os andares. */
 function todosOsNos(): No[] {
   return todosOsEspacos().flatMap((e) => planos(e).flatMap((p) => p.nos))
@@ -306,12 +319,7 @@ export function quandoApagarEspaco(fazer: (id: string) => void): void {
 export function registrarDados(): void {
   garantirInicio()
 
-  ipcMain.handle(CANAIS_DADOS.listarEspacos, (): ResumoEspaco[] =>
-    lerManifesto()
-      .map((id) => (ID_VALIDO.test(id) ? lerEspaco(id) : null))
-      .filter((e): e is Espaco => e !== null)
-      .map(resumo)
-  )
+  ipcMain.handle(CANAIS_DADOS.listarEspacos, (): ResumoEspaco[] => resumosDosEspacos())
 
   ipcMain.handle(CANAIS_DADOS.carregarEspaco, (_e, id: string): EspacoCarregado | null => {
     const espaco = lerEspaco(id)

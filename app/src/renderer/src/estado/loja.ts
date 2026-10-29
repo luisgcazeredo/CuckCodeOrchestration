@@ -1249,20 +1249,24 @@ function atenderAgente(pedido: PedidoDoAgente): RespostaAoAgente {
     return { ok: true }
   }
 
-  const plano = planos.find((p) => p.nos.some((n) => n.id === pedido.criador))
-  const criador = plano?.nos.find((n) => n.id === pedido.criador)
-  if (!plano || !criador) return { ok: false, erro: 'o seu cartão não está no quadro' }
-  // a janela confere de novo: é ela que cria o cartão, um pedido de cada vez
-  const filhos = planos.reduce((t, p) => t + p.nos.filter((n) => n.tipo === 'terminal' && n.criadoPor === criador.id).length, 0)
-  if (filhos >= MAX_SESSOES_POR_AGENTE) return { ok: false, erro: `você já tem ${filhos} sessões abertas (o limite é ${MAX_SESSOES_POR_AGENTE})` }
+  const planoDoCriador = planos.find((p) => p.nos.some((n) => n.id === pedido.criador))
+  const criador = planoDoCriador?.nos.find((n) => n.id === pedido.criador)
+  // Em outro espaço o criador não existe neste quadro: o processo principal já conferiu a autoria; aqui só escolhemos
+  // um plano e uma posição inicial. Sem cartão do criador não há ponta para desenhar corda.
+  const plano = planoDoCriador ?? e.andares.find((a) => a.id === e.andarAtivo) ?? e
+  // A janela confere de novo quando o criador está neste quadro; a reserva principal cobre os outros espaços.
+  const filhos = planos.reduce((t, p) => t + p.nos.filter((n) => n.tipo === 'terminal' && n.criadoPor === pedido.criador).length, 0)
+  if (criador && filhos >= MAX_SESSOES_POR_AGENTE) return { ok: false, erro: `você já tem ${filhos} sessões abertas (o limite é ${MAX_SESSOES_POR_AGENTE})` }
   const preset =
     estado.preferencias.presets.find((p) => p.agente === pedido.agente) ?? PRESETS_PADRAO.find((p) => p.agente === pedido.agente)!
   const nomes = new Set(planos.flatMap((p) => p.nos.flatMap((n) => (n.tipo === 'terminal' ? [n.nome.toLowerCase()] : []))))
   const base = pedido.nome || preset.nome
   let nome = base
   for (let i = 2; nomes.has(nome.toLowerCase()); i++) nome = `${base} ${i}`
-  // ao lado de quem abriu; descendo até achar um lugar livre
-  const caixa: Caixa = { x: criador.x + criador.largura + 80, y: criador.y, largura: 720, altura: 460 }
+  // Ao lado de quem abriu; no outro espaço começa num canto livre porque não existe uma corda para orientar a posição.
+  const caixa: Caixa = criador
+    ? { x: criador.x + criador.largura + 80, y: criador.y, largura: 720, altura: 460 }
+    : { x: 120, y: 120, largura: 720, altura: 460 }
   for (let i = 0; i < 30 && plano.nos.some((n) => tocam(caixa, caixaDoNo(n), 30)); i++) caixa.y += caixa.altura + 60
   const no: NoTerminal = {
     id: novoId(),
@@ -1275,10 +1279,10 @@ function atenderAgente(pedido: PedidoDoAgente): RespostaAoAgente {
     comando: preset.comando,
     pasta: pedido.pasta,
     sessao: preset.agente === 'claude' ? novoId() : undefined,
-    criadoPor: criador.id
+    criadoPor: pedido.criador
   }
-  const corda: Corda = { id: novoId(), de: criador.id, para: no.id, criadoEm: agora() }
-  const por = (p: Plano): Plano => (p === plano ? { ...p, nos: [...p.nos, no], cordas: [...p.cordas, corda] } : p)
+  const corda: Corda | null = criador ? { id: novoId(), de: criador.id, para: no.id, criadoEm: agora() } : null
+  const por = (p: Plano): Plano => (p === plano ? { ...p, nos: [...p.nos, no], cordas: corda ? [...p.cordas, corda] : p.cordas } : p)
   mudarEspaco((x) => ({ ...x, ...por(x), andares: x.andares.map((a) => ({ ...a, ...por(a) })) }), false)
   return { ok: true, id: no.id, nome }
 }

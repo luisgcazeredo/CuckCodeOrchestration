@@ -3,9 +3,14 @@
 
 export const AJUDA = `mpro — fala com o Maestri Próprio de dentro de um terminal do app
 
-  mpro quem                           quem é você e quem está ligado a você (pela corda)
-  mpro abrir <claude|codex|shell> [--nome N] [--pasta P] [--pedido "texto" | --arquivo pedido.md] [--esperar] [--tempo S]
-                                      abre uma sessão nova, ligada a você, e manda o primeiro pedido
+  mpro quem                           quem é você, seus ligados e o contexto que deu para ler
+  mpro orcamento                      só o contexto restante que deu para ler na sua tela
+  mpro espacos                        lista todos os espaços, janela, cartões e marca o seu
+  mpro janela <nome do espaço>        abre o espaço numa janela (ou traz a que já está aberta)
+  mpro janela --novo "Nome" [--pasta P]
+                                       cria um espaço e abre uma janela nele
+  mpro abrir <claude|codex|shell> [--espaco "Nome"] [--nome N] [--pasta P] [--pedido "texto" | --arquivo pedido.md] [--esperar] [--tempo S]
+                                       abre uma sessão nova; em outro espaço, você continua sendo o dono
   mpro pedir <nome> "texto" | --arquivo pedido.md [--sem-esperar] [--tempo S]
                                       manda um pedido e espera ele terminar (devolve a tela)
   mpro esperar <nome> [--tempo S]     espera terminar o que está fazendo
@@ -15,11 +20,13 @@ export const AJUDA = `mpro — fala com o Maestri Próprio de dentro de um termi
   mpro fechar <nome>                  fecha uma sessão que você abriu (some do quadro)
 
   <nome> é o nome do cartão (ou o começo dele). --tempo em segundos (padrão 100, máx. 3600).
-  Só fala com quem está ligado a você por uma corda; quem você abre já nasce ligado.`
+  Só fala com quem está ligado a você por uma corda, ou com quem você mesmo abriu. Quem abre no mesmo espaço já nasce
+  ligado; em outro espaço não ganha corda, mas continua acessível pelo dono. O número de contexto vem da tela do cliente
+  e pode não dar para ler.`
 
 export const SKILL = `---
 name: maestri-proprio
-description: Use dentro de um terminal do Maestri Próprio (a variável de ambiente MP_PIPE existe) para fazer engenharia de contexto — abrir uma sessão nova de agente (Claude, Codex ou shell) com um contexto limpo e focado, delegar uma parte do trabalho, conversar com os agentes ligados a você pela corda, ler a tela deles, zerar o contexto de uma sessão ou fechar as sessões que você abriu. Comando: mp. Fora do app não funciona.
+description: Use dentro de um terminal do Maestri Próprio (a variável de ambiente MP_PIPE existe) para fazer engenharia de contexto — abrir uma sessão nova de agente (Claude, Codex ou shell) com um contexto limpo e focado, delegar uma parte do trabalho, conversar com os agentes ligados a você pela corda, ler a tela deles, zerar o contexto de uma sessão ou fechar as sessões que você abriu. Comando: mpro. Fora do app não funciona.
 ---
 
 # Maestri Próprio: o comando \`mpro\`
@@ -40,6 +47,11 @@ Seu contexto é caro e fica poluído com o tempo. Em vez de carregar tudo numa c
 - **Sessão que já cumpriu o papel → feche** (\`mpro fechar\`) ou **zere** (\`mpro limpar\`) antes de dar outra tarefa.
 - **Resultado longo → arquivo.** Peça para a sessão gravar o resultado num arquivo e responder só o caminho e um
   resumo de poucas linhas; a tela devolvida pelo \`mpro\` é curta.
+- **Decida pelo orçamento.** Consulte \`mpro orcamento\` antes de continuar uma frente longa. Com pouco contexto, em
+  vez de seguir até ser compactado, grave o estado num arquivo e abra uma sessão nova com só o que ela precisa. O número
+  é lido do rodapé do cliente e pode faltar; nesse caso, não invente um número.
+- **Frente inteira → espaço novo.** \`mpro janela --novo "Nome"\` separa uma frente de trabalho inteira, com o seu
+  quadro e suas sessões; não abra um espaço novo para cada tarefinha.
 
 ## Comandos
 
@@ -59,8 +71,10 @@ ${'```'}
 
 ## Regras de convívio
 
-- Só fala com quem está ligado a você por uma corda (o usuário desenha as cordas no quadro). Quem você abre já nasce
-  ligado. Você só fecha as sessões que você mesmo abriu, e abre no máximo 8.
+- Só fala com quem está ligado a você por uma corda (o usuário desenha as cordas no quadro), ou com quem você mesmo
+  abriu. Quem você abre no mesmo espaço já nasce ligado; em outro espaço não há corda, mas você continua falando com ele
+  por ser o dono. Você só fecha as sessões que você mesmo abriu, e abre no máximo 8 contando todos os espaços.
+- A corda é regra de convívio, não fronteira de segurança: todos os agentes rodam como o mesmo usuário do Windows.
 - Não reenvie um pedido que ainda não respondeu e não interrompa quem está trabalhando (\`ctrl-c\`, \`esc\`) sem motivo.
 - Dois agentes não editam o mesmo arquivo ao mesmo tempo: divida o trabalho por arquivo ou por pasta.
 - **Responder de volta:** ao delegar algo longo, peça que o outro termine com

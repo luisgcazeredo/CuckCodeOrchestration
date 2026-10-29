@@ -6,8 +6,8 @@ import { homedir, tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { CANAIS_AGENTES, MAX_SESSOES_POR_AGENTE, type PedidoDoAgente, type RespostaAoAgente } from '../shared/api'
 import type { Agente } from '../shared/modelo'
-import { PASTA_DADOS } from './dados'
-import { donoDe } from './janelas'
+import { criarEspacoDoAgente, PASTA_DADOS, resumosDosEspacos } from './dados'
+import { abrirJanela, donoDe } from './janelas'
 import { AJUDA, SKILL } from './manual'
 import {
   aceitaColagem,
@@ -16,6 +16,7 @@ import {
   escreverNoProcesso,
   esperarSessao,
   sessaoPorCracha,
+  sessoesCriadasPor,
   sessoesDoEspaco,
   telaDe,
   type Sessao
@@ -118,11 +119,29 @@ function instalarComando(): void {
 const respostas = new Map<string, { janela: number; resolver: (r: RespostaAoAgente) => void }>()
 /** Aberturas em andamento por agente (contam no limite enquanto a janela cria o cartão). */
 const abrindo = new Map<string, number>()
+/** Janelas que já instalaram o atendente do renderer. */
+const janelasProntas = new Set<number>()
+
+function janelaDoEspaco(espacoId: string) {
+  const dono = donoDe(espacoId)
+  const janela = dono !== undefined ? webContents.fromId(dono) : undefined
+  return janela && !janela.isDestroyed() ? janela : undefined
+}
+
+/** Uma janela reservada ainda está carregando: pedido antes do atendente se perderia no IPC. */
+async function abrirJanelaPronta(espacoId: string): Promise<{ jaEstavaAberta: boolean }> {
+  const jaEstavaAberta = !!janelaDoEspaco(espacoId)
+  if (!abrirJanela(espacoId)) throw new Error('não consegui abrir uma janela para este espaço')
+  for (const limite = Date.now() + 10_000; Date.now() < limite; await esperar(50)) {
+    const janela = janelaDoEspaco(espacoId)
+    if (janela && janelasProntas.has(janela.id)) return { jaEstavaAberta }
+  }
+  throw new Error('a janela do espaço abriu, mas não ficou pronta para atender em 10 s; tente de novo')
+}
 
 function pedirAJanela(pedido: PedidoDoAgente): Promise<RespostaAoAgente> {
-  const dono = donoDe(pedido.espacoId)
-  const janela = dono !== undefined ? webContents.fromId(dono) : undefined
-  if (!janela || janela.isDestroyed()) {
+  const janela = janelaDoEspaco(pedido.espacoId)
+  if (!janela) {
     return Promise.resolve({ ok: false, erro: 'o espaço deste terminal não está aberto em nenhuma janela; peça ao usuário para abri-lo' })
   }
   const id = randomUUID()
@@ -158,6 +177,30 @@ async function situacao(s: Sessao): Promise<Situacao> {
   if (s.espec.agente === 'shell') return PROMPT_LIVRE.test(fim.split('\n').pop() ?? '') ? 'livre' : 'trabalhando'
   return OCUPADO.test(fim) ? 'trabalhando' : 'livre'
 }
+
+/**
+ * O rodapé é texto de ferramenta de terceiro: Claude Code e Codex podem mudar o formato sem aviso. Por isso só
+ * aceitamos porcentagens explícitas dos formatos conhecidos; se não houver uma, o comando não adivinha.
+ */
+export function extrairContextoRestante(tela: string): number | null {
+  const formatos = [
+    /\bcontext left until auto-compact\s*:\s*(100|[1-9]?\d)%/i,
+    /\b(100|[1-9]?\d)%\s+(?:context|tokens?)\s+(?:left|remaining)\b/i,
+    /\b(?:context|tokens?)\s+(?:left|remaining)\s*:\s*(100|[1-9]?\d)%/i
+  ]
+  for (const formato of formatos) {
+    const achou = tela.match(formato)
+    if (achou) return Number(achou[1])
+  }
+  return null
+}
+
+async function contextoRestante(s: Sessao): Promise<number | null> {
+  return extrairContextoRestante(await telaDe(s, 80))
+}
+
+const textoDoContexto = (contexto: number | null): string =>
+  contexto === null ? 'contexto: não deu para ler' : `contexto: ${contexto}% restante`
 
 /** Espera começar (até 8 s) e depois sossegar (livre ou numa pergunta) por 2,5 s seguidos. false = o tempo acabou antes. */
 async function aguardarFim(s: Sessao, ms: number, cancelado: () => boolean): Promise<boolean> {
@@ -232,14 +275,16 @@ function registrar(de: Sessao, para: Sessao | null, comando: string, texto = '')
 
 // ---------- quem fala com quem ----------
 
-/** Quem está ligado a mim por corda, mais quem eu abri. */
+/** Quem está ligado a mim por corda, mais quem eu abri, mesmo se estiver em outro espaço. */
 function ligadosA(eu: Sessao): Sessao[] {
   const ids = new Set<string>()
   for (const [a, b] of cordasDoEspaco(eu.espacoId)) {
     if (a === eu.id) ids.add(b)
     if (b === eu.id) ids.add(a)
   }
-  return sessoesDoEspaco(eu.espacoId).filter((s) => s.id !== eu.id && (ids.has(s.id) || s.espec.criadoPor === eu.id))
+  const porCorda = sessoesDoEspaco(eu.espacoId).filter((s) => s.id !== eu.id && ids.has(s.id))
+  const meus = sessoesCriadasPor(eu.id)
+  return [...new Map([...porCorda, ...meus].map((s) => [s.id, s])).values()]
 }
 
 function acharEntre(lista: Sessao[], nome: string | undefined): Sessao {
@@ -296,6 +341,15 @@ function agenteDe(texto: string | undefined): Agente | null {
   return null
 }
 
+function espacoPorNome(nome: string | undefined) {
+  if (!nome?.trim()) throw new Error('diga o nome do espaço (veja `mpro espacos`)')
+  const procurado = nome.trim().toLocaleLowerCase('pt-BR')
+  const achados = resumosDosEspacos().filter((e) => e.nome.trim().toLocaleLowerCase('pt-BR') === procurado)
+  if (achados.length === 1) return achados[0]
+  if (achados.length > 1) throw new Error(`há mais de um espaço chamado "${nome}"; renomeie um deles pelo quadro`)
+  throw new Error(`não existe espaço chamado "${nome}". Veja mpro espacos.`)
+}
+
 interface Pedido {
   cracha?: unknown
   comando?: unknown
@@ -315,35 +369,71 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
     case 'help':
       return AJUDA
 
+    case 'espacos': {
+      const linhas = resumosDosEspacos().map((espaco) => {
+        const meu = espaco.id === eu.espacoId ? ' · seu espaço' : ''
+        return `${meu ? '*' : ' '} "${espaco.nome}" · ${janelaDoEspaco(espaco.id) ? 'janela aberta' : 'sem janela'} · ${espaco.terminais} cartões${meu}`
+      })
+      return linhas.join('\n') || 'Não há espaços.'
+    }
+
+    case 'janela': {
+      if (opcoes.novo) {
+        const nome = typeof opcoes.novo === 'string' ? opcoes.novo.trim() : ''
+        if (!nome) throw new Error('diga o nome: mpro janela --novo "Nome" [--pasta P]')
+        const pasta = typeof opcoes.pasta === 'string' ? opcoes.pasta : eu.espec.pasta
+        if (!(existsSync(pasta) && statSync(pasta).isDirectory())) throw new Error(`a pasta não existe: ${pasta}`)
+        const espaco = criarEspacoDoAgente(nome, pasta)
+        await abrirJanelaPronta(espaco.id)
+        return `Criei o espaço "${espaco.nome}" e abri uma janela nele.`
+      }
+      if (opcoes.pasta) throw new Error('`--pasta` só vale com `mpro janela --novo "Nome"`')
+      const espaco = espacoPorNome(pos[0])
+      const { jaEstavaAberta } = await abrirJanelaPronta(espaco.id)
+      return jaEstavaAberta
+        ? `O espaço "${espaco.nome}" já estava aberto; trouxe a janela para a frente.`
+        : `Abri uma janela no espaço "${espaco.nome}".`
+    }
+
     case 'quem': {
       const ligados = ligadosA(eu)
       const linhas = await Promise.all(
-        ligados.map(async (s) => `  "${s.espec.nome}" · ${s.espec.agente} · ${await situacao(s)}${s.espec.criadoPor === eu.id ? ' · aberto por você' : ''}`)
+        ligados.map(
+          async (s) =>
+            `  "${s.espec.nome}" · ${s.espec.agente} · ${await situacao(s)} · ${textoDoContexto(await contextoRestante(s))}${
+              s.espec.criadoPor === eu.id ? ' · aberto por você' : ''
+            }`
+        )
       )
-      const filhos = sessoesDoEspaco(eu.espacoId).filter((s) => s.espec.criadoPor === eu.id).length
+      const filhos = sessoesCriadasPor(eu.id).length
       return [
-        `Você é "${eu.espec.nome}" (${eu.espec.agente}) · pasta ${eu.espec.pasta}`,
+        `Você é "${eu.espec.nome}" (${eu.espec.agente}) · pasta ${eu.espec.pasta} · ${textoDoContexto(await contextoRestante(eu))}`,
         'Ligados a você:',
-        ...(linhas.length ? linhas : ['  ninguém (o usuário liga cartões com uma corda; quem você abre já nasce ligado)']),
+        ...(linhas.length ? linhas : ['  ninguém (o usuário liga cartões com uma corda; quem você abre continua acessível mesmo em outro espaço)']),
         `Você abriu ${filhos} de ${MAX_SESSOES_POR_AGENTE} sessões possíveis.`
       ].join('\n')
     }
 
+    case 'orcamento':
+      return textoDoContexto(await contextoRestante(eu))
+
     case 'abrir': {
       const agente = agenteDe(pos[0])
-      if (!agente) throw new Error('diga qual agente: mpro abrir claude|codex|shell [--nome N] [--pedido "texto"]')
+      if (!agente) throw new Error('diga qual agente: mpro abrir claude|codex|shell [--espaco "Nome"] [--nome N] [--pedido "texto"]')
       // as aberturas ainda em andamento contam: vários `abrir` ao mesmo tempo não passam do limite
-      const filhos = sessoesDoEspaco(eu.espacoId).filter((s) => s.espec.criadoPor === eu.id).length + (abrindo.get(eu.id) ?? 0)
+      const filhos = sessoesCriadasPor(eu.id).length + (abrindo.get(eu.id) ?? 0)
       if (filhos >= MAX_SESSOES_POR_AGENTE) {
         throw new Error(`você já abriu ${filhos} sessões (o limite é ${MAX_SESSOES_POR_AGENTE}); feche uma com \`mpro fechar\``)
       }
       const pasta = typeof opcoes.pasta === 'string' ? opcoes.pasta : undefined
       if (pasta && !(existsSync(pasta) && statSync(pasta).isDirectory())) throw new Error(`a pasta não existe: ${pasta}`)
       const nome = typeof opcoes.nome === 'string' ? opcoes.nome.trim().slice(0, 80) || undefined : undefined
+      const espaco = typeof opcoes.espaco === 'string' ? espacoPorNome(opcoes.espaco) : { id: eu.espacoId, nome: '' }
       abrindo.set(eu.id, (abrindo.get(eu.id) ?? 0) + 1)
       let novo: Sessao | undefined
       try {
-        const r = await pedirAJanela({ tipo: 'abrir', espacoId: eu.espacoId, criador: eu.id, agente, nome, pasta })
+        await abrirJanelaPronta(espaco.id)
+        const r = await pedirAJanela({ tipo: 'abrir', espacoId: espaco.id, criador: eu.id, agente, nome, pasta })
         if (!r.ok) throw new Error(r.erro)
         novo = r.id ? await esperarSessao(r.id, 5000) : undefined
       } finally {
@@ -351,7 +441,10 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
       }
       if (!novo) throw new Error('o cartão foi criado, mas o processo não abriu')
       registrar(eu, novo, 'abrir', texto)
-      const aberto = `Abri "${novo.espec.nome}" (${agente}), ligado a você.`
+      const aberto =
+        novo.espacoId === eu.espacoId
+          ? `Abri "${novo.espec.nome}" (${agente}), ligado a você.`
+          : `Abri "${novo.espec.nome}" (${agente}) no espaço "${espaco.nome}"; você pode falar com ele porque o abriu.`
       if (!texto) return `${aberto} Mande o primeiro pedido com: mpro pedir "${novo.espec.nome}" "…"`
       const pronto = await aguardarPronto(novo, 90_000, cancelado)
       if (pronto !== 'pronto') {
@@ -427,9 +520,10 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
     }
 
     case 'fechar': {
-      const meus = sessoesDoEspaco(eu.espacoId).filter((s) => s.espec.criadoPor === eu.id)
+      const meus = sessoesCriadasPor(eu.id)
       const alvo = acharEntre(meus, pos[0])
-      const r = await pedirAJanela({ tipo: 'fechar', espacoId: eu.espacoId, id: alvo.id })
+      await abrirJanelaPronta(alvo.espacoId)
+      const r = await pedirAJanela({ tipo: 'fechar', espacoId: alvo.espacoId, id: alvo.id })
       if (!r.ok) throw new Error(r.erro)
       registrar(eu, alvo, 'fechar')
       encerrarAgora(alvo.id)
@@ -456,6 +550,11 @@ async function atender(linha: string, socket: Socket, fechado: () => boolean): P
 
 export function registrarComandos(): void {
   instalarComando()
+
+  ipcMain.on(CANAIS_AGENTES.pronta, (evento) => {
+    janelasProntas.add(evento.sender.id)
+    evento.sender.once('destroyed', () => janelasProntas.delete(evento.sender.id))
+  })
 
   ipcMain.on(CANAIS_AGENTES.resposta, (evento, id: unknown, resposta: RespostaAoAgente) => {
     const pendente = typeof id === 'string' ? respostas.get(id) : undefined

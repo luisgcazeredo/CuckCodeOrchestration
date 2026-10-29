@@ -251,7 +251,9 @@ export const CANAIS = {
 
 export const CANAIS_AGENTES = {
   pedido: 'agentes:pedido',
-  resposta: 'agentes:resposta'
+  resposta: 'agentes:resposta',
+  /** A janela só recebe pedidos depois que a loja instalou o atendente. */
+  pronta: 'agentes:pronta'
 } as const
 
 export const CANAIS_DADOS = {

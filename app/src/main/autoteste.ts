@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { extrairContextoRestante } from './comandos'
 import { PASTA_DADOS } from './dados'
 import { encerrarNavegador, janelasNaBarra } from './navegador'
 import { encerrarTodos, linhaDeComando, sessaoPorId, telaDe } from './terminais'
@@ -1028,6 +1029,63 @@ export async function rodarAutoteste(
       sobrou.join(', ')
     )
 
+    await comando(chefe, 'mpro espacos')
+    const espacosDoMpro = await aguardar(() => telaNoApp(chefe), '"Terminais"')
+    conferir(
+      'mpro espacos lista o espaço do agente e o marca',
+      /\* "Terminais"[\s\S]*seu espaço/.test(espacosDoMpro),
+      ultimas(espacosDoMpro, 5)
+    )
+
+    await comando(chefe, 'mpro janela --novo "Frente 2"')
+    await aguardar(() => telaNoApp(chefe), 'Criei o espaço "Frente 2"')
+    let frente2: BrowserWindow | undefined
+    let frente2Pronta = false
+    for (let i = 0; i < 100 && !frente2Pronta; i++) {
+      await esperar(100)
+      frente2 = BrowserWindow.getAllWindows().find((j) => j !== janela && !j.isDestroyed())
+      frente2Pronta = !!frente2 &&
+        (await frente2.webContents.executeJavaScript(`window.__teste?.loja.lerEstado().espaco?.nome === 'Frente 2'`).catch(() => false))
+    }
+    conferir('mpro janela --novo cria o espaço e abre a janela', frente2Pronta, frente2 ? frente2.webContents.getTitle() : 'sem janela')
+
+    await comando(chefe, 'mpro abrir --espaco "Frente 2" shell --nome "Longe"')
+    const abriuLonge = await aguardar(() => telaNoApp(chefe), 'Abri "Longe"')
+    const longe = frente2
+      ? await frente2.webContents.executeJavaScript(`(() => { const n = window.__teste.loja.planoAtual().nos
+          .find((x) => x.tipo === 'terminal' && x.nome === 'Longe'); return n ? { id: n.id, criadoPor: n.criadoPor } : null })()`).catch(() => null)
+      : null
+    await comando(chefe, 'mpro ver Longe --linhas 5')
+    const viuLonge = await aguardar(() => telaNoApp(chefe), '"Longe"')
+    conferir(
+      'mpro abrir --espaco cria longe e o dono ainda consegue ver sem corda',
+      !!longe && longe.criadoPor === chefe && abriuLonge.includes('porque o abriu') && viuLonge.includes('"Longe"'),
+      longe ? `criado por: ${longe.criadoPor}` : ultimas(abriuLonge, 4)
+    )
+
+    await comando(chefe, 'mpro orcamento')
+    const orcamento = await aguardar(() => telaNoApp(chefe), /contexto: (\d+% restante|não deu para ler)/i)
+    conferir('mpro orcamento responde mesmo sem contexto na tela', /contexto: (\d+% restante|não deu para ler)/i.test(orcamento), ultimas(orcamento))
+
+    for (let i = 1; i <= 7; i++) {
+      const nome = `Limite ${i}`
+      await comando(chefe, `mpro abrir shell --nome "${nome}"`)
+      await aguardar(() => telaNoApp(chefe), `Abri "${nome}"`, 20_000)
+    }
+    await comando(chefe, 'mpro abrir --espaco "Frente 2" shell --nome "Nono"')
+    const nono = await aguardar(() => telaNoApp(chefe), 'o limite é 8', 20_000)
+    conferir('mpro mantém o limite de 8 somando os dois espaços', nono.includes('o limite é 8'), ultimas(nono, 3))
+
+    await js(`(() => { const L = window.__teste.loja
+      for (const n of L.planoAtual().nos.filter((n) => n.tipo === 'terminal' && n.criadoPor === '${chefe}')) L.apagar({ tipo: 'no', id: n.id })
+      return L.salvarAgora() })()`)
+    if (frente2) {
+      await frente2.webContents.executeJavaScript(`window.__teste.loja.apagarEspaco(window.__teste.loja.lerEstado().espaco.id)`).catch(() => undefined)
+      await pedirSalvamento(frente2)
+      frente2.close()
+      for (let i = 0; i < 50 && !frente2.isDestroyed(); i++) await esperar(100)
+    }
+
     // apagar o cartão: o processo espera a folga (o Ctrl+Z traz o cartão com ele vivo); depois encerra
     const pidSolto = sessaoPorId(solto)?.processo?.pid
     await js(`(() => { const L = window.__teste.loja; L.selecionar({ tipo: 'no', id: '${solto}' }); L.apagarSelecao(); L.desfazer() })()`)
@@ -1092,6 +1150,22 @@ export async function rodarAutoteste(
         codex === `codex resume ${conversa} --no-daemon` &&
         /^[0-9a-f-]{36}$/.test(claudeNovo),
       `${inicial} · ${retomada} · ${codex} · cartão novo: ${claudeNovo ? 'com id' : 'sem id'}`
+    )
+
+    // o leitor de contexto por fora: prova os formatos conhecidos sem gastar conta de agente. O rodapé de verdade
+    // (Claude e Codex) só é exercitado no bloco opcional abaixo
+    const exemplos: Array<[string, number | null]> = [
+      ["Context left until auto-compact: 23%", 23],
+      ["  ? for shortcuts                                    17% context left", 17],
+      ["tokens remaining: 8%", 8],
+      ["PS C:\Users\luisg> echo 50%", null],
+      ["for shortcuts · context left", null]
+    ]
+    const erradas = exemplos.filter(([tela, esperado]) => extrairContextoRestante(tela) !== esperado)
+    conferir(
+      "leitor de contexto: lê os formatos conhecidos e não adivinha no resto",
+      erradas.length === 0,
+      erradas.map(([tela]) => `${tela} → ${extrairContextoRestante(tela)}`).join(" | ")
     )
 
     // opcional (gasta um pouco da conta): `MP_AGENTES_DE_VERDADE=1 npm run autoteste` abre um Claude e um Codex de
