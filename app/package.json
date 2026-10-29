@@ -1,19 +1,19 @@
 {
   "name": "maestri-proprio",
   "productName": "Maestri Proprio",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "description": "Quadro infinito para orquestrar agentes de código",
   "author": "Luís Azeredo",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "set \"ELECTRON_RUN_AS_NODE=\" && electron-vite dev",
     "build": "electron-vite build",
-    "start": "electron-vite preview",
+    "start": "set \"ELECTRON_RUN_AS_NODE=\" && electron-vite preview",
     "typecheck": "tsc --noEmit",
-    "autoteste": "electron-vite build && electron . --autoteste",
+    "autoteste": "set \"ELECTRON_RUN_AS_NODE=\" && electron-vite build && electron . --autoteste",
     "icone": "electron scripts/gerar-icone.cjs",
-    "empacotar": "electron-vite build && electron-builder --win --x64",
+    "empacotar": "set \"ELECTRON_RUN_AS_NODE=\" && electron-vite build && electron-builder --win --x64",
     "instalar": "npm run empacotar && node scripts/instalar.mjs"
   },
   "dependencies": {

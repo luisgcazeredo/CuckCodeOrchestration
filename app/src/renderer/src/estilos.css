@@ -891,6 +891,90 @@ body.em-gesto webview {
   background: var(--hover);
 }
 
+.menu-terminal .menu-terminal-editar {
+  color: var(--texto-suave);
+}
+
+/* presets de agente */
+.dialogo:has(.presets) {
+  width: 660px;
+}
+
+.presets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.preset-linha {
+  display: grid;
+  grid-template-columns: 18px 150px 130px 1fr 30px;
+  align-items: center;
+  gap: 8px;
+}
+
+.preset-linha input,
+.preset-linha select {
+  height: 32px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--lateral-filtro);
+  color: var(--texto);
+  font: inherit;
+  font-size: 13px;
+  outline: 0;
+}
+
+.preset-linha input:focus,
+.preset-linha select:focus {
+  border-color: var(--destaque);
+}
+
+.preset-comando {
+  font-family: var(--fonte-mono) !important;
+}
+
+.preset-apagar,
+.preset-novo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--texto-suave);
+  cursor: pointer;
+}
+
+.preset-apagar {
+  height: 30px;
+}
+
+.preset-apagar:hover:not(:disabled),
+.preset-novo:hover {
+  background: var(--hover);
+  color: var(--texto);
+}
+
+.preset-apagar:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.preset-novo {
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.dialogo-acoes .espaco-flex {
+  flex: 1;
+}
+
 .barra-desenho {
   gap: 4px;
   padding: 4px 10px;

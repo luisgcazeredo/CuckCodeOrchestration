@@ -58,6 +58,9 @@ export interface ApiTerminal {
   aoDescobrirSessao(ouvinte: (id: string, sessao: string) => void): void
 }
 
+/** Quantas sessões um agente pode ter abertas pelo `mpro abrir` ao mesmo tempo. */
+export const MAX_SESSOES_POR_AGENTE = 8
+
 /** Pedidos que um agente faz pelo `mpro` e que mexem no quadro (só a janela dona do espaço pode). */
 export type PedidoDoAgente =
   | { tipo: 'abrir'; espacoId: string; criador: string; agente: Agente; nome?: string; pasta?: string }

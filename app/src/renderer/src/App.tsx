@@ -30,6 +30,7 @@ import { BotaoLateral, CantoInferior, CantoSuperior, enquadrarTudo, zoomPeloCent
 import { MenuContexto, menuAberto } from './ui/MenuContexto'
 import { abrirPaleta, Paleta } from './ui/Paleta'
 import { Perguntas } from './ui/Perguntas'
+import { Presets } from './ui/Presets'
 
 function digitando(): boolean {
   return !!document.activeElement?.closest('input, textarea, [contenteditable], [data-teclado]')
@@ -126,6 +127,7 @@ export function App() {
       <Perguntas />
       <Atalhos />
       <Paleta />
+      <Presets />
     </div>
   )
 }

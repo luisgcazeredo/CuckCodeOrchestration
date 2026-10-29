@@ -271,6 +271,31 @@ function validarParaSalvar(carregado: EspacoCarregado): EspacoCarregado {
   return carregado
 }
 
+const AGENTES = new Set(['claude', 'codex', 'shell'])
+
+/** Presets: o comando é digitado no PowerShell quando o terminal abre, então é uma linha só e curta. */
+function preferenciasValidas(p: Preferencias): boolean {
+  return (
+    p?.versao === 1 &&
+    (p.tema === 'escuro' || p.tema === 'claro') &&
+    typeof p.corPostItPadrao === 'string' &&
+    Array.isArray(p.presets) &&
+    p.presets.length > 0 &&
+    p.presets.length <= 50 &&
+    p.presets.every(
+      (x) =>
+        typeof x?.id === 'string' &&
+        typeof x.nome === 'string' &&
+        x.nome.trim().length > 0 &&
+        x.nome.length <= 80 &&
+        AGENTES.has(x.agente) &&
+        typeof x.comando === 'string' &&
+        x.comando.length <= 500 &&
+        !/[\r\n]/.test(x.comando)
+    )
+  )
+}
+
 let aoApagarEspaco: (id: string) => void = () => {}
 
 /** Quem precisa saber que um espaço foi apagado (os terminais dele morrem junto). */
@@ -382,6 +407,7 @@ export function registrarDados(): void {
   )
 
   ipcMain.handle(CANAIS_DADOS.salvarPreferencias, (evento, preferencias: Preferencias) => {
+    if (!preferenciasValidas(preferencias)) throw new Error('preferências inválidas: nada foi gravado')
     gravarJson(join(RAIZ, 'preferencias.json'), preferencias)
     avisarTodas({ tipo: 'preferencias' }, evento.sender)
   })

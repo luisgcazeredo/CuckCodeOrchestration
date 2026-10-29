@@ -87,6 +87,15 @@ export async function rodarAutoteste(
       L.selecionar({ tipo: 'no', id: t2 })
       return { t1, t2, t3, pi, tx }
     })()`)
+    // os três terminais são processos de verdade: espera o PowerShell de cada um desenhar o prompt e sossegar
+    // (com a máquina ocupada subindo os três, o arrasto logo abaixo perdia movimentos)
+    for (const id of [ids.t1, ids.t2, ids.t3]) {
+      for (let i = 0; i < 100; i++) {
+        const s = sessaoPorId(id)
+        if (s && /PS .*>/.test(await telaDe(s, 10)) && Date.now() - s.ultimaSaida > 800) break
+        await esperar(100)
+      }
+    }
     // mouse num canto vazio, para nenhum nó aparecer "com o mouse em cima" no print
     tela.sendInputEvent({ type: 'mouseMove', x: 700, y: 950 })
     await esperar(300)
@@ -862,9 +871,13 @@ export async function rodarAutoteste(
       return texto
     }
     // seleciona o cartão (o terminal pega o foco) e digita a linha pelo teclado
+    // (cartão fora da tela por mais de 1,5 s descarrega e o teclado não chega: se ele não está à vista, a câmera vai até ele)
     const comando = async (id: string, linha: string): Promise<void> => {
-      await js(`window.__teste.loja.selecionar({ tipo: 'no', id: ${JSON.stringify(id)} })`)
-      await esperar(250)
+      const longe = await js<boolean>(`(() => { const L = window.__teste.loja; L.selecionar({ tipo: 'no', id: ${JSON.stringify(id)} })
+        if (document.querySelector('[data-no-id="${id}"] .terminal-xterm')) return false
+        const n = L.planoAtual().nos.find((x) => x.id === ${JSON.stringify(id)})
+        L.definirCamera({ x: -n.x + 40, y: -n.y + 40, zoom: 1 }); return true })()`)
+      await esperar(longe ? 900 : 250)
       await digitar(linha)
       await teclar('Return')
     }
@@ -941,8 +954,36 @@ export async function rodarAutoteste(
     conferir(
       'mpro ver lê a tela do outro; sem corda, recusa',
       /"Ajudante" · livre/.test(viu) && recusou.includes('ninguém ligado') && !(await telaNoApp(solto)).includes('NAO-DEVIA'),
-      ultimas(viu)
+      `${ultimas(viu)} · fim do Ajudante: ${JSON.stringify((await telaNoApp(ajudante?.id ?? '')).split('\n').slice(-2))}`
     )
+
+    // nada é digitado em quem está numa pergunta, nem com a tela ainda mexendo (o diálogo acabou de aparecer);
+    // o cartão "Dialogo" é do tipo Claude, mas no autoteste roda só o PowerShell, que imita o rodapé de um diálogo
+    const dialogo = await js<string>(`(() => { const L = window.__teste.loja
+      const id = L.adicionarNo({ tipo: 'terminal', preset: L.lerEstado().preferencias.presets.find((p) => p.agente === 'claude') }, 1600, 1100)
+      L.atualizarNo(id, { nome: 'Dialogo' }); L.ligar('${chefe}', id); return id })()`)
+    await aguardar(() => telaNoApp(dialogo), /PS .*>/)
+    await comando(dialogo, "while ($true) { Write-Host 'Enter to confirm - Esc to cancel'; Start-Sleep -Milliseconds 300 }")
+    await esperar(1500)
+    await comando(chefe, "mpro pedir Dialogo 'NAO-DIGITAR'; echo FIM-DIALOGO")
+    const naPergunta = await aguardar(() => telaNoApp(chefe), /^FIM-DIALOGO/m, 20_000)
+    await comando(chefe, 'mpro teclas Dialogo ctrl-c')
+    // e um PowerShell rodando um comando quieto não está livre: o pedido não cai no meio dele
+    await js(`window.__teste.loja.ligar('${chefe}', '${solto}')`)
+    await comando(solto, 'Start-Sleep 20')
+    await esperar(2000)
+    await comando(chefe, "mpro pedir Solto 'echo NO-MEIO'; echo FIM-OCUPADO")
+    const ocupado = await aguardar(() => telaNoApp(chefe), /^FIM-OCUPADO/m, 20_000)
+    await comando(chefe, 'mpro teclas Solto ctrl-c')
+    conferir(
+      'mpro não digita em pergunta (nem com a tela mexendo) nem em shell ocupado',
+      /parado\s+numa\s+pergunta/.test(naPergunta) &&
+        !(await telaNoApp(dialogo)).includes('NAO-DIGITAR') &&
+        /rodando\s+um\s+comando/.test(ocupado) &&
+        !(await telaNoApp(solto)).includes('NO-MEIO'),
+      `pergunta: ${/parado\s+numa\s+pergunta/.test(naPergunta)} · ocupado: ${/rodando\s+um\s+comando/.test(ocupado)}`
+    )
+    await js(`window.__teste.loja.apagar({ tipo: 'no', id: '${dialogo}' })`)
 
     const gitBash = [join(process.env.LOCALAPPDATA ?? '', 'Programs', 'Git', 'bin', 'bash.exe'), 'C:\\Program Files\\Git\\bin\\bash.exe'].find(
       (c) => existsSync(c)
@@ -974,6 +1015,40 @@ export async function rodarAutoteste(
     await js(`(() => { const L = window.__teste.loja; L.selecionar({ tipo: 'no', id: '${solto}' }); L.apagarSelecao() })()`)
     await esperar(2500)
     conferir('apagar terminal: Ctrl+Z na folga mantém o processo; depois ele encerra', continua && !sessaoPorId(solto), `continuou: ${continua}`)
+
+    // presets: criar "Claude Opus" (claude --model opus) pelo diálogo, com mouse e teclado, e abrir um terminal com ele
+    const clicarEm = async (seletor: string): Promise<boolean> => {
+      const c = await centroDe(seletor)
+      if (c) await clicar(c)
+      return !!c
+    }
+    await clicarEm('.barra-ferramentas button[title="Terminal"]')
+    const abriuEditor = (await clicarEm('.menu-terminal-editar')) && (await clicarEm('.preset-novo'))
+    await clicarEm('.preset-linha:last-child .preset-nome')
+    await tecla('A')
+    await digitar('Claude Opus')
+    await clicarEm('.preset-linha:last-child .preset-comando')
+    await tecla('A')
+    await digitar('claude --model opus')
+    await print('presets')
+    await clicarEm('.dialogo-acoes .primario')
+    const opus = await js<string>(
+      `window.__teste.loja.lerEstado().preferencias.presets.find((p) => p.nome === 'Claude Opus')?.comando ?? ''`
+    )
+    await clicarEm('.barra-ferramentas button[title="Terminal"]')
+    const botaoOpus = await js<{ x: number; y: number } | null>(`(() => {
+      const b = [...document.querySelectorAll('.menu-terminal button')].find((x) => x.textContent?.trim() === 'Claude Opus')
+      const r = b?.getBoundingClientRect(); return r ? { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } : null })()`)
+    if (botaoOpus) await clicar(botaoOpus)
+    const noOpus = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Claude Opus')?.id ?? ''`)
+    await esperar(300)
+    const linhaOpus = sessaoPorId(noOpus) ? linhaDeComando(sessaoPorId(noOpus)!.espec) : ''
+    conferir(
+      'preset novo "Claude Opus" pelo diálogo abre com o comando certo',
+      abriuEditor && opus === 'claude --model opus' && /^claude --model opus --session-id [0-9a-f-]{36}$/.test(linhaOpus),
+      `preset: ${opus || 'não gravou'} · linha: ${linhaOpus || 'sem processo'}`
+    )
+    await js(`window.__teste.loja.apagar({ tipo: 'no', id: '${noOpus}' })`)
 
     // retomar a conversa: o Claude nasce com o id escolhido e volta com --resume; o Codex volta com `codex resume`
     const pastaClaudeTeste = join(tmpdir(), `maestri-proprio-autoteste-claude-${Date.now()}`)

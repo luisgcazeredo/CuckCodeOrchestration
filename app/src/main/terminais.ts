@@ -119,6 +119,8 @@ function avisarVistas(s: Sessao, canal: string, valor: unknown): void {
 
 function iniciarProcesso(s: Sessao): void {
   const { arquivo, argumentos } = shellPadrao()
+  // crachá novo a cada processo; o de um processo que saiu deixa de valer
+  s.cracha = randomBytes(24).toString('hex')
   const processo = pty.spawn(arquivo, argumentos, {
     name: 'xterm-256color',
     cols: s.espelho.cols,
@@ -141,6 +143,7 @@ function iniciarProcesso(s: Sessao): void {
     if (s.processo !== processo) return
     s.processo = null
     s.saiu = exitCode
+    s.cracha = ''
     avisarVistas(s, CANAIS.saida, exitCode)
   })
   // no autoteste não abre Claude nem Codex de verdade (gastaria a conta), a não ser na checagem opcional
@@ -167,7 +170,7 @@ function criarSessao(espacoId: string, espec: EspecTerminal): Sessao {
     ultimaSaida: 0,
     iniciadoEm: 0,
     saiu: null,
-    cracha: randomBytes(24).toString('hex'),
+    cracha: '',
     fim: null
   }
   sessoes.set(s.id, s)
@@ -384,7 +387,7 @@ export function registrarTerminais(): void {
 // ---------- para o `mpro` (comandos.ts) ----------
 
 export const sessaoPorCracha = (cracha: unknown): Sessao | undefined =>
-  typeof cracha === 'string' && cracha ? [...sessoes.values()].find((s) => s.cracha === cracha) : undefined
+  typeof cracha === 'string' && cracha ? [...sessoes.values()].find((s) => s.processo && s.cracha === cracha) : undefined
 
 export const sessaoPorId = (id: string): Sessao | undefined => sessoes.get(id)
 
@@ -392,15 +395,19 @@ export const sessoesDoEspaco = (espacoId: string): Sessao[] => [...sessoes.value
 
 export const cordasDoEspaco = (espacoId: string): Array<[string, string]> => cordas.get(espacoId) ?? []
 
-/** As últimas `linhas` da tela (a parte de baixo do que está à mostra), sem as linhas vazias do fim. */
+/**
+ * As últimas `linhas` escritas, terminando na última com texto. A área à mostra costuma ter o fim em branco
+ * (um terminal recém-aberto só tem o prompt lá em cima): contar de baixo traria só linhas vazias.
+ */
 export function telaDe(s: Sessao, linhas = 50): Promise<string> {
   return new Promise((r) =>
     s.espelho.write('', () => {
       const buffer = s.espelho.buffer.active
-      const fim = buffer.baseY + s.espelho.rows
+      const texto = (y: number): string => buffer.getLine(y)?.translateToString(true) ?? ''
+      let fim = buffer.baseY + s.espelho.rows
+      while (fim > 0 && !texto(fim - 1).trim()) fim--
       const saida: string[] = []
-      for (let y = Math.max(0, fim - linhas); y < fim; y++) saida.push(buffer.getLine(y)?.translateToString(true) ?? '')
-      while (saida.length && !saida[saida.length - 1].trim()) saida.pop()
+      for (let y = Math.max(0, fim - linhas); y < fim; y++) saida.push(texto(y))
       r(saida.join('\n'))
     })
   )

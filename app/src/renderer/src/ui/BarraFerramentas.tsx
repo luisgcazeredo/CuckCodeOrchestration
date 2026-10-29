@@ -18,6 +18,7 @@ import { adicionarNo, definirEstiloDesenho, escolherFerramenta, planoAtual, usar
 import { anexarArquivoEm, arvoreEm, portalEm } from './menus'
 import { centroDaTela } from '../quadro/geometria'
 import { COR_AGENTE, ICONE_AGENTE } from '../nos/icones'
+import { abrirPresets } from './Presets'
 
 const CORES_DESENHO = ['#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#007AFF', '#AF52DE', '#8E8E93']
 const FORMAS: Array<[PincelDesenho, LucideIcon, string]> = [
@@ -117,6 +118,16 @@ export function BarraFerramentas() {
               </button>
             )
           })}
+          <span className="divisoria" />
+          <button
+            className="menu-terminal-editar"
+            onClick={() => {
+              setMenuTerminal(false)
+              abrirPresets()
+            }}
+          >
+            Editar presets…
+          </button>
         </div>
       )}
 

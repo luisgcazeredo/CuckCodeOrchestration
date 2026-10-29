@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFil
 import { createServer, type Socket } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
-import { CANAIS_AGENTES, type PedidoDoAgente, type RespostaAoAgente } from '../shared/api'
+import { CANAIS_AGENTES, MAX_SESSOES_POR_AGENTE, type PedidoDoAgente, type RespostaAoAgente } from '../shared/api'
 import type { Agente } from '../shared/modelo'
 import { PASTA_DADOS } from './dados'
 import { donoDe } from './janelas'
@@ -25,6 +25,8 @@ import {
 // (MP_PIPE) e um crachá próprio (MP_CRACHA), e a pasta com o `mpro` no PATH. O `mpro` (src/cli/mpro.ts) manda uma
 // linha JSON e recebe uma de volta. A corda entre dois terminais é a permissão: sem corda, não há conversa.
 // O nome do crachá não tem KEY, TOKEN nem SECRET: o Codex tira essas variáveis do ambiente dos comandos.
+// A corda é regra de convívio, não fronteira de segurança: todos os agentes rodam como o mesmo usuário do Windows e
+// um pode ler o ambiente (e o crachá) de outro. O crachá muda a cada processo e deixa de valer quando ele sai.
 
 const AUTOTESTE = process.argv.includes('--autoteste')
 const PIPE =
@@ -33,7 +35,7 @@ const PIPE =
     : join(tmpdir(), `maestri-proprio-${randomBytes(12).toString('hex')}.sock`)
 const PASTA_BIN = join(PASTA_DADOS, 'bin')
 const MAX_PEDIDO = 512 * 1024
-const MAX_FILHOS = 8
+const MAX_CONEXOES = 128
 const TEMPO_PADRAO = 100
 const TEMPO_MAX = 3600
 /** O que aparece na tela de quem está ocupado (Claude Code e Codex). */
@@ -48,6 +50,8 @@ const DIALOGO =
 const PRONTO = /for shortcuts|context left|ask codex/i
 /** A última linha é o prompt do PowerShell: o agente nem abriu, ou já saiu. */
 const PROMPT_DO_SHELL = /^PS .*>\s*$/
+/** Um shell esperando comando (PowerShell, cmd, bash, o >>> do Python). */
+const PROMPT_LIVRE = /(^PS .*>|[>$#])\s*$/
 
 const esperar = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -112,6 +116,8 @@ function instalarComando(): void {
 // ---------- pedidos que mexem no quadro: vão para a janela dona do espaço ----------
 
 const respostas = new Map<string, { janela: number; resolver: (r: RespostaAoAgente) => void }>()
+/** Aberturas em andamento por agente (contam no limite enquanto a janela cria o cartão). */
+const abrindo = new Map<string, number>()
 
 function pedirAJanela(pedido: PedidoDoAgente): Promise<RespostaAoAgente> {
   const dono = donoDe(pedido.espacoId)
@@ -144,10 +150,12 @@ type Situacao = 'encerrado' | 'trabalhando' | 'pergunta' | 'livre'
 
 async function situacao(s: Sessao): Promise<Situacao> {
   if (!s.processo) return 'encerrado'
-  if (Date.now() - s.ultimaSaida < 1200) return 'trabalhando'
-  if (s.espec.agente === 'shell') return 'livre'
   const fim = await telaDe(s, 20)
-  if (DIALOGO.test(fim)) return 'pergunta'
+  // a pergunta vem antes de "teve saída agora": uma pergunta que acabou de aparecer não pode receber texto
+  if (s.espec.agente !== 'shell' && DIALOGO.test(fim)) return 'pergunta'
+  if (Date.now() - s.ultimaSaida < 1200) return 'trabalhando'
+  // shell: livre só com o prompt no fim (um comando quieto, como um Start-Sleep, ainda está rodando)
+  if (s.espec.agente === 'shell') return PROMPT_LIVRE.test(fim.split('\n').pop() ?? '') ? 'livre' : 'trabalhando'
   return OCUPADO.test(fim) ? 'trabalhando' : 'livre'
 }
 
@@ -317,21 +325,30 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
         `Você é "${eu.espec.nome}" (${eu.espec.agente}) · pasta ${eu.espec.pasta}`,
         'Ligados a você:',
         ...(linhas.length ? linhas : ['  ninguém (o usuário liga cartões com uma corda; quem você abre já nasce ligado)']),
-        `Você abriu ${filhos} de ${MAX_FILHOS} sessões possíveis.`
+        `Você abriu ${filhos} de ${MAX_SESSOES_POR_AGENTE} sessões possíveis.`
       ].join('\n')
     }
 
     case 'abrir': {
       const agente = agenteDe(pos[0])
       if (!agente) throw new Error('diga qual agente: mpro abrir claude|codex|shell [--nome N] [--pedido "texto"]')
-      const filhos = sessoesDoEspaco(eu.espacoId).filter((s) => s.espec.criadoPor === eu.id).length
-      if (filhos >= MAX_FILHOS) throw new Error(`você já abriu ${filhos} sessões (o limite é ${MAX_FILHOS}); feche uma com \`mpro fechar\``)
+      // as aberturas ainda em andamento contam: vários `abrir` ao mesmo tempo não passam do limite
+      const filhos = sessoesDoEspaco(eu.espacoId).filter((s) => s.espec.criadoPor === eu.id).length + (abrindo.get(eu.id) ?? 0)
+      if (filhos >= MAX_SESSOES_POR_AGENTE) {
+        throw new Error(`você já abriu ${filhos} sessões (o limite é ${MAX_SESSOES_POR_AGENTE}); feche uma com \`mpro fechar\``)
+      }
       const pasta = typeof opcoes.pasta === 'string' ? opcoes.pasta : undefined
       if (pasta && !(existsSync(pasta) && statSync(pasta).isDirectory())) throw new Error(`a pasta não existe: ${pasta}`)
       const nome = typeof opcoes.nome === 'string' ? opcoes.nome.trim().slice(0, 80) || undefined : undefined
-      const r = await pedirAJanela({ tipo: 'abrir', espacoId: eu.espacoId, criador: eu.id, agente, nome, pasta })
-      if (!r.ok) throw new Error(r.erro)
-      const novo = r.id ? await esperarSessao(r.id, 5000) : undefined
+      abrindo.set(eu.id, (abrindo.get(eu.id) ?? 0) + 1)
+      let novo: Sessao | undefined
+      try {
+        const r = await pedirAJanela({ tipo: 'abrir', espacoId: eu.espacoId, criador: eu.id, agente, nome, pasta })
+        if (!r.ok) throw new Error(r.erro)
+        novo = r.id ? await esperarSessao(r.id, 5000) : undefined
+      } finally {
+        abrindo.set(eu.id, (abrindo.get(eu.id) ?? 1) - 1)
+      }
       if (!novo) throw new Error('o cartão foi criado, mas o processo não abriu')
       registrar(eu, novo, 'abrir', texto)
       const aberto = `Abri "${novo.espec.nome}" (${agente}), ligado a você.`
@@ -356,6 +373,10 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
       if (!texto.trim()) throw new Error('falta o pedido: mpro pedir <nome> "texto" (ou --arquivo pedido.md)')
       if (!alvo.processo) throw new Error(`"${alvo.espec.nome}" está encerrado`)
       await recusarSeEmPergunta(alvo)
+      // num agente, o pedido entra na fila dele; num shell rodando um comando, cairia no meio desse comando
+      if (alvo.espec.agente === 'shell' && (await situacao(alvo)) === 'trabalhando') {
+        throw new Error(`"${alvo.espec.nome}" está rodando um comando; espere terminar (\`mpro esperar "${alvo.espec.nome}"\`) e mande de novo`)
+      }
       registrar(eu, alvo, 'pedir', texto)
       await digitarPedido(alvo, texto)
       if (opcoes['sem-esperar']) return `Pedido enviado para "${alvo.espec.nome}".`
@@ -447,6 +468,8 @@ export function registrarComandos(): void {
     let recebido = ''
     let fechado = false
     socket.setEncoding('utf8')
+    // o pedido chega de uma vez: quem conecta e não manda nada em 10 s é desligado
+    socket.setTimeout(10_000, () => socket.destroy())
     socket.on('close', () => (fechado = true))
     socket.on('error', () => (fechado = true))
     const aoReceber = (parte: string): void => {
@@ -455,10 +478,13 @@ export function registrarComandos(): void {
       const fim = recebido.indexOf('\n')
       if (fim < 0) return
       socket.off('data', aoReceber)
+      // daqui em diante a espera é do comando (`mpro esperar` pode levar até uma hora)
+      socket.setTimeout(0)
       void atender(recebido.slice(0, fim), socket, () => fechado)
     }
     socket.on('data', aoReceber)
   })
+  servidor.maxConnections = MAX_CONEXOES
   servidor.on('error', (erro) => console.error('mpro: o pipe não abriu', erro))
   servidor.listen(PIPE)
 }

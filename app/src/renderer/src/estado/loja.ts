@@ -18,7 +18,7 @@ import {
   type ResumoEspaco,
   type Tema
 } from '../../../shared/modelo'
-import type { AvisoJanelas, EspecTerminal, PedidoDoAgente, RespostaAoAgente } from '../../../shared/api'
+import { MAX_SESSOES_POR_AGENTE, type AvisoJanelas, type EspecTerminal, type PedidoDoAgente, type RespostaAoAgente } from '../../../shared/api'
 import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, uniao, type Caixa } from '../quadro/geometria'
 
 export type Ferramenta = 'selecionar' | 'postit' | 'texto' | 'desenho'
@@ -422,6 +422,13 @@ export function alternarLateral(): void {
 
 export function definirTema(tema: Tema): void {
   const preferencias = { ...estado.preferencias, tema }
+  definir({ preferencias })
+  void window.mp.dados.salvarPreferencias(preferencias)
+}
+
+/** Presets de agente (o botão de terminal): ficam nas preferências, valem para todas as janelas. */
+export function definirPresets(presets: PresetAgente[]): void {
+  const preferencias = { ...estado.preferencias, presets }
   definir({ preferencias })
   void window.mp.dados.salvarPreferencias(preferencias)
 }
@@ -1245,6 +1252,9 @@ function atenderAgente(pedido: PedidoDoAgente): RespostaAoAgente {
   const plano = planos.find((p) => p.nos.some((n) => n.id === pedido.criador))
   const criador = plano?.nos.find((n) => n.id === pedido.criador)
   if (!plano || !criador) return { ok: false, erro: 'o seu cartão não está no quadro' }
+  // a janela confere de novo: é ela que cria o cartão, um pedido de cada vez
+  const filhos = planos.reduce((t, p) => t + p.nos.filter((n) => n.tipo === 'terminal' && n.criadoPor === criador.id).length, 0)
+  if (filhos >= MAX_SESSOES_POR_AGENTE) return { ok: false, erro: `você já tem ${filhos} sessões abertas (o limite é ${MAX_SESSOES_POR_AGENTE})` }
   const preset =
     estado.preferencias.presets.find((p) => p.agente === pedido.agente) ?? PRESETS_PADRAO.find((p) => p.agente === pedido.agente)!
   const nomes = new Set(planos.flatMap((p) => p.nos.flatMap((n) => (n.tipo === 'terminal' ? [n.nome.toLowerCase()] : []))))
