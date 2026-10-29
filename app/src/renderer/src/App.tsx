@@ -36,9 +36,21 @@ function digitando(): boolean {
   return !!document.activeElement?.closest('input, textarea, [contenteditable], [data-teclado]')
 }
 
+/** O campo do terminal selecionado sozinho: ativo, o cartão é dono do teclado (ver terminal/CorpoXterm). */
+function terminalComOTeclado(): HTMLElement | null {
+  return document.querySelector('.no-terminal.selecionado.sozinho .xterm-helper-textarea')
+}
+
 function atalhos(e: KeyboardEvent): void {
   // escrevendo num post-it, texto ou campo, com um menu ou uma janela de confirmação aberta: o teclado é deles
   if (digitando() || menuAberto() || document.querySelector('.dialogo-fundo')) return
+  // rede de segurança: se o foco escapou do terminal ativo, devolve e deixa a tecla para ele, em vez de
+  // virar atalho do quadro — `d` trocava de ferramenta e Delete apagava o cartão em que ele ia escrever
+  const terminal = terminalComOTeclado()
+  if (terminal) {
+    terminal.focus()
+    return
+  }
   // no meio de um arrasto ou desenho, atalho nenhum mexe no quadro (desfazer no meio quebraria o histórico);
   // Esc cancela o gesto
   if (emGesto()) {

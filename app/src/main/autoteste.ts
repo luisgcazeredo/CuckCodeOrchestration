@@ -888,6 +888,27 @@ export async function rodarAutoteste(
     const eco = await aguardar(() => telaNoCartao(chefe), /^MP-5/m)
     conferir('terminal de verdade: digita no cartão e o PowerShell responde', /^MP-5/m.test(eco), ultimas(eco))
 
+    // um clique de mouse só no corpo do cartão já deixa escrever (o teste acima seleciona pela loja, que não
+    // passa pelo escudo nem pelo foco): era o defeito de 29/10/2026, em que a letra virava atalho do quadro
+    await js(`window.__teste.loja.selecionar(null)`)
+    await esperar(200)
+    const corpoDoChefe = await centroDe(`[data-no-id="${chefe}"] .terminal-corpo`)
+    if (!corpoDoChefe) throw new Error("corpo do terminal não está na tela")
+    await clicar(corpoDoChefe)
+    const focoNoTerminal = await js<boolean>(
+      `!!document.activeElement?.closest('[data-no-id="${chefe}"] .xterm')`
+    )
+    const ferramentaAntes = await js<string>(`window.__teste.loja.lerEstado().ferramenta`)
+    await digitar('echo "MP-UM-CLIQUE"')
+    await teclar('Return')
+    const umClique = await aguardar(() => telaNoCartao(chefe), /^MP-UM-CLIQUE/m)
+    const ferramentaDepois = await js<string>(`window.__teste.loja.lerEstado().ferramenta`)
+    conferir(
+      'um clique no cartão e já escreve (a letra não vira atalho do quadro)',
+      focoNoTerminal && /^MP-UM-CLIQUE/m.test(umClique) && ferramentaDepois === ferramentaAntes,
+      `foco no terminal: ${focoNoTerminal} · ferramenta ${ferramentaAntes} → ${ferramentaDepois} · ${ultimas(umClique)}`
+    )
+
     // zoom: depois de parar, o xterm é redesenhado com a fonte × zoom, e as colunas do processo ficam as mesmas
     const colunas = sessaoPorId(chefe)?.espelho.cols
     await js('window.__teste.loja.definirCamera({ x: -300, y: -150, zoom: 1.6 })')

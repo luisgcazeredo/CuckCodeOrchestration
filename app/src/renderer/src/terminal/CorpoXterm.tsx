@@ -174,13 +174,32 @@ export function CorpoXterm({ id, ativo }: Props) {
     if (termRef.current) termRef.current.terminal.options.theme = TEMAS[tema]
   }, [tema])
 
+  // Ativo, o cartão é dono do teclado. Focar uma só vez não basta: no mesmo clique que o selecionou, o
+  // navegador ainda vai entregar um mousedown que mexe no foco, então foca de novo no quadro seguinte.
   useEffect(() => {
-    if (ativo) termRef.current?.terminal.focus()
-    else termRef.current?.terminal.blur()
+    const terminal = termRef.current?.terminal
+    if (!terminal) return
+    if (!ativo) {
+      terminal.blur()
+      return
+    }
+    terminal.focus()
+    const quadro = requestAnimationFrame(() => terminal.focus())
+    return () => cancelAnimationFrame(quadro)
   }, [ativo])
 
   return (
-    <div className="terminal-caixa" ref={caixaRef} data-escala={escala}>
+    <div
+      className="terminal-caixa"
+      ref={caixaRef}
+      data-escala={escala}
+      // clique na folga em volta do desenho do xterm: o teclado continua sendo do terminal
+      onPointerDown={(e) => {
+        if (!ativo || e.target !== e.currentTarget) return
+        e.preventDefault()
+        termRef.current?.terminal.focus()
+      }}
+    >
       <div className="terminal-xterm" ref={areaRef} />
       {saiu !== null && (
         <div className="terminal-saiu" data-sem-arrasto>

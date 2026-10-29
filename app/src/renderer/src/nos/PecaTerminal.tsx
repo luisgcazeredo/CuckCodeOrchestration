@@ -64,7 +64,7 @@ export const PecaTerminal = memo(function PecaTerminal({ no, selecionado, pastaD
       <div className={`terminal-corpo ${ativo ? 'rolavel' : ''}`} ref={corpo} data-sem-arrasto={ativo ? '' : undefined}>
         {montado ? <CorpoXterm id={no.id} ativo={ativo} /> : <div className="terminal-descarregado">fora da tela · o processo continua</div>}
         {/* sem estar selecionado, o terminal não pega o mouse: arrasta o cartão de qualquer ponto e a roda move o quadro */}
-        {!ativo && <div className="terminal-escudo" />}
+        {!ativo && <div className="terminal-escudo" data-escudo />}
       </div>
       <footer className="terminal-rodape" data-arrasta>
         <Folder size={11} />

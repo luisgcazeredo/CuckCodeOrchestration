@@ -12,6 +12,9 @@ export type Marca = false | 'sozinho' | 'junto'
 /** Onde o clique é do conteúdo e nunca vira arrasto: campos de texto e botões. */
 const SO_CONTEUDO = 'input, textarea, button, select, [data-sem-arrasto], [data-porta], .alca-redimensionar'
 
+/** Capa que cobre o conteúdo de um cartão não selecionado só para ele não pegar o mouse. */
+const ESCUDO = '[data-escudo]'
+
 interface Props {
   no: No
   selecionado: Marca
@@ -30,6 +33,10 @@ export function MolduraNo({ no, selecionado, children, aoClicarDuasVezes, classN
     // a porta é do quadro (ligar terminais); o botão do meio arrasta o quadro; o direito abre o menu
     if (alvo.closest('[data-porta]') || e.button !== 0) return
     e.stopPropagation()
+    // Depois deste pointerdown o navegador manda um mousedown, cujo efeito padrão é mudar o foco do teclado:
+    // o cartão não é focável, então o foco iria para o nada e as teclas virariam atalho do quadro (`d` trocava
+    // de ferramenta, Delete apagava o cartão). Cancelando aqui, o terminal recém-selecionado já pega o teclado.
+    if (alvo.closest(ESCUDO)) e.preventDefault()
     const item = { tipo: 'no', id: no.id } as const
     if (e.shiftKey || e.ctrlKey || e.metaKey) return selecionar(item, { somar: true })
     const jaEstava = estaSelecionado(item)
