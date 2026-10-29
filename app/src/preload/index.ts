@@ -83,7 +83,8 @@ const api: ApiMaestri = {
     aoSair: distribuidor<number>(CANAIS.saida),
     aoDescobrirSessao: (ouvinte) => {
       ipcRenderer.on(CANAIS.sessao, (_evento, id: string, sessao: string) => ouvinte(id, sessao))
-    }
+    },
+    contextos: (espacoId) => ipcRenderer.invoke(CANAIS.contextos, espacoId)
   },
   agentes: {
     aoPedir: (atender) => {

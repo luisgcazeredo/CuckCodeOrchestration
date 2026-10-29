@@ -56,6 +56,17 @@ export interface ApiTerminal {
   aoSair(id: string, ouvinte: (codigo: number) => void): () => void
   /** O processo principal descobriu a conversa do agente (Codex) de um cartão. */
   aoDescobrirSessao(ouvinte: (id: string, sessao: string) => void): void
+  /** Retrato leve dos terminais deste espaço para o painel de contexto. */
+  contextos(espacoId: string): Promise<ResumoContextoTerminal[]>
+}
+
+/** O processo principal lê a tela espelhada; sem rodapé reconhecível, `contexto` fica nulo. */
+export interface ResumoContextoTerminal {
+  id: string
+  nome: string
+  agente: Agente
+  situacao: 'encerrado' | 'trabalhando' | 'pergunta' | 'livre'
+  contexto: number | null
 }
 
 /** Quantas sessões um agente pode ter abertas pelo `mpro abrir` ao mesmo tempo. */
@@ -65,6 +76,17 @@ export const MAX_SESSOES_POR_AGENTE = 8
 export type PedidoDoAgente =
   | { tipo: 'abrir'; espacoId: string; criador: string; agente: Agente; nome?: string; pasta?: string }
   | { tipo: 'fechar'; espacoId: string; id: string }
+  | {
+      tipo: 'passar'
+      espacoId: string
+      ids: string[]
+      sucessor: string
+      /** Quem passa a ser dono; a corda com os cartões vai com ele. */
+      novoCriador: string
+      /** Quem era dono até agora (a corda dele com os cartões sai). */
+      antigo: string
+      donoDoSucessor?: string | null
+    }
 
 export type RespostaAoAgente = { ok: true; id?: string; nome?: string } | { ok: false; erro: string }
 
@@ -246,7 +268,8 @@ export const CANAIS = {
   reiniciar: 'terminal:reiniciar',
   dados: 'terminal:dados',
   saida: 'terminal:saida',
-  sessao: 'terminal:sessao'
+  sessao: 'terminal:sessao',
+  contextos: 'terminal:contextos'
 } as const
 
 export const CANAIS_AGENTES = {

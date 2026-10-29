@@ -19,7 +19,7 @@ import {
   type Tema
 } from '../../../shared/modelo'
 import { MAX_SESSOES_POR_AGENTE, type AvisoJanelas, type EspecTerminal, type PedidoDoAgente, type RespostaAoAgente } from '../../../shared/api'
-import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, uniao, type Caixa } from '../quadro/geometria'
+import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, enquadrar, lerViewport, uniao, type Caixa } from '../quadro/geometria'
 
 export type Ferramenta = 'selecionar' | 'postit' | 'texto' | 'desenho'
 
@@ -679,6 +679,27 @@ export function definirCamera(camera: Camera): void {
   mudarPlano((p) => ({ ...p, camera: { ...camera, zoom } }), false)
 }
 
+/** Seleciona e traz um cartão para a tela, inclusive se ele mora em outro andar deste espaço. */
+export function enquadrarNo(id: string): void {
+  const e = estado.espaco
+  if (!e) return
+  const andar = e.andares.find((a) => a.nos.some((n) => n.id === id))
+  if (andar) irParaAndar(andar.id)
+  else if (e.nos.some((n) => n.id === id)) irParaAndar(null)
+  else return
+  const no = planoAtual()?.nos.find((n) => n.id === id)
+  if (!no) return
+  const cam = planoAtual()!.camera
+  const { largura, altura } = lerViewport()
+  const zoom = Math.max(cam.zoom, 0.5)
+  definirCamera(
+    no.largura * zoom > largura * 0.9 || no.altura * zoom > altura * 0.9
+      ? enquadrar({ x: no.x, y: no.y, largura: no.largura, altura: no.altura }, 60)
+      : { zoom, x: largura / 2 - (no.x + no.largura / 2) * zoom, y: altura / 2 - (no.y + no.altura / 2) * zoom }
+  )
+  selecionar({ tipo: 'no', id }, { sozinho: true })
+}
+
 // ---------- nós ----------
 
 const novoId = (): string => crypto.randomUUID()
@@ -1230,7 +1251,7 @@ function anotarSessoes(descobertas: Record<string, string>): void {
 const tocam = (a: Caixa, b: Caixa, folga: number): boolean =>
   a.x < b.x + b.largura + folga && b.x < a.x + a.largura + folga && a.y < b.y + b.altura + folga && b.y < a.y + a.altura + folga
 
-/** Um agente pediu pelo `mpro`: abrir uma sessão nova (ao lado dele, ligada a ele) ou fechar uma que ele abriu. */
+/** Um agente pediu pelo `mpro`: abrir, fechar ou passar a responsabilidade de cartões. */
 function atenderAgente(pedido: PedidoDoAgente): RespostaAoAgente {
   const e = estado.espaco
   if (!e || e.id !== pedido.espacoId) return { ok: false, erro: 'o espaço deste terminal não está aberto nesta janela' }
@@ -1246,6 +1267,46 @@ function atenderAgente(pedido: PedidoDoAgente): RespostaAoAgente {
         : p
     mudarEspaco((x) => ({ ...x, ...tirar(x), andares: x.andares.map((a) => ({ ...a, ...tirar(a) })) }), false)
     definir({ selecao: { ...estado.selecao, nos: estado.selecao.nos.filter((id) => id !== pedido.id) } })
+    return { ok: true }
+  }
+
+  if (pedido.tipo === 'passar') {
+    const ids = new Set(pedido.ids)
+    const temDonoDoSucessor = Object.prototype.hasOwnProperty.call(pedido, 'donoDoSucessor')
+    const procurados = new Set([...ids, ...(temDonoDoSucessor ? [pedido.sucessor] : [])])
+    const existem = planos.flatMap((p) => p.nos).filter((n) => n.tipo === 'terminal' && procurados.has(n.id)).length
+    if (existem !== procurados.size) return { ok: false, erro: 'um cartão a passar não está mais no quadro' }
+    // Não entra no desfazer: propriedade de agente é estado operacional, não edição do usuário.
+    mudarEspaco(
+      (x) => {
+        // A corda vai com o bastão: a do dono antigo com cada cartão sai, e a do novo dono entra (só onde os
+        // dois estão no mesmo plano — corda é desenho de um quadro, e a propriedade atravessa espaços sozinha)
+        const passar = (p: Plano): Plano => {
+          const aqui = new Set(p.nos.filter((n) => n.tipo === 'terminal').map((n) => n.id))
+          const mudar = [...ids].filter((id) => aqui.has(id))
+          const liga = (c: Corda, a: string, b: string): boolean => (c.de === a && c.para === b) || (c.de === b && c.para === a)
+          const cordas = p.cordas.filter((c) => !mudar.some((id) => liga(c, pedido.antigo, id)))
+          if (aqui.has(pedido.novoCriador)) {
+            for (const id of mudar) {
+              if (id !== pedido.novoCriador && !cordas.some((c) => liga(c, pedido.novoCriador, id))) {
+                cordas.push({ id: novoId(), de: pedido.novoCriador, para: id, criadoEm: agora() })
+              }
+            }
+          }
+          return {
+            ...p,
+            cordas,
+            nos: p.nos.map((n) => {
+              if (n.tipo !== 'terminal') return n
+              if (temDonoDoSucessor && n.id === pedido.sucessor) return { ...n, criadoPor: pedido.donoDoSucessor ?? undefined }
+              return ids.has(n.id) ? { ...n, criadoPor: pedido.novoCriador } : n
+            })
+          }
+        }
+        return { ...x, ...passar(x), andares: x.andares.map((a) => ({ ...a, ...passar(a) })) }
+      },
+      false
+    )
     return { ok: true }
   }
 

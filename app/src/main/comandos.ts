@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFil
 import { createServer, type Socket } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
-import { CANAIS_AGENTES, MAX_SESSOES_POR_AGENTE, type PedidoDoAgente, type RespostaAoAgente } from '../shared/api'
+import { CANAIS, CANAIS_AGENTES, MAX_SESSOES_POR_AGENTE, type PedidoDoAgente, type RespostaAoAgente, type ResumoContextoTerminal } from '../shared/api'
 import type { Agente } from '../shared/modelo'
 import { criarEspacoDoAgente, PASTA_DADOS, resumosDosEspacos } from './dados'
 import { abrirJanela, donoDe } from './janelas'
@@ -313,6 +313,19 @@ async function resultado(s: Sessao, segundos: number, cancelado: () => boolean):
   return `"${s.espec.nome}" ainda está trabalhando depois de ${segundos} s. Use \`mpro esperar "${s.espec.nome}"\` depois. Tela agora:\n${tela}`
 }
 
+/** Fecha cartões pelo mesmo pedido que o `mpro fechar`; só roda depois de responder ao terminal que pediu saída. */
+async function fecharCartoesDepoisDaResposta(sessoes: Sessao[]): Promise<void> {
+  for (const s of sessoes) {
+    try {
+      await abrirJanelaPronta(s.espacoId)
+      const r = await pedirAJanela({ tipo: 'fechar', espacoId: s.espacoId, id: s.id })
+      if (r.ok) encerrarAgora(s.id)
+    } catch {
+      // A resposta já saiu: não há cliente esperando este detalhe. O cartão continua visível para o usuário recuperar.
+    }
+  }
+}
+
 const TECLAS: Record<string, string> = {
   enter: '\r',
   esc: '\x1b',
@@ -358,7 +371,13 @@ interface Pedido {
   texto?: unknown
 }
 
-async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): Promise<string> {
+interface ResultadoDoComando {
+  saida: string
+  /** Só é executado depois que a resposta saiu pelo pipe do próprio terminal. */
+  sair?: Sessao[]
+}
+
+async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): Promise<ResultadoDoComando> {
   const comando = typeof pedido.comando === 'string' ? pedido.comando : 'ajuda'
   const pos = Array.isArray(pedido.posicionais) ? pedido.posicionais.filter((p): p is string => typeof p === 'string') : []
   const opcoes = typeof pedido.opcoes === 'object' && pedido.opcoes !== null ? (pedido.opcoes as Record<string, unknown>) : {}
@@ -367,14 +386,14 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
   switch (comando) {
     case 'ajuda':
     case 'help':
-      return AJUDA
+      return { saida: AJUDA }
 
     case 'espacos': {
       const linhas = resumosDosEspacos().map((espaco) => {
         const meu = espaco.id === eu.espacoId ? ' · seu espaço' : ''
         return `${meu ? '*' : ' '} "${espaco.nome}" · ${janelaDoEspaco(espaco.id) ? 'janela aberta' : 'sem janela'} · ${espaco.terminais} cartões${meu}`
       })
-      return linhas.join('\n') || 'Não há espaços.'
+      return { saida: linhas.join('\n') || 'Não há espaços.' }
     }
 
     case 'janela': {
@@ -385,14 +404,14 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
         if (!(existsSync(pasta) && statSync(pasta).isDirectory())) throw new Error(`a pasta não existe: ${pasta}`)
         const espaco = criarEspacoDoAgente(nome, pasta)
         await abrirJanelaPronta(espaco.id)
-        return `Criei o espaço "${espaco.nome}" e abri uma janela nele.`
+        return { saida: `Criei o espaço "${espaco.nome}" e abri uma janela nele.` }
       }
       if (opcoes.pasta) throw new Error('`--pasta` só vale com `mpro janela --novo "Nome"`')
       const espaco = espacoPorNome(pos[0])
       const { jaEstavaAberta } = await abrirJanelaPronta(espaco.id)
-      return jaEstavaAberta
+      return { saida: jaEstavaAberta
         ? `O espaço "${espaco.nome}" já estava aberto; trouxe a janela para a frente.`
-        : `Abri uma janela no espaço "${espaco.nome}".`
+        : `Abri uma janela no espaço "${espaco.nome}".` }
     }
 
     case 'quem': {
@@ -406,16 +425,16 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
         )
       )
       const filhos = sessoesCriadasPor(eu.id).length
-      return [
+      return { saida: [
         `Você é "${eu.espec.nome}" (${eu.espec.agente}) · pasta ${eu.espec.pasta} · ${textoDoContexto(await contextoRestante(eu))}`,
         'Ligados a você:',
         ...(linhas.length ? linhas : ['  ninguém (o usuário liga cartões com uma corda; quem você abre continua acessível mesmo em outro espaço)']),
         `Você abriu ${filhos} de ${MAX_SESSOES_POR_AGENTE} sessões possíveis.`
-      ].join('\n')
+      ].join('\n') }
     }
 
     case 'orcamento':
-      return textoDoContexto(await contextoRestante(eu))
+      return { saida: textoDoContexto(await contextoRestante(eu)) }
 
     case 'abrir': {
       const agente = agenteDe(pos[0])
@@ -445,7 +464,7 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
         novo.espacoId === eu.espacoId
           ? `Abri "${novo.espec.nome}" (${agente}), ligado a você.`
           : `Abri "${novo.espec.nome}" (${agente}) no espaço "${espaco.nome}"; você pode falar com ele porque o abriu.`
-      if (!texto) return `${aberto} Mande o primeiro pedido com: mpro pedir "${novo.espec.nome}" "…"`
+      if (!texto) return { saida: `${aberto} Mande o primeiro pedido com: mpro pedir "${novo.espec.nome}" "…"` }
       const pronto = await aguardarPronto(novo, 90_000, cancelado)
       if (pronto !== 'pronto') {
         const motivo = {
@@ -454,11 +473,11 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
           tempo: 'Ele não ficou pronto em 90 s; o pedido NÃO foi enviado. Veja com `mpro ver` e use `mpro pedir` depois.',
           encerrado: 'O processo terminou antes de ficar pronto; o pedido NÃO foi enviado.'
         }[pronto]
-        return `${aberto}\n${motivo}\nTela agora:\n${await telaDe(novo, 30)}`
+        return { saida: `${aberto}\n${motivo}\nTela agora:\n${await telaDe(novo, 30)}` }
       }
       await digitarPedido(novo, texto)
-      if (!opcoes.esperar) return `${aberto} Pedido enviado. Acompanhe com \`mpro esperar "${novo.espec.nome}"\` ou \`mpro ver\`.`
-      return `${aberto}\n${await resultado(novo, tempoDe(opcoes), cancelado)}`
+      if (!opcoes.esperar) return { saida: `${aberto} Pedido enviado. Acompanhe com \`mpro esperar "${novo.espec.nome}"\` ou \`mpro ver\`.` }
+      return { saida: `${aberto}\n${await resultado(novo, tempoDe(opcoes), cancelado)}` }
     }
 
     case 'pedir': {
@@ -472,19 +491,19 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
       }
       registrar(eu, alvo, 'pedir', texto)
       await digitarPedido(alvo, texto)
-      if (opcoes['sem-esperar']) return `Pedido enviado para "${alvo.espec.nome}".`
-      return resultado(alvo, tempoDe(opcoes), cancelado)
+      if (opcoes['sem-esperar']) return { saida: `Pedido enviado para "${alvo.espec.nome}".` }
+      return { saida: await resultado(alvo, tempoDe(opcoes), cancelado) }
     }
 
     case 'esperar': {
       const alvo = acharEntre(ligadosA(eu), pos[0])
-      return resultado(alvo, tempoDe(opcoes), cancelado)
+      return { saida: await resultado(alvo, tempoDe(opcoes), cancelado) }
     }
 
     case 'ver': {
       const alvo = acharEntre(ligadosA(eu), pos[0])
       const linhas = Math.min(2000, Math.max(1, Number(opcoes.linhas) || 50))
-      return `"${alvo.espec.nome}" · ${await situacao(alvo)}\n${await telaDe(alvo, linhas)}`
+      return { saida: `"${alvo.espec.nome}" · ${await situacao(alvo)}\n${await telaDe(alvo, linhas)}` }
     }
 
     case 'teclas': {
@@ -502,7 +521,7 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
         await esperar(120)
       }
       await esperar(800)
-      return `"${alvo.espec.nome}" · ${await situacao(alvo)}\n${await telaDe(alvo, 30)}`
+      return { saida: `"${alvo.espec.nome}" · ${await situacao(alvo)}\n${await telaDe(alvo, 30)}` }
     }
 
     case 'limpar': {
@@ -516,7 +535,7 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
       await esperar(400)
       escreverNoProcesso(alvo, '\r')
       await aguardarFim(alvo, 15_000, cancelado)
-      return `Contexto de "${alvo.espec.nome}" zerado.`
+      return { saida: `Contexto de "${alvo.espec.nome}" zerado.` }
     }
 
     case 'fechar': {
@@ -527,7 +546,76 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
       if (!r.ok) throw new Error(r.erro)
       registrar(eu, alvo, 'fechar')
       encerrarAgora(alvo.id)
-      return `Fechei "${alvo.espec.nome}".`
+      return { saida: `Fechei "${alvo.espec.nome}".` }
+    }
+
+    case 'passar': {
+      const sucessor = acharEntre(ligadosA(eu), pos[0])
+      if (sucessor.id === eu.id) throw new Error('você não pode passar sessões para si mesmo')
+      if (!sucessor.processo) throw new Error(`"${sucessor.espec.nome}" está encerrado; escolha uma sessão viva`) 
+      const transferidas = sessoesCriadasPor(eu.id).filter((s) => s.id !== sucessor.id)
+      const totalDoSucessor = sessoesCriadasPor(sucessor.id).length + transferidas.length
+      if (totalDoSucessor > MAX_SESSOES_POR_AGENTE) {
+        throw new Error(
+          `"${sucessor.espec.nome}" ficaria com ${totalDoSucessor} sessões (o limite é ${MAX_SESSOES_POR_AGENTE}); nada foi passado`
+        )
+      }
+      if (!transferidas.length) return { saida: `Não havia outras sessões para passar a "${sucessor.espec.nome}".` }
+      const porEspaco = new Map<string, Sessao[]>()
+      for (const s of transferidas) porEspaco.set(s.espacoId, [...(porEspaco.get(s.espacoId) ?? []), s])
+      const sucessorEraMeu = sucessor.espec.criadoPor === eu.id
+      if (sucessorEraMeu && !porEspaco.has(sucessor.espacoId)) porEspaco.set(sucessor.espacoId, [])
+      // Reservar todas as janelas antes de mudar qualquer cartão reduz a chance de uma passagem pela metade.
+      for (const espacoId of porEspaco.keys()) await abrirJanelaPronta(espacoId)
+      const concluidos: Array<[string, Sessao[]]> = []
+      try {
+        for (const [espacoId, sessoes] of porEspaco) {
+          const r = await pedirAJanela({
+            tipo: 'passar',
+            espacoId,
+            ids: sessoes.map((s) => s.id),
+            sucessor: sucessor.id,
+            novoCriador: sucessor.id,
+            antigo: eu.id,
+            ...(sucessorEraMeu && espacoId === sucessor.espacoId ? { donoDoSucessor: null } : {})
+          })
+          if (!r.ok) throw new Error(r.erro)
+          concluidos.push([espacoId, sessoes])
+        }
+      } catch (erro) {
+        // Cada janela já foi reservada; se alguma ainda falhar, desfazemos as anteriores antes de responder.
+        for (const [espacoId, sessoes] of concluidos.reverse()) {
+          await pedirAJanela({
+            tipo: 'passar',
+            espacoId,
+            ids: sessoes.map((s) => s.id),
+            sucessor: sucessor.id,
+            novoCriador: eu.id,
+            antigo: sucessor.id,
+            ...(sucessorEraMeu && espacoId === sucessor.espacoId ? { donoDoSucessor: eu.id } : {})
+          }).catch(() => undefined)
+        }
+        throw new Error(`não passei nada: ${erro instanceof Error ? erro.message : String(erro)}`)
+      }
+      for (const s of transferidas) s.espec = { ...s.espec, criadoPor: sucessor.id }
+      if (sucessorEraMeu) sucessor.espec = { ...sucessor.espec, criadoPor: undefined }
+      registrar(eu, sucessor, 'passar', `${transferidas.length} sessões`)
+      return { saida: `Passei ${transferidas.length} sessões para "${sucessor.espec.nome}".` }
+    }
+
+    case 'sair': {
+      const minhas = sessoesCriadasPor(eu.id)
+      if (minhas.length && !opcoes['com-as-minhas']) {
+        throw new Error(
+          `você ainda tem ${minhas.length} sessões abertas; use \`mpro passar <nome>\` primeiro, ou \`mpro sair --com-as-minhas\` para fechar todas junto`
+        )
+      }
+      const motivo = typeof opcoes.motivo === 'string' ? opcoes.motivo : ''
+      registrar(eu, null, 'sair', motivo)
+      return {
+        saida: minhas.length ? `Vou fechar seu cartão e ${minhas.length} sessões suas.` : 'Vou fechar seu cartão.',
+        sair: [...minhas, eu]
+      }
     }
 
     default:
@@ -541,7 +629,14 @@ async function atender(linha: string, socket: Socket, fechado: () => boolean): P
     const pedido = JSON.parse(linha) as Pedido
     const eu = sessaoPorCracha(pedido.cracha)
     if (!eu) throw new Error('este terminal não é do Maestri Próprio (ou o app foi reaberto: feche e abra o terminal)')
-    resposta = { ok: true, saida: await executar(eu, pedido, fechado) }
+    const resultado = await executar(eu, pedido, fechado)
+    resposta = { ok: true, saida: resultado.saida }
+    if (resultado.sair) {
+      // O `mpro` está no processo que vai morrer. Esperamos o flush do socket e mais um instante antes de matar
+      // o pty, para ele imprimir a confirmação; se a janela falhar, o cliente ainda jamais fica preso no pipe.
+      socket.end(`${JSON.stringify(resposta)}\n`, () => setTimeout(() => void fecharCartoesDepoisDaResposta(resultado.sair!), 120))
+      return
+    }
   } catch (erro) {
     resposta = { ok: false, erro: erro instanceof Error ? erro.message : String(erro) }
   }
@@ -561,6 +656,19 @@ export function registrarComandos(): void {
     if (!pendente || pendente.janela !== evento.sender.id) return
     const valida = resposta && typeof resposta === 'object' && typeof resposta.ok === 'boolean'
     pendente.resolver(valida ? resposta : { ok: false, erro: 'resposta inválida da janela' })
+  })
+
+  ipcMain.handle(CANAIS.contextos, async (evento, espacoId: unknown): Promise<ResumoContextoTerminal[]> => {
+    if (typeof espacoId !== 'string' || donoDe(espacoId) !== evento.sender.id) return []
+    return Promise.all(
+      sessoesDoEspaco(espacoId).map(async (s) => ({
+        id: s.id,
+        nome: s.espec.nome,
+        agente: s.espec.agente,
+        situacao: await situacao(s),
+        contexto: await contextoRestante(s)
+      }))
+    )
   })
 
   const servidor = createServer((socket) => {

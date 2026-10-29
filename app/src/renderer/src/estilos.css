@@ -1021,6 +1021,96 @@ body.em-gesto webview {
   gap: 8px;
 }
 
+.contexto-caixa {
+  position: relative;
+}
+
+.painel-contexto {
+  position: absolute;
+  right: 0;
+  bottom: 46px;
+  width: 310px;
+  max-height: min(420px, calc(100vh - 120px));
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--pilula-borda);
+  border-radius: 12px;
+  background: var(--pilula-fundo);
+  color: var(--texto);
+  box-shadow: var(--sombra);
+}
+
+.painel-contexto header {
+  padding: 4px 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--texto-suave);
+}
+
+.contexto-terminal {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+}
+
+.contexto-terminal:hover {
+  background: var(--hover);
+}
+
+.contexto-nome,
+.contexto-situacao {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.contexto-situacao,
+.contexto-valor {
+  font-size: 10.5px;
+  color: var(--texto-suave);
+}
+
+.contexto-situacao.trabalhando { color: var(--destaque); }
+.contexto-situacao.pergunta { color: var(--texto); }
+.contexto-situacao.encerrado { opacity: 0.6; }
+
+.contexto-valor {
+  min-width: 28px;
+  text-align: right;
+  font-family: var(--fonte-mono);
+}
+
+.contexto-barra {
+  grid-column: 2 / -1;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--lateral-filtro);
+}
+
+.contexto-barra span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--destaque);
+}
+
+.contexto-vazio {
+  margin: 8px 6px;
+  color: var(--texto-suave);
+  font-size: 12px;
+}
+
 .zoom {
   height: 38px;
   padding: 0 4px;

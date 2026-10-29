@@ -111,14 +111,17 @@ function caixaDasPosicoes(p: Posicoes): Caixa | null {
   ])
 }
 
-/** Um quadro de tela: rola perto da borda e põe o que se move embaixo do mouse. */
-function passo(): void {
+/**
+ * Põe o que se move embaixo do mouse. `rolar`: perto da borda da tela o quadro anda junto — no último
+ * passo (ao soltar) não, senão o cartão daria um pulo na hora de largar.
+ */
+function aplicar(rolar: boolean): void {
   const g = atual
   if (!g || !g.arrastando) return
   let camera = planoAtual()!.camera
   const { area, mouse } = g
-  const vx = velocidadeNaBorda(area.right - mouse.x) - velocidadeNaBorda(mouse.x - area.left)
-  const vy = velocidadeNaBorda(area.bottom - mouse.y) - velocidadeNaBorda(mouse.y - area.top)
+  const vx = rolar ? velocidadeNaBorda(area.right - mouse.x) - velocidadeNaBorda(mouse.x - area.left) : 0
+  const vy = rolar ? velocidadeNaBorda(area.bottom - mouse.y) - velocidadeNaBorda(mouse.y - area.top) : 0
   if (vx || vy) {
     camera = { ...camera, x: camera.x - vx, y: camera.y - vy }
     definirCamera(camera)
@@ -146,7 +149,13 @@ function passo(): void {
     const agoraNo = planoAtual()?.nos.find((n) => n.id === no.id)
     if (agoraNo && (agoraNo.largura !== mudanca.largura || agoraNo.altura !== mudanca.altura)) atualizarNo(no.id, mudanca, g.chave)
   }
-  g.quadro = requestAnimationFrame(passo)
+}
+
+/** Um quadro de tela, enquanto o gesto durar. */
+function passo(): void {
+  if (!atual?.arrastando) return
+  aplicar(true)
+  if (atual) atual.quadro = requestAnimationFrame(passo)
 }
 
 function virarArrasto(g: Gesto): void {
@@ -217,6 +226,13 @@ export function comecarArrasto(
     if (!g.arrastando) {
       if (!cancelar) g.aoClicar?.()
       return
+    }
+    // o mouse pode ter andado depois do último quadro: aplica a posição final antes de largar, senão os
+    // últimos pixels de um arrasto rápido se perdem
+    if (!cancelar) {
+      atual = g
+      aplicar(false)
+      atual = null
     }
     cancelAnimationFrame(g.quadro)
     mostrarGuias([])

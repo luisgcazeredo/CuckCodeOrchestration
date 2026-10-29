@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs'
 import { connect } from 'node:net'
 
-const OPCOES_COM_VALOR = new Set(['nome', 'pasta', 'pedido', 'arquivo', 'tempo', 'linhas', 'espaco', 'novo'])
+const OPCOES_COM_VALOR = new Set(['nome', 'pasta', 'pedido', 'arquivo', 'tempo', 'linhas', 'espaco', 'novo', 'motivo'])
 
 function falhar(mensagem: string, codigo: number): void {
   process.stderr.write(`mpro: ${mensagem}\n`)

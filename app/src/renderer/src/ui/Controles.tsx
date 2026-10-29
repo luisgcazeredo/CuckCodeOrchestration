@@ -1,5 +1,8 @@
-import { Map as IconeMapa, Minus, Moon, PanelLeft, Plus, Scan, Sun } from 'lucide-react'
-import { alternarLateral, alternarMiniMapa, definirCamera, definirTema, planoAtual, planoDe, usarLoja } from '../estado/loja'
+import { useEffect, useRef, useState } from 'react'
+import { Gauge, Map as IconeMapa, Minus, Moon, PanelLeft, Plus, Scan, Sun } from 'lucide-react'
+import type { ResumoContextoTerminal } from '../../../shared/api'
+import { alternarLateral, alternarMiniMapa, definirCamera, definirTema, enquadrarNo, planoAtual, planoDe, usarLoja } from '../estado/loja'
+import { COR_AGENTE, ICONE_AGENTE } from '../nos/icones'
 import { BotaoAndares, IndicadorAndar } from './Andares'
 import {
   caixaDoDesenho,
@@ -94,6 +97,78 @@ function MiniMapa() {
   )
 }
 
+function PainelContexto() {
+  const espacoId = usarLoja((e) => e.espaco?.id)
+  const [aberto, definirAberto] = useState(false)
+  const [terminais, definirTerminais] = useState<ResumoContextoTerminal[]>([])
+  const caixa = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!aberto || !espacoId) return
+    let vivo = true
+    const atualizar = (): void => {
+      void window.mp.terminal.contextos(espacoId).then((lista) => vivo && definirTerminais(lista), () => vivo && definirTerminais([]))
+    }
+    atualizar()
+    const relogio = window.setInterval(atualizar, 5000)
+    return () => {
+      vivo = false
+      window.clearInterval(relogio)
+    }
+  }, [aberto, espacoId])
+
+  useEffect(() => {
+    if (!aberto) return
+    const tecla = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        definirAberto(false)
+        e.stopPropagation()
+      }
+    }
+    const fora = (e: PointerEvent): void => {
+      if (!caixa.current?.contains(e.target as Node)) definirAberto(false)
+    }
+    document.addEventListener('keydown', tecla)
+    document.addEventListener('pointerdown', fora)
+    return () => {
+      document.removeEventListener('keydown', tecla)
+      document.removeEventListener('pointerdown', fora)
+    }
+  }, [aberto])
+
+  return (
+    <div className="contexto-caixa" ref={caixa}>
+      {aberto && (
+        <section className="painel-contexto" aria-label="Contexto dos terminais">
+          <header>Contexto deste espaço</header>
+          {terminais.length ? (
+            terminais.map((terminal) => {
+              const Icone = ICONE_AGENTE[terminal.agente]
+              const titulo = terminal.contexto === null ? 'O cliente não mostrou um rodapé de contexto legível.' : `${terminal.contexto}% restante`
+              return (
+                <button className="contexto-terminal" key={terminal.id} title={titulo} onClick={() => enquadrarNo(terminal.id)}>
+                  <Icone size={15} style={{ color: COR_AGENTE[terminal.agente] }} />
+                  <span className="contexto-nome">{terminal.nome}</span>
+                  <span className={`contexto-situacao ${terminal.situacao}`}>{terminal.situacao}</span>
+                  <span className="contexto-valor">{terminal.contexto === null ? '—' : `${terminal.contexto}%`}</span>
+                  <span className="contexto-barra" aria-hidden="true">
+                    <span style={{ width: `${terminal.contexto ?? 0}%` }} />
+                  </span>
+                </button>
+              )
+            })
+          ) : (
+            <p className="contexto-vazio">Nenhum terminal neste espaço.</p>
+          )}
+        </section>
+      )}
+      <button className={`botao-redondo ${aberto ? 'ativo' : ''}`} title="Contexto dos terminais" onClick={() => definirAberto((valor) => !valor)}>
+        <Gauge size={17} />
+      </button>
+    </div>
+  )
+}
+
 export function CantoInferior() {
   const zoom = usarLoja((e) => (e.espaco ? planoDe(e.espaco).camera.zoom : 1))
   const aberto = usarLoja((e) => e.miniMapa)
@@ -105,6 +180,7 @@ export function CantoInferior() {
         <button className={`botao-redondo ${aberto ? 'ativo' : ''}`} title="Mini-mapa" onClick={alternarMiniMapa}>
           <IconeMapa size={16} />
         </button>
+        <PainelContexto />
         <div className="pilula zoom">
           <button title="Diminuir (Ctrl -)" onClick={() => zoomPeloCentro(1 / 1.2)}>
             <Minus size={16} />

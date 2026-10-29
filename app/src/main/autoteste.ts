@@ -1067,6 +1067,75 @@ export async function rodarAutoteste(
     const orcamento = await aguardar(() => telaNoApp(chefe), /contexto: (\d+% restante|não deu para ler)/i)
     conferir('mpro orcamento responde mesmo sem contexto na tela', /contexto: (\d+% restante|não deu para ler)/i.test(orcamento), ultimas(orcamento))
 
+    // painel: só consulta o espelho enquanto aberto; aqui basta haver um terminal conhecido, com estado e contexto.
+    const botaoContexto = await centroDe('button[title="Contexto dos terminais"]')
+    if (botaoContexto) await clicar(botaoContexto)
+    await esperar(350)
+    const painelContexto = await js<{ linhas: number; texto: string }>(`(() => ({
+      linhas: document.querySelectorAll('.contexto-terminal').length,
+      texto: document.querySelector('.painel-contexto')?.textContent ?? ''
+    }))()`)
+    tela.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+    tela.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+    await esperar(150)
+    const painelFechado = await js<boolean>('!document.querySelector(".painel-contexto")')
+    conferir(
+      'painel de contexto abre, mostra situação/contexto e fecha com Esc',
+      painelContexto.linhas > 0 && /livre|trabalhando|pergunta|encerrado/.test(painelContexto.texto) && /%|—/.test(painelContexto.texto) && painelFechado,
+      `${painelContexto.linhas} linhas · fechado: ${painelFechado}`
+    )
+
+    const aposentadoria = await js<{ antigo: string; sucessor: string }>(`(() => { const L = window.__teste.loja
+      const preset = L.lerEstado().preferencias.presets.find((p) => p.agente === 'shell')
+      const antigo = L.adicionarNo({ tipo: 'terminal', preset }, 2200, 300)
+      const sucessor = L.adicionarNo({ tipo: 'terminal', preset }, 2200, 850)
+      L.atualizarNo(antigo, { nome: 'Antigo' }); L.atualizarNo(sucessor, { nome: 'Sucessor' }); L.ligar(antigo, sucessor)
+      return { antigo, sucessor } })()`)
+    await aguardar(() => telaNoApp(aposentadoria.antigo), /PS .*>/)
+    await aguardar(() => telaNoApp(aposentadoria.sucessor), /PS .*>/)
+    await comando(aposentadoria.antigo, 'mpro abrir shell --nome Herdado')
+    await aguardar(() => telaNoApp(aposentadoria.antigo), 'Abri "Herdado"')
+    const herdado = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Herdado')?.id ?? ''`)
+    await comando(aposentadoria.antigo, 'mpro sair')
+    const recusouSair = await aguardar(() => telaNoApp(aposentadoria.antigo), 'mpro passar')
+    await comando(aposentadoria.antigo, 'mpro passar Sucessor')
+    const passouSessao = await aguardar(() => telaNoApp(aposentadoria.antigo), 'Passei 1 sessões para "Sucessor"')
+    await comando(aposentadoria.antigo, 'mpro fechar Herdado')
+    const antigoNaoFecha = await aguardar(() => telaNoApp(aposentadoria.antigo), 'ninguém ligado a você se chama "Herdado"')
+    await comando(aposentadoria.sucessor, 'mpro fechar Herdado')
+    const sucessorFecha = await aguardar(() => telaNoApp(aposentadoria.sucessor), 'Fechei "Herdado"')
+    conferir(
+      'mpro passar move a propriedade; antigo não fecha e sucessor fecha',
+      !!herdado && recusouSair.includes('mpro passar') && passouSessao.includes('Passei 1') && antigoNaoFecha.includes('ninguém ligado') && sucessorFecha.includes('Fechei'),
+      `herdado:${!!herdado} recusou:${recusouSair.includes('mpro passar')} passou:${passouSessao.includes('Passei 1')} ` +
+        `antigoNaoFecha:${antigoNaoFecha.includes('ninguém ligado')} sucessorFecha:${sucessorFecha.includes('Fechei')} · ${ultimas(antigoNaoFecha, 3)}`
+    )
+    const respostaSair = join(tmpdir(), `maestri-proprio-sair-${randomUUID()}.txt`)
+    await comando(aposentadoria.antigo, `mpro sair --motivo "fim do contexto" | Out-File -Encoding utf8 '${respostaSair}'`)
+    for (let i = 0; i < 30 && sessaoPorId(aposentadoria.antigo); i++) await esperar(100)
+    const antigoSaiu = !sessaoPorId(aposentadoria.antigo)
+    const respostaAntesDeSair = existsSync(respostaSair) ? readFileSync(respostaSair, 'utf8') : ''
+    rmSync(respostaSair, { force: true })
+    conferir(
+      'mpro sair responde antes de fechar o próprio cartão',
+      // sem o acento: o PowerShell decodifica a saída de programa nativo pela página de código OEM, e
+      // `ã` viraria lixo no arquivo (na tela do terminal aparece certo)
+      antigoSaiu && /Vou fechar seu cart.{1,3}o./.test(respostaAntesDeSair),
+      `cartão saiu: ${antigoSaiu} · resposta: ${JSON.stringify(respostaAntesDeSair.trim())}`
+    )
+    await js(`window.__teste.loja.apagar({ tipo: 'no', id: '${aposentadoria.sucessor}' })`)
+
+    const sairComAsMinhas = await js<string>(`(() => { const L = window.__teste.loja
+      const preset = L.lerEstado().preferencias.presets.find((p) => p.agente === 'shell')
+      const id = L.adicionarNo({ tipo: 'terminal', preset }, 2900, 300); L.atualizarNo(id, { nome: 'Com as minhas' }); return id })()`)
+    await aguardar(() => telaNoApp(sairComAsMinhas), /PS .*>/)
+    await comando(sairComAsMinhas, 'mpro abrir shell --nome Junto')
+    await aguardar(() => telaNoApp(sairComAsMinhas), 'Abri "Junto"')
+    const junto = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Junto')?.id ?? ''`)
+    await comando(sairComAsMinhas, 'mpro sair --com-as-minhas')
+    for (let i = 0; i < 30 && (sessaoPorId(sairComAsMinhas) || sessaoPorId(junto)); i++) await esperar(100)
+    conferir('mpro sair --com-as-minhas fecha o agente e as sessões dele', !sessaoPorId(sairComAsMinhas) && !sessaoPorId(junto), `agente: ${!!sessaoPorId(sairComAsMinhas)} · filho: ${!!sessaoPorId(junto)}`)
+
     for (let i = 1; i <= 7; i++) {
       const nome = `Limite ${i}`
       await comando(chefe, `mpro abrir shell --nome "${nome}"`)

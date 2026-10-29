@@ -18,6 +18,9 @@ export const AJUDA = `mpro — fala com o Maestri Próprio de dentro de um termi
   mpro teclas <nome> <tecla>...       enter, esc, tab, shift-tab, cima, baixo, esquerda, direita, ctrl-c, espaco, 1, 2, y, n…
   mpro limpar <nome>                  zera o contexto da sessão (/clear no Claude, /new no Codex)
   mpro fechar <nome>                  fecha uma sessão que você abriu (some do quadro)
+  mpro passar <nome>                  passa ao sucessor vivo (aberto por você ou ligado) as outras sessões que abriu
+  mpro sair [--motivo "texto"] [--com-as-minhas]
+                                      fecha seu cartão; com as minhas, fecha também suas sessões
 
   <nome> é o nome do cartão (ou o começo dele). --tempo em segundos (padrão 100, máx. 3600).
   Só fala com quem está ligado a você por uma corda, ou com quem você mesmo abriu. Quem abre no mesmo espaço já nasce
@@ -53,6 +56,19 @@ Seu contexto é caro e fica poluído com o tempo. Em vez de carregar tudo numa c
 - **Frente inteira → espaço novo.** \`mpro janela --novo "Nome"\` separa uma frente de trabalho inteira, com o seu
   quadro e suas sessões; não abra um espaço novo para cada tarefinha.
 
+## Passar o bastão e trabalhar em paralelo
+
+- **Contexto ficando inútil:** quando muita conversa já não serve, ou o \`mpro orcamento\` estiver baixo, grave num
+  arquivo o que foi feito, falta fazer, decisões e arquivos importantes. Abra o sucessor com \`mpro abrir ... --arquivo
+  esse-arquivo.md\`, confirme que ele subiu e entendeu, passe para ele o que você abriu com \`mpro passar\` e só então
+  use \`mpro sair\`.
+- **Só apague o antigo se ele não for mais trabalhar.** Se ainda há algo que só ele sabe ou faz, ele fica. Na dúvida,
+  mantenha os dois e avise o usuário.
+- **Subterminais paralelos:** abra frentes independentes com \`--sem-esperar\` e recolha com \`mpro ver\` ou
+  \`mpro esperar\`; cada uma recebe somente o contexto da sua parte. Dois agentes não editam o mesmo arquivo, e resultado
+  longo vai para arquivo.
+- O contexto vem do rodapé do cliente e pode faltar. Sem número, decida pelo que percebe da conversa, sem chutar.
+
 ## Comandos
 
 ${'```'}
@@ -80,5 +96,8 @@ ${'```'}
 - **Responder de volta:** ao delegar algo longo, peça que o outro termine com
   \`mpro pedir "<seu nome>" "<resultado ou caminho do arquivo>"\` (\`mpro quem\` diz o seu nome). O resultado chega
   inteiro mesmo que a sua espera tenha acabado.
+- **Windows:** redirecionar a saida do mpro para arquivo no PowerShell estraga os acentos (ele decodifica a
+  saida de programa nativo pela pagina de codigo OEM). Leia a resposta na tela, ou rode
+  [Console]::OutputEncoding = [Text.Encoding]::UTF8 antes e grave com Out-File -Encoding utf8.
 - Tudo o que vai pelo \`mpro\` fica registrado no app.
 `
