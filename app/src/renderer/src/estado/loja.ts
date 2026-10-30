@@ -19,6 +19,8 @@ import {
   type Tema
 } from '../../../shared/modelo'
 import { MAX_SESSOES_POR_AGENTE, type AvisoJanelas, type EspecTerminal, type PedidoDoAgente, type RespostaAoAgente } from '../../../shared/api'
+import { proximoZ } from '../../../shared/quadro/geometria'
+import { abrir, fechar, passar } from '../../../shared/quadro/transformacoes'
 import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, enquadrar, lerViewport, uniao, type Caixa } from '../quadro/geometria'
 
 export type Ferramenta = 'selecionar' | 'postit' | 'texto' | 'desenho'
@@ -705,10 +707,6 @@ export function enquadrarNo(id: string): void {
 const novoId = (): string => crypto.randomUUID()
 const agora = (): string => new Date().toISOString()
 
-function proximoZ(plano: Plano): number {
-  return Math.max(0, ...plano.nos.map((n) => n.z), ...plano.desenhos.map((d) => d.z)) + 1
-}
-
 export function acharNo(id: string): No | undefined {
   return planoAtual()?.nos.find((n) => n.id === id)
 }
@@ -1268,102 +1266,19 @@ function anotarSessoes(descobertas: Record<string, string>): void {
   for (const [id, sessao] of Object.entries(descobertas)) mudarTerminal(id, (n) => (n.sessao === sessao ? n : { ...n, sessao }))
 }
 
-const tocam = (a: Caixa, b: Caixa, folga: number): boolean =>
-  a.x < b.x + b.largura + folga && b.x < a.x + a.largura + folga && a.y < b.y + b.altura + folga && b.y < a.y + a.altura + folga
-
 /** Um agente pediu pelo `mpro`: abrir, fechar ou passar a responsabilidade de cartões. */
 function atenderAgente(pedido: PedidoDoAgente): RespostaAoAgente {
+  // Este atendimento precisa continuar síncrono: o resultado puro abaixo parte do espaço lido agora.
   const e = estado.espaco
   if (!e || e.id !== pedido.espacoId) return { ok: false, erro: 'o espaço deste terminal não está aberto nesta janela' }
-  const planos: Plano[] = [e, ...e.andares]
-
+  const ambiente = { presets: estado.preferencias.presets, presetsPadrao: PRESETS_PADRAO, limiteSessoesPorAgente: MAX_SESSOES_POR_AGENTE, novoId, agora }
+  const resultado = pedido.tipo === 'abrir' ? abrir(e, pedido, ambiente) : pedido.tipo === 'fechar' ? fechar(e, pedido) : passar(e, pedido, ambiente)
+  if (!resultado.resposta.ok) return resultado.resposta
+  // Pedidos de agentes são estado operacional: não entram no histórico de desfazer.
+  if (pedido.tipo === 'fechar') fechadosPorAgente.add(pedido.id)
+  mudarEspaco(() => resultado.espaco, false)
   if (pedido.tipo === 'fechar') {
-    const plano = planos.find((p) => p.nos.some((n) => n.id === pedido.id))
-    if (!plano) return { ok: false, erro: 'esse cartão não está mais no quadro' }
-    fechadosPorAgente.add(pedido.id)
-    const tirar = (p: Plano): Plano =>
-      p === plano
-        ? { ...p, nos: p.nos.filter((n) => n.id !== pedido.id), cordas: p.cordas.filter((c) => c.de !== pedido.id && c.para !== pedido.id) }
-        : p
-    mudarEspaco((x) => ({ ...x, ...tirar(x), andares: x.andares.map((a) => ({ ...a, ...tirar(a) })) }), false)
     definir({ selecao: { ...estado.selecao, nos: estado.selecao.nos.filter((id) => id !== pedido.id) } })
-    return { ok: true }
   }
-
-  if (pedido.tipo === 'passar') {
-    const ids = new Set(pedido.ids)
-    const temDonoDoSucessor = Object.prototype.hasOwnProperty.call(pedido, 'donoDoSucessor')
-    const procurados = new Set([...ids, ...(temDonoDoSucessor ? [pedido.sucessor] : [])])
-    const existem = planos.flatMap((p) => p.nos).filter((n) => n.tipo === 'terminal' && procurados.has(n.id)).length
-    if (existem !== procurados.size) return { ok: false, erro: 'um cartão a passar não está mais no quadro' }
-    // Não entra no desfazer: propriedade de agente é estado operacional, não edição do usuário.
-    mudarEspaco(
-      (x) => {
-        // A corda vai com o bastão: a do dono antigo com cada cartão sai, e a do novo dono entra (só onde os
-        // dois estão no mesmo plano — corda é desenho de um quadro, e a propriedade atravessa espaços sozinha)
-        const passar = (p: Plano): Plano => {
-          const aqui = new Set(p.nos.filter((n) => n.tipo === 'terminal').map((n) => n.id))
-          const mudar = [...ids].filter((id) => aqui.has(id))
-          const liga = (c: Corda, a: string, b: string): boolean => (c.de === a && c.para === b) || (c.de === b && c.para === a)
-          const cordas = p.cordas.filter((c) => !mudar.some((id) => liga(c, pedido.antigo, id)))
-          if (aqui.has(pedido.novoCriador)) {
-            for (const id of mudar) {
-              if (id !== pedido.novoCriador && !cordas.some((c) => liga(c, pedido.novoCriador, id))) {
-                cordas.push({ id: novoId(), de: pedido.novoCriador, para: id, criadoEm: agora() })
-              }
-            }
-          }
-          return {
-            ...p,
-            cordas,
-            nos: p.nos.map((n) => {
-              if (n.tipo !== 'terminal') return n
-              if (temDonoDoSucessor && n.id === pedido.sucessor) return { ...n, criadoPor: pedido.donoDoSucessor ?? undefined }
-              return ids.has(n.id) ? { ...n, criadoPor: pedido.novoCriador } : n
-            })
-          }
-        }
-        return { ...x, ...passar(x), andares: x.andares.map((a) => ({ ...a, ...passar(a) })) }
-      },
-      false
-    )
-    return { ok: true }
-  }
-
-  const planoDoCriador = planos.find((p) => p.nos.some((n) => n.id === pedido.criador))
-  const criador = planoDoCriador?.nos.find((n) => n.id === pedido.criador)
-  // Em outro espaço o criador não existe neste quadro: o processo principal já conferiu a autoria; aqui só escolhemos
-  // um plano e uma posição inicial. Sem cartão do criador não há ponta para desenhar corda.
-  const plano = planoDoCriador ?? e.andares.find((a) => a.id === e.andarAtivo) ?? e
-  // A janela confere de novo quando o criador está neste quadro; a reserva principal cobre os outros espaços.
-  const filhos = planos.reduce((t, p) => t + p.nos.filter((n) => n.tipo === 'terminal' && n.criadoPor === pedido.criador).length, 0)
-  if (criador && filhos >= MAX_SESSOES_POR_AGENTE) return { ok: false, erro: `você já tem ${filhos} sessões abertas (o limite é ${MAX_SESSOES_POR_AGENTE})` }
-  const preset =
-    estado.preferencias.presets.find((p) => p.agente === pedido.agente) ?? PRESETS_PADRAO.find((p) => p.agente === pedido.agente)!
-  const nomes = new Set(planos.flatMap((p) => p.nos.flatMap((n) => (n.tipo === 'terminal' ? [n.nome.toLowerCase()] : []))))
-  const base = pedido.nome || preset.nome
-  let nome = base
-  for (let i = 2; nomes.has(nome.toLowerCase()); i++) nome = `${base} ${i}`
-  // Ao lado de quem abriu; no outro espaço começa num canto livre porque não existe uma corda para orientar a posição.
-  const caixa: Caixa = criador
-    ? { x: criador.x + criador.largura + 80, y: criador.y, largura: 720, altura: 460 }
-    : { x: 120, y: 120, largura: 720, altura: 460 }
-  for (let i = 0; i < 30 && plano.nos.some((n) => tocam(caixa, caixaDoNo(n), 30)); i++) caixa.y += caixa.altura + 60
-  const no: NoTerminal = {
-    id: novoId(),
-    z: proximoZ(plano),
-    criadoEm: agora(),
-    ...caixa,
-    tipo: 'terminal',
-    nome,
-    agente: preset.agente,
-    comando: preset.comando,
-    pasta: pedido.pasta,
-    sessao: preset.agente === 'claude' ? novoId() : undefined,
-    criadoPor: pedido.criador
-  }
-  const corda: Corda | null = criador ? { id: novoId(), de: criador.id, para: no.id, criadoEm: agora() } : null
-  const por = (p: Plano): Plano => (p === plano ? { ...p, nos: [...p.nos, no], cordas: corda ? [...p.cordas, corda] : p.cordas } : p)
-  mudarEspaco((x) => ({ ...x, ...por(x), andares: x.andares.map((a) => ({ ...a, ...por(a) })) }), false)
-  return { ok: true, id: no.id, nome }
+  return resultado.resposta
 }

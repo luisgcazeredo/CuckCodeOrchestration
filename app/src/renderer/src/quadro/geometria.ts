@@ -1,15 +1,11 @@
 import type { Camera, Desenho, No } from '../../../shared/modelo'
+import type { Caixa } from '../../../shared/quadro/geometria'
+
+export { caixaDoNo, type Caixa } from '../../../shared/quadro/geometria'
 
 export interface Ponto {
   x: number
   y: number
-}
-
-export interface Caixa {
-  x: number
-  y: number
-  largura: number
-  altura: number
 }
 
 // Tamanho atual da área do quadro na tela, atualizado pelo próprio quadro.
@@ -43,8 +39,6 @@ export function zoomEm(camera: Camera, zoom: number, ancora: Ponto): Camera {
 export function centroDaTela(camera: Camera): Ponto {
   return telaParaQuadro({ x: viewport.largura / 2, y: viewport.altura / 2 }, camera)
 }
-
-export const caixaDoNo = (n: No): Caixa => ({ x: n.x, y: n.y, largura: n.largura, altura: n.altura })
 
 export function seTocam(a: Caixa, b: Caixa): boolean {
   return a.x <= b.x + b.largura && b.x <= a.x + a.largura && a.y <= b.y + b.altura && b.y <= a.y + a.altura

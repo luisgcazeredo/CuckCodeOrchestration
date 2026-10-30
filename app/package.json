@@ -11,6 +11,7 @@
     "build": "electron-vite build",
     "start": "set \"ELECTRON_RUN_AS_NODE=\" && electron-vite preview",
     "typecheck": "tsc --noEmit",
+    "provas": "node --test \"src/**/*.prova.mts\"",
     "autoteste": "set \"ELECTRON_RUN_AS_NODE=\" && electron-vite build && electron . --autoteste",
     "icone": "electron scripts/gerar-icone.cjs",
     "empacotar": "set \"ELECTRON_RUN_AS_NODE=\" && electron-vite build && electron-builder --win --x64",
