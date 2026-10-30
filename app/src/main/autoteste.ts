@@ -1085,6 +1085,10 @@ export async function rodarAutoteste(
       `${painelContexto.linhas} linhas · fechado: ${painelFechado}`
     )
 
+    // a janela do "Frente 2" ficou com o foco do Windows, e teclado sintético vai para a janela focada:
+    // sem isto, o que vem abaixo é digitado no vazio
+    janela.focus()
+    await esperar(400)
     const aposentadoria = await js<{ antigo: string; sucessor: string }>(`(() => { const L = window.__teste.loja
       const preset = L.lerEstado().preferencias.presets.find((p) => p.agente === 'shell')
       const antigo = L.adicionarNo({ tipo: 'terminal', preset }, 2200, 300)
@@ -1096,8 +1100,12 @@ export async function rodarAutoteste(
     await comando(aposentadoria.antigo, 'mpro abrir shell --nome Herdado')
     await aguardar(() => telaNoApp(aposentadoria.antigo), 'Abri "Herdado"')
     const herdado = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Herdado')?.id ?? ''`)
-    await comando(aposentadoria.antigo, 'mpro sair')
-    const recusouSair = await aguardar(() => telaNoApp(aposentadoria.antigo), 'mpro passar')
+    // entrada sintética às vezes se perde (o cartão acabou de ganhar um vizinho novo): tenta até o eco aparecer
+    let recusouSair = ''
+    for (let tentativa = 0; tentativa < 3 && !recusouSair.includes('mpro passar'); tentativa++) {
+      await comando(aposentadoria.antigo, 'mpro sair')
+      recusouSair = await aguardar(() => telaNoApp(aposentadoria.antigo), 'mpro passar', 8000)
+    }
     await comando(aposentadoria.antigo, 'mpro passar Sucessor')
     const passouSessao = await aguardar(() => telaNoApp(aposentadoria.antigo), 'Passei 1 sessões para "Sucessor"')
     await comando(aposentadoria.antigo, 'mpro fechar Herdado')
@@ -1108,7 +1116,7 @@ export async function rodarAutoteste(
       'mpro passar move a propriedade; antigo não fecha e sucessor fecha',
       !!herdado && recusouSair.includes('mpro passar') && passouSessao.includes('Passei 1') && antigoNaoFecha.includes('ninguém ligado') && sucessorFecha.includes('Fechei'),
       `herdado:${!!herdado} recusou:${recusouSair.includes('mpro passar')} passou:${passouSessao.includes('Passei 1')} ` +
-        `antigoNaoFecha:${antigoNaoFecha.includes('ninguém ligado')} sucessorFecha:${sucessorFecha.includes('Fechei')} · ${ultimas(antigoNaoFecha, 3)}`
+        `antigoNaoFecha:${antigoNaoFecha.includes('ninguém ligado')} sucessorFecha:${sucessorFecha.includes('Fechei')} · APOS SAIR: ${ultimas(recusouSair, 4)}`
     )
     const respostaSair = join(tmpdir(), `maestri-proprio-sair-${randomUUID()}.txt`)
     await comando(aposentadoria.antigo, `mpro sair --motivo "fim do contexto" | Out-File -Encoding utf8 '${respostaSair}'`)

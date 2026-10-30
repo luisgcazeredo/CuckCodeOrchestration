@@ -407,12 +407,17 @@ export function telaDe(s: Sessao, linhas = 50): Promise<string> {
   return new Promise((r) =>
     s.espelho.write('', () => {
       const buffer = s.espelho.buffer.active
-      const texto = (y: number): string => buffer.getLine(y)?.translateToString(true) ?? ''
+      // sem cortar o fim: uma linha larga continua na seguinte (isWrapped) e o corte comeria o espaço entre
+      // as palavras; a sobra em branco sai no fim, de uma vez
+      const cru = (y: number): string => buffer.getLine(y)?.translateToString(false) ?? ''
       let fim = buffer.baseY + s.espelho.rows
-      while (fim > 0 && !texto(fim - 1).trim()) fim--
+      while (fim > 0 && !cru(fim - 1).trim()) fim--
       const saida: string[] = []
-      for (let y = Math.max(0, fim - linhas); y < fim; y++) saida.push(texto(y))
-      r(saida.join('\n'))
+      for (let y = Math.max(0, fim - linhas); y < fim; y++) {
+        if (buffer.getLine(y)?.isWrapped && saida.length) saida[saida.length - 1] += cru(y)
+        else saida.push(cru(y))
+      }
+      r(saida.map((l) => l.replace(/\s+$/, '')).join('\n'))
     })
   )
 }
