@@ -1,31 +1,15 @@
 // O manual do `mpro` para os agentes. Vira a skill `maestri-proprio` do Claude Code e do Codex (gravada pelo app
 // ao abrir) e a resposta de `mpro ajuda`. Texto nosso; atualizar junto com comandos.ts.
+import { tabelaDeComandos } from './verbos'
 
 export const AJUDA = `mpro — fala com o Maestri Próprio de dentro de um terminal do app
 
-  mpro quem                           quem é você, seus ligados e o contexto que deu para ler
-  mpro orcamento                      só o contexto restante que deu para ler na sua tela
-  mpro espacos                        lista todos os espaços, janela, cartões e marca o seu
-  mpro janela <nome do espaço>        abre o espaço numa janela (ou traz a que já está aberta)
-  mpro janela --novo "Nome" [--pasta P]
-                                       cria um espaço e abre uma janela nele
-  mpro abrir <claude|codex|shell> [--espaco "Nome"] [--nome N] [--pasta P] [--pedido "texto" | --arquivo pedido.md] [--esperar] [--tempo S]
-                                       abre uma sessão nova; em outro espaço, você continua sendo o dono
-  mpro pedir <nome> "texto" | --arquivo pedido.md [--sem-esperar] [--tempo S]
-                                      manda um pedido e espera ele terminar (devolve a tela)
-  mpro esperar <nome> [--tempo S]     espera terminar o que está fazendo
-  mpro ver <nome> [--linhas N]        lê a tela sem mandar nada
-  mpro teclas <nome> <tecla>...       enter, esc, tab, shift-tab, cima, baixo, esquerda, direita, ctrl-c, espaco, 1, 2, y, n…
-  mpro limpar <nome>                  zera o contexto da sessão (/clear no Claude, /new no Codex)
-  mpro fechar <nome>                  fecha uma sessão que você abriu; o que ela abriu passa para você
-  mpro passar <nome>                  passa ao sucessor vivo (aberto por você ou ligado) as outras sessões que abriu
-  mpro sair [--motivo "texto"] [--com-as-minhas]
-                                      fecha seu cartão; com as minhas, fecha toda a árvore de sessões que você abriu
+${tabelaDeComandos()}
 
   <nome> é o nome do cartão (ou o começo dele). --tempo em segundos (padrão 100, máx. 3600).
   Só fala com quem está ligado a você por uma corda, ou com quem você mesmo abriu. Quem abre no mesmo espaço já nasce
   ligado; em outro espaço não ganha corda, mas continua acessível pelo dono. O número de contexto vem da tela do cliente
-  e pode não dar para ler.`
+  e pode não dar para ler. No Git Bash, comando de barra precisa de \`MSYS2_ARG_CONV_EXCL='*'\` ou de \`--arquivo\`.`
 
 export const SKILL = `---
 name: maestri-proprio
@@ -50,7 +34,8 @@ Seu contexto é caro e fica poluído com o tempo. Em vez de carregar tudo numa c
 - **Sessão que já cumpriu o papel → feche** (\`mpro fechar\`) ou **zere** (\`mpro limpar\`) antes de dar outra tarefa.
 - **Resultado longo → arquivo.** Peça para a sessão gravar o resultado num arquivo e responder só o caminho e um
   resumo de poucas linhas; a tela devolvida pelo \`mpro\` é curta.
-- **Decida pelo orçamento.** Consulte \`mpro orcamento\` antes de continuar uma frente longa. Com pouco contexto, em
+- **Decida pelo orçamento.** Consulte \`mpro orcamento\` antes de continuar uma frente longa. No Claude livre, ele
+  mede sob demanda com \`/context\`; ocupado, mostra a última medição com a hora. O Codex não expõe contexto. Com pouco contexto, em
   vez de seguir até ser compactado, grave o estado num arquivo e abra uma sessão nova com só o que ela precisa. O número
   é lido do rodapé do cliente e pode faltar; nesse caso, não invente um número.
 - **Frente inteira → espaço novo.** \`mpro janela --novo "Nome"\` separa uma frente de trabalho inteira, com o seu
@@ -78,6 +63,8 @@ ${'```'}
 - \`mpro pedir\` digita o pedido no terminal do outro e espera ele ficar livre; devolve as últimas linhas da tela.
   Se o tempo acabar, ele continua trabalhando: use \`mpro esperar\` (ou \`mpro ver\`) depois.
 - Texto com aspas, \`%\`, \`!\` ou várias linhas: grave num arquivo e use \`--arquivo\`.
+- **Git Bash e comandos de barra:** ele pode converter \`/context\` em um caminho. Rode
+  \`MSYS2_ARG_CONV_EXCL='*' mpro pedir "Nome" "/context"\`, ou grave o comando num arquivo e use \`--arquivo\`.
 - Ajuste \`--tempo\` ao limite da sua ferramenta de terminal (no Claude Code, o padrão da ferramenta é 2 min;
   passe um timeout maior nela ou rode em segundo plano). No Codex, use \`--tempo\` curto e repita \`mpro esperar\`.
 - \`mpro abrir\` sem \`--pedido\` só abre; o agente pode levar alguns segundos para ficar pronto.

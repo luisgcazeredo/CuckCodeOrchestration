@@ -2,15 +2,14 @@
 // Lê os argumentos, manda uma linha JSON pelo pipe do app e escreve a resposta. Saída: 0 ok, 1 recusado, 2 sem app.
 import { readFileSync } from 'node:fs'
 import { connect } from 'node:net'
-
-const OPCOES_COM_VALOR = new Set(['nome', 'pasta', 'pedido', 'arquivo', 'tempo', 'linhas', 'espaco', 'novo', 'motivo'])
+import { opcaoExigeValor, validarChamada } from '../main/verbos'
 
 function falhar(mensagem: string, codigo: number): void {
   process.stderr.write(`mpro: ${mensagem}\n`)
   process.exitCode = codigo
 }
 
-function lerArgumentos(argumentos: string[]): { posicionais: string[]; opcoes: Record<string, string | true> } {
+function lerArgumentos(comando: string, argumentos: string[]): { posicionais: string[]; opcoes: Record<string, string | true> } {
   const posicionais: string[] = []
   const opcoes: Record<string, string | true> = {}
   for (let i = 0; i < argumentos.length; i++) {
@@ -22,7 +21,7 @@ function lerArgumentos(argumentos: string[]): { posicionais: string[]; opcoes: R
     const igual = a.indexOf('=')
     const chave = igual > 0 ? a.slice(2, igual) : a.slice(2)
     if (igual > 0) opcoes[chave] = a.slice(igual + 1)
-    else if (OPCOES_COM_VALOR.has(chave) && i + 1 < argumentos.length) opcoes[chave] = argumentos[++i]
+    else if (opcaoExigeValor(comando, chave) && i + 1 < argumentos.length && !argumentos[i + 1].startsWith('--')) opcoes[chave] = argumentos[++i]
     else opcoes[chave] = true
   }
   return { posicionais, opcoes }
@@ -42,12 +41,17 @@ function principal(): void {
   const pipe = process.env.MP_PIPE
   const cracha = process.env.MP_CRACHA
   if (!pipe || !cracha) return falhar('só funciona dentro de um terminal do Maestri Próprio', 2)
-  const { posicionais, opcoes } = lerArgumentos(resto)
+  const { posicionais, opcoes } = lerArgumentos(comando, resto)
   let texto: string
   try {
     texto = lerTexto(comando, posicionais, opcoes)
   } catch (erro) {
     return falhar(`não consegui ler o pedido: ${erro instanceof Error ? erro.message : erro}`, 1)
+  }
+  try {
+    validarChamada(comando, posicionais, opcoes)
+  } catch (erro) {
+    return falhar(erro instanceof Error ? erro.message : String(erro), 1)
   }
 
   const conexao = connect(pipe)

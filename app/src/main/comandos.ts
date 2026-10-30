@@ -9,6 +9,8 @@ import type { Agente } from '../shared/modelo'
 import { criarEspacoDoAgente, PASTA_DADOS, resumosDosEspacos } from './dados'
 import { abrirJanela, donoDe } from './janelas'
 import { AJUDA, SKILL } from './manual'
+import { extrairLeituraDeContexto, extrairLeituraDoRodape } from './contexto'
+import { validarChamada, type NomeDeVerbo } from './verbos'
 import {
   aceitaColagem,
   cordasDoEspaco,
@@ -48,7 +50,7 @@ const OCUPADO = /esc to interrupt|esc para interromper/i
 const DIALOGO =
   /enter to confirm|esc to cancel|esc to reject|enter continue|press enter to continue|update now|trust this folder|do you trust|do you want to proceed|\(y\/n\)|\[y\/n\]/i
 /** Agente desenhado e esperando o primeiro pedido (Claude Code e Codex). */
-const PRONTO = /for shortcuts|context left|ask codex/i
+const PRONTO = /for shortcuts|context left|ask codex|try "write a test for <filepath>"|auto mode on \(shift\+tab to cycle\)/i
 /** A última linha é o prompt do PowerShell: o agente nem abriu, ou já saiu. */
 const PROMPT_DO_SHELL = /^PS .*>\s*$/
 /** Um shell esperando comando (PowerShell, cmd, bash, o >>> do Python). */
@@ -189,29 +191,69 @@ async function situacao(s: Sessao): Promise<Situacao> {
   return situacaoNaTela(s, await telaDe(s, 20))
 }
 
+export { extrairContextoRestante } from './contexto'
+
+type LeituraDoContexto = { contexto: number | null; medidoEm?: number; agora: boolean; codex: boolean }
+// A chave fraca acompanha a própria sessão: quando o cartão é removido pelo terminal, seu cache não fica retido.
+const ultimosContextos = new WeakMap<Sessao, { contexto: number; medidoEm: number }>()
+
+function ultimoContexto(s: Sessao, codex = false): LeituraDoContexto {
+  const ultimo = ultimosContextos.get(s)
+  return ultimo
+    ? { contexto: ultimo.contexto, medidoEm: ultimo.medidoEm, agora: false, codex }
+    : { contexto: null, agora: false, codex }
+}
+
+function guardarContexto(s: Sessao, contexto: number): LeituraDoContexto {
+  const medidoEm = Date.now()
+  ultimosContextos.set(s, { contexto, medidoEm })
+  return { contexto, medidoEm, agora: true, codex: false }
+}
+
+/** Leitura sem digitar nada. A saída de `/context` só vale quando foi medida por este processo. */
+function contextoNaTela(s: Sessao, tela: string): LeituraDoContexto {
+  if (s.espec.agente === 'codex') return ultimoContexto(s, true)
+  const leitura = extrairLeituraDoRodape(tela)
+  if (leitura) return guardarContexto(s, leitura.percentual)
+  return ultimoContexto(s)
+}
+
 /**
- * O rodapé é texto de ferramenta de terceiro: Claude Code e Codex podem mudar o formato sem aviso. Por isso só
- * aceitamos porcentagens explícitas dos formatos conhecidos; se não houver uma, o comando não adivinha.
+ * No Claude, `/context` é a única fonte real de contexto. Só o `mpro orcamento` pede essa medição, e apenas se o
+ * terminal estiver livre; `quem` e o painel ficam no último valor bom para não poluir conversas em segundo plano.
  */
-export function extrairContextoRestante(tela: string): number | null {
-  const formatos = [
-    /\bcontext left until auto-compact\s*:\s*(100|[1-9]?\d)%/i,
-    /\b(100|[1-9]?\d)%\s+(?:context|tokens?)\s+(?:left|remaining)\b/i,
-    /\b(?:context|tokens?)\s+(?:left|remaining)\s*:\s*(100|[1-9]?\d)%/i
-  ]
-  for (const formato of formatos) {
-    const achou = tela.match(formato)
-    if (achou) return Number(achou[1])
+async function medirContextoDoClaude(s: Sessao, telaAntes: string, cancelado: () => boolean): Promise<number | null> {
+  const limite = Date.now() + 10_000
+  while (Date.now() < limite && !cancelado()) {
+    const tela = await telaDe(s, 80)
+    // Só aceitamos o `/context` que acabou de chegar; uma saída antiga ainda no histórico não reinicia a hora.
+    if (tela !== telaAntes) {
+      const leitura = extrairLeituraDeContexto(tela)
+      if (leitura?.origem === 'comando-claude') return leitura.percentual
+    }
+    await esperar(100)
   }
   return null
 }
 
-async function contextoRestante(s: Sessao): Promise<number | null> {
-  return extrairContextoRestante(await telaDe(s, 80))
+async function contextoRestante(s: Sessao, medir = false, cancelado: () => boolean = () => false): Promise<LeituraDoContexto> {
+  const tela = await telaDe(s, 80)
+  const passivo = contextoNaTela(s, tela)
+  if (passivo.agora || !medir || s.espec.agente !== 'claude') return passivo
+  if (situacaoNaTela(s, tela) !== 'livre') return passivo
+
+  await digitarPedido(s, '/context')
+  const medicao = await medirContextoDoClaude(s, tela, cancelado)
+  return medicao !== null ? guardarContexto(s, medicao) : ultimoContexto(s)
 }
 
-const textoDoContexto = (contexto: number | null): string =>
-  contexto === null ? 'contexto: não deu para ler' : `contexto: ${contexto}% restante`
+const textoDoContexto = (leitura: LeituraDoContexto): string => {
+  if (leitura.codex) return 'contexto: o Codex não expõe contexto'
+  if (leitura.contexto === null) return 'contexto: não deu para ler'
+  if (leitura.agora) return `contexto: ${leitura.contexto}% restante`
+  const quando = new Date(leitura.medidoEm!).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  return `contexto: ${leitura.contexto}% restante (medido às ${quando})`
+}
 
 /** Espera começar (até 8 s) e depois sossegar (livre ou numa pergunta) por 2,5 s seguidos. false = o tempo acabou antes. */
 async function aguardarFim(s: Sessao, ms: number, cancelado: () => boolean): Promise<boolean> {
@@ -457,6 +499,12 @@ function agenteDe(texto: string | undefined): Agente | null {
   return null
 }
 
+/** O MSYS do Git Bash troca `/context` por `.../Programs/Git/context` antes de chamar o mpro. */
+function desfazerConversaoDoGitBash(texto: string): string {
+  const achou = texto.match(/^(?:[A-Za-z]:)?(?:[\\/][^\\/\r\n]+)*[\\/]Programs[\\/]Git[\\/]([^\\/\s]+)$/i)
+  return achou ? `/${achou[1]}` : texto
+}
+
 function espacoPorNome(nome: string | undefined) {
   if (!nome?.trim()) throw new Error('diga o nome do espaço (veja `mpro espacos`)')
   const procurado = nome.trim().toLocaleLowerCase('pt-BR')
@@ -480,219 +528,239 @@ interface ResultadoDoComando {
   sair?: Sessao[]
 }
 
-async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): Promise<ResultadoDoComando> {
-  const comando = typeof pedido.comando === 'string' ? pedido.comando : 'ajuda'
-  const pos = Array.isArray(pedido.posicionais) ? pedido.posicionais.filter((p): p is string => typeof p === 'string') : []
-  const opcoes = typeof pedido.opcoes === 'object' && pedido.opcoes !== null ? (pedido.opcoes as Record<string, unknown>) : {}
-  const texto = typeof pedido.texto === 'string' ? pedido.texto : ''
+interface ContextoDoVerbo {
+  eu: Sessao
+  pos: string[]
+  opcoes: Record<string, string | number | true>
+  texto: string
+  cancelado: () => boolean
+}
 
-  switch (comando) {
-    case 'ajuda':
-    case 'help':
-      return { saida: AJUDA }
+type HandlerDoVerbo = (ctx: ContextoDoVerbo) => Promise<ResultadoDoComando>
 
-    case 'espacos': {
-      const linhas = resumosDosEspacos().map((espaco) => {
-        const meu = espaco.id === eu.espacoId ? ' · seu espaço' : ''
-        return `${meu ? '*' : ' '} "${espaco.nome}" · ${janelaDoEspaco(espaco.id) ? 'janela aberta' : 'sem janela'} · ${espaco.terminais} cartões${meu}`
-      })
-      return { saida: linhas.join('\n') || 'Não há espaços.' }
+/**
+ * Um handler por verbo, com o nome vindo do registro: o `Record<NomeDeVerbo, …>` não compila se um verbo novo
+ * entrar em `verbos.ts` e ninguém escrever o corpo dele. Argumentos e opções já chegam validados.
+ */
+const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
+  ajuda: async () => ({ saida: AJUDA }),
+
+  espacos: async ({ eu }) => {
+    const linhas = resumosDosEspacos().map((espaco) => {
+      const meu = espaco.id === eu.espacoId ? ' · seu espaço' : ''
+      return `${meu ? '*' : ' '} "${espaco.nome}" · ${janelaDoEspaco(espaco.id) ? 'janela aberta' : 'sem janela'} · ${espaco.terminais} cartões${meu}`
+    })
+    return { saida: linhas.join('\n') || 'Não há espaços.' }
+  },
+
+  janela: async ({ eu, pos, opcoes }) => {
+    if (opcoes.novo) {
+      const nome = typeof opcoes.novo === 'string' ? opcoes.novo.trim() : ''
+      if (!nome) throw new Error('diga o nome: mpro janela --novo "Nome" [--pasta P]')
+      const pasta = typeof opcoes.pasta === 'string' ? opcoes.pasta : eu.espec.pasta
+      if (!(existsSync(pasta) && statSync(pasta).isDirectory())) throw new Error(`a pasta não existe: ${pasta}`)
+      const espaco = criarEspacoDoAgente(nome, pasta)
+      await abrirJanelaPronta(espaco.id)
+      return { saida: `Criei o espaço "${espaco.nome}" e abri uma janela nele.` }
     }
-
-    case 'janela': {
-      if (opcoes.novo) {
-        const nome = typeof opcoes.novo === 'string' ? opcoes.novo.trim() : ''
-        if (!nome) throw new Error('diga o nome: mpro janela --novo "Nome" [--pasta P]')
-        const pasta = typeof opcoes.pasta === 'string' ? opcoes.pasta : eu.espec.pasta
-        if (!(existsSync(pasta) && statSync(pasta).isDirectory())) throw new Error(`a pasta não existe: ${pasta}`)
-        const espaco = criarEspacoDoAgente(nome, pasta)
-        await abrirJanelaPronta(espaco.id)
-        return { saida: `Criei o espaço "${espaco.nome}" e abri uma janela nele.` }
-      }
-      if (opcoes.pasta) throw new Error('`--pasta` só vale com `mpro janela --novo "Nome"`')
-      const espaco = espacoPorNome(pos[0])
-      const { jaEstavaAberta } = await abrirJanelaPronta(espaco.id)
-      return { saida: jaEstavaAberta
+    if (opcoes.pasta) throw new Error('`--pasta` só vale com `mpro janela --novo "Nome"`')
+    const espaco = espacoPorNome(pos[0])
+    const { jaEstavaAberta } = await abrirJanelaPronta(espaco.id)
+    return {
+      saida: jaEstavaAberta
         ? `O espaço "${espaco.nome}" já estava aberto; trouxe a janela para a frente.`
-        : `Abri uma janela no espaço "${espaco.nome}".` }
+        : `Abri uma janela no espaço "${espaco.nome}".`
     }
+  },
 
-    case 'quem': {
-      const ligados = ligadosA(eu)
-      const linhas = await Promise.all(
-        ligados.map(
-          async (s) =>
-            `  "${s.espec.nome}" · ${s.espec.agente} · ${await situacao(s)} · ${textoDoContexto(await contextoRestante(s))}${
-              s.espec.criadoPor === eu.id ? ' · aberto por você' : ''
-            }`
-        )
+  quem: async ({ eu }) => {
+    const ligados = ligadosA(eu)
+    const linhas = await Promise.all(
+      ligados.map(
+        async (s) =>
+          `  "${s.espec.nome}" · ${s.espec.agente} · ${await situacao(s)} · ${textoDoContexto(await contextoRestante(s))}${
+            s.espec.criadoPor === eu.id ? ' · aberto por você' : ''
+          }`
       )
-      const filhos = sessoesCriadasPor(eu.id).length
-      return { saida: [
+    )
+    const filhos = sessoesCriadasPor(eu.id).length
+    return {
+      saida: [
         `Você é "${eu.espec.nome}" (${eu.espec.agente}) · pasta ${eu.espec.pasta} · ${textoDoContexto(await contextoRestante(eu))}`,
         'Ligados a você:',
         ...(linhas.length ? linhas : ['  ninguém (o usuário liga cartões com uma corda; quem você abre continua acessível mesmo em outro espaço)']),
         `Você abriu ${filhos} de ${MAX_SESSOES_POR_AGENTE} sessões possíveis.`
-      ].join('\n') }
+      ].join('\n')
     }
+  },
 
-    case 'orcamento':
-      return { saida: textoDoContexto(await contextoRestante(eu)) }
+  orcamento: async ({ eu, cancelado }) => ({ saida: textoDoContexto(await contextoRestante(eu, true, cancelado)) }),
 
-    case 'abrir': {
-      const agente = agenteDe(pos[0])
-      if (!agente) throw new Error('diga qual agente: mpro abrir claude|codex|shell [--espaco "Nome"] [--nome N] [--pedido "texto"]')
-      // as aberturas ainda em andamento contam: vários `abrir` ao mesmo tempo não passam do limite
-      const filhos = sessoesCriadasPor(eu.id, { comFolga: true }).length + (abrindo.get(eu.id) ?? 0)
-      if (filhos >= MAX_SESSOES_POR_AGENTE) {
-        throw new Error(`você já abriu ${contaSessoes(filhos)} (o limite é ${MAX_SESSOES_POR_AGENTE}); feche uma com \`mpro fechar\``)
-      }
-      const pasta = typeof opcoes.pasta === 'string' ? opcoes.pasta : undefined
-      if (pasta && !(existsSync(pasta) && statSync(pasta).isDirectory())) throw new Error(`a pasta não existe: ${pasta}`)
-      const nome = typeof opcoes.nome === 'string' ? opcoes.nome.trim().slice(0, 80) || undefined : undefined
-      const espaco = typeof opcoes.espaco === 'string' ? espacoPorNome(opcoes.espaco) : { id: eu.espacoId, nome: '' }
-      abrindo.set(eu.id, (abrindo.get(eu.id) ?? 0) + 1)
-      let novo: Sessao | undefined
-      try {
-        await abrirJanelaPronta(espaco.id)
-        const r = await pedirAJanela({ tipo: 'abrir', espacoId: espaco.id, criador: eu.id, agente, nome, pasta })
-        if (!r.ok) throw new Error(r.erro)
-        novo = r.id ? await esperarSessao(r.id, 5000) : undefined
-      } finally {
-        abrindo.set(eu.id, (abrindo.get(eu.id) ?? 1) - 1)
-      }
-      if (!novo) throw new Error('o cartão foi criado, mas o processo não abriu')
-      registrar(eu, novo, 'abrir', texto)
-      const aberto =
-        novo.espacoId === eu.espacoId
-          ? `Abri "${novo.espec.nome}" (${agente}), ligado a você.`
-          : `Abri "${novo.espec.nome}" (${agente}) no espaço "${espaco.nome}"; você pode falar com ele porque o abriu.`
-      if (!texto) return { saida: `${aberto} Mande o primeiro pedido com: mpro pedir "${novo.espec.nome}" "…"` }
-      const pronto = await aguardarPronto(novo, 90_000, cancelado)
-      if (pronto !== 'pronto') {
-        const motivo = {
-          confirmar:
-            'Ele parou numa pergunta (confiar na pasta? servidores MCP? atualização?). O pedido NÃO foi enviado: responda com `mpro teclas` se for seguro, ou pergunte ao usuário, e depois use `mpro pedir`.',
-          tempo: 'Ele não ficou pronto em 90 s; o pedido NÃO foi enviado. Veja com `mpro ver` e use `mpro pedir` depois.',
-          encerrado: 'O processo terminou antes de ficar pronto; o pedido NÃO foi enviado.'
-        }[pronto]
-        return { saida: `${aberto}\n${motivo}\nTela agora:\n${await telaDe(novo, 30)}` }
-      }
-      await digitarPedido(novo, texto)
-      if (!opcoes.esperar) return { saida: `${aberto} Pedido enviado. Acompanhe com \`mpro esperar "${novo.espec.nome}"\` ou \`mpro ver\`.` }
-      return { saida: `${aberto}\n${await resultado(novo, tempoDe(opcoes), cancelado)}` }
+  abrir: async ({ eu, pos, opcoes, texto, cancelado }) => {
+    const agente = agenteDe(pos[0])
+    if (!agente) throw new Error('diga qual agente: mpro abrir claude|codex|shell [--espaco "Nome"] [--nome N] [--pedido "texto"]')
+    // as aberturas ainda em andamento contam: vários `abrir` ao mesmo tempo não passam do limite
+    const filhos = sessoesCriadasPor(eu.id, { comFolga: true }).length + (abrindo.get(eu.id) ?? 0)
+    if (filhos >= MAX_SESSOES_POR_AGENTE) {
+      throw new Error(`você já abriu ${contaSessoes(filhos)} (o limite é ${MAX_SESSOES_POR_AGENTE}); feche uma com \`mpro fechar\``)
     }
-
-    case 'pedir': {
-      const alvo = acharEntre(ligadosA(eu), pos[0])
-      if (!texto.trim()) throw new Error('falta o pedido: mpro pedir <nome> "texto" (ou --arquivo pedido.md)')
-      if (!alvo.processo) throw new Error(`"${alvo.espec.nome}" está encerrado`)
-      await recusarSeEmPergunta(alvo)
-      // num agente, o pedido entra na fila dele; num shell rodando um comando, cairia no meio desse comando
-      if (alvo.espec.agente === 'shell' && (await situacao(alvo)) === 'trabalhando') {
-        throw new Error(`"${alvo.espec.nome}" está rodando um comando; espere terminar (\`mpro esperar "${alvo.espec.nome}"\`) e mande de novo`)
-      }
-      registrar(eu, alvo, 'pedir', texto)
-      await digitarPedido(alvo, texto)
-      if (opcoes['sem-esperar']) return { saida: `Pedido enviado para "${alvo.espec.nome}".` }
-      return { saida: await resultado(alvo, tempoDe(opcoes), cancelado) }
-    }
-
-    case 'esperar': {
-      const alvo = acharEntre(ligadosA(eu), pos[0])
-      return { saida: await resultado(alvo, tempoDe(opcoes), cancelado) }
-    }
-
-    case 'ver': {
-      const alvo = acharEntre(ligadosA(eu), pos[0])
-      const linhas = Math.min(2000, Math.max(1, Number(opcoes.linhas) || 50))
-      return { saida: `"${alvo.espec.nome}" · ${await situacao(alvo)}\n${await telaDe(alvo, linhas)}` }
-    }
-
-    case 'teclas': {
-      const alvo = acharEntre(ligadosA(eu), pos[0])
-      const teclas = pos.slice(1)
-      if (!teclas.length) throw new Error('quais teclas? ex.: mpro teclas <nome> enter (veja `mpro ajuda`)')
-      const sequencias = teclas.map((t) => {
-        const s = TECLAS[t.toLowerCase()] ?? (t.length === 1 ? t : null)
-        if (s === null) throw new Error(`tecla desconhecida: ${t}`)
-        return s
-      })
-      registrar(eu, alvo, 'teclas', teclas.join(' '))
-      for (const s of sequencias) {
-        escreverNoProcesso(alvo, s)
-        await esperar(120)
-      }
-      await esperar(800)
-      return { saida: `"${alvo.espec.nome}" · ${await situacao(alvo)}\n${await telaDe(alvo, 30)}` }
-    }
-
-    case 'limpar': {
-      const alvo = acharEntre(ligadosA(eu), pos[0])
-      if (!alvo.processo) throw new Error(`"${alvo.espec.nome}" está encerrado`)
-      if ((await situacao(alvo)) === 'trabalhando') throw new Error(`"${alvo.espec.nome}" está trabalhando; espere terminar antes de limpar`)
-      await recusarSeEmPergunta(alvo)
-      registrar(eu, alvo, 'limpar')
-      const comandoLimpar = alvo.espec.agente === 'claude' ? '/clear' : alvo.espec.agente === 'codex' ? '/new' : process.platform === 'win32' ? 'Clear-Host' : 'clear'
-      escreverNoProcesso(alvo, comandoLimpar)
-      await esperar(400)
-      escreverNoProcesso(alvo, '\r')
-      await aguardarFim(alvo, 15_000, cancelado)
-      return { saida: `Contexto de "${alvo.espec.nome}" zerado.` }
-    }
-
-    case 'fechar': {
-      const meus = sessoesCriadasPor(eu.id)
-      const alvo = acharEntre(meus, pos[0])
-      const herdadas = sessoesCriadasPor(alvo.id)
-      // Fechar não mata trabalho em andamento: os filhos passam para quem fechou, como numa passagem de bastão.
-      await transferirSessoes(alvo, eu, herdadas)
-      await abrirJanelaPronta(alvo.espacoId)
-      const r = await pedirAJanela({ tipo: 'fechar', espacoId: alvo.espacoId, id: alvo.id })
+    const pasta = typeof opcoes.pasta === 'string' ? opcoes.pasta : undefined
+    if (pasta && !(existsSync(pasta) && statSync(pasta).isDirectory())) throw new Error(`a pasta não existe: ${pasta}`)
+    const nome = typeof opcoes.nome === 'string' ? opcoes.nome.trim().slice(0, 80) || undefined : undefined
+    const espaco = typeof opcoes.espaco === 'string' ? espacoPorNome(opcoes.espaco) : { id: eu.espacoId, nome: '' }
+    abrindo.set(eu.id, (abrindo.get(eu.id) ?? 0) + 1)
+    let novo: Sessao | undefined
+    try {
+      await abrirJanelaPronta(espaco.id)
+      const r = await pedirAJanela({ tipo: 'abrir', espacoId: espaco.id, criador: eu.id, agente, nome, pasta })
       if (!r.ok) throw new Error(r.erro)
-      registrar(eu, alvo, 'fechar')
-      encerrarAgora(alvo.id)
-      return { saida: herdadas.length
-        ? `Fechei "${alvo.espec.nome}". ${herdadas.length === 1 ? 'A sessão' : `As ${herdadas.length} sessões`} que ela tinha aberto agora ${herdadas.length === 1 ? 'é sua' : 'são suas'}.`
-        : `Fechei "${alvo.espec.nome}".` }
+      novo = r.id ? await esperarSessao(r.id, 5000) : undefined
+    } finally {
+      abrindo.set(eu.id, (abrindo.get(eu.id) ?? 1) - 1)
     }
-
-    case 'passar': {
-      const sucessor = acharEntre(ligadosA(eu), pos[0])
-      if (sucessor.id === eu.id) throw new Error('você não pode passar sessões para si mesmo')
-      if (!sucessor.processo) throw new Error(`"${sucessor.espec.nome}" está encerrado; escolha uma sessão viva`) 
-      const transferidas = sessoesCriadasPor(eu.id).filter((s) => s.id !== sucessor.id)
-      const totalDoSucessor = sessoesCriadasPor(sucessor.id, { comFolga: true }).length + transferidas.length
-      if (totalDoSucessor > MAX_SESSOES_POR_AGENTE) {
-        throw new Error(
-          `"${sucessor.espec.nome}" ficaria com ${contaSessoes(totalDoSucessor)} (o limite é ${MAX_SESSOES_POR_AGENTE}); nada foi passado`
-        )
-      }
-      if (!transferidas.length) return { saida: `Não havia outras sessões para passar a "${sucessor.espec.nome}".` }
-      await transferirSessoes(eu, sucessor, transferidas)
-      registrar(eu, sucessor, 'passar', contaSessoes(transferidas.length))
-      return { saida: `Passei ${contaSessoes(transferidas.length)} para "${sucessor.espec.nome}".` }
+    if (!novo) throw new Error('o cartão foi criado, mas o processo não abriu')
+    registrar(eu, novo, 'abrir', texto)
+    const aberto =
+      novo.espacoId === eu.espacoId
+        ? `Abri "${novo.espec.nome}" (${agente}), ligado a você.`
+        : `Abri "${novo.espec.nome}" (${agente}) no espaço "${espaco.nome}"; você pode falar com ele porque o abriu.`
+    if (!texto) return { saida: `${aberto} Mande o primeiro pedido com: mpro pedir "${novo.espec.nome}" "…"` }
+    const pronto = await aguardarPronto(novo, 90_000, cancelado)
+    if (pronto !== 'pronto') {
+      const motivo = {
+        confirmar:
+          'Ele parou numa pergunta (confiar na pasta? servidores MCP? atualização?). O pedido NÃO foi enviado: responda com `mpro teclas` se for seguro, ou pergunte ao usuário, e depois use `mpro pedir`.',
+        tempo: 'Ele não ficou pronto em 90 s; o pedido NÃO foi enviado. Veja com `mpro ver` e use `mpro pedir` depois.',
+        encerrado: 'O processo terminou antes de ficar pronto; o pedido NÃO foi enviado.'
+      }[pronto]
+      return { saida: `${aberto}\n${motivo}\nTela agora:\n${await telaDe(novo, 30)}` }
     }
+    await digitarPedido(novo, texto)
+    if (!opcoes.esperar) return { saida: `${aberto} Pedido enviado. Acompanhe com \`mpro esperar "${novo.espec.nome}"\` ou \`mpro ver\`.` }
+    return { saida: `${aberto}\n${await resultado(novo, tempoDe(opcoes), cancelado)}` }
+  },
 
-    case 'sair': {
-      const minhas = sessoesCriadasPor(eu.id)
-      if (minhas.length && !opcoes['com-as-minhas']) {
-        throw new Error(
-          `você ainda tem ${contaSessoes(minhas.length)} aberta${minhas.length === 1 ? '' : 's'}; use \`mpro passar <nome>\` primeiro, ou \`mpro sair --com-as-minhas\` para fechar todas junto`
-        )
-      }
-      const motivo = typeof opcoes.motivo === 'string' ? opcoes.motivo : ''
-      const comAsMinhas = opcoes['com-as-minhas'] ? descendentesDe(eu.id) : []
-      registrar(eu, null, 'sair', motivo)
-      return {
-        saida: comAsMinhas.length ? `Vou fechar seu cartão e ${contaSessoes(comAsMinhas.length)} sua${comAsMinhas.length === 1 ? '' : 's'}.` : 'Vou fechar seu cartão.',
-        sair: [...comAsMinhas, eu]
-      }
+  pedir: async ({ eu, pos, opcoes, texto, cancelado }) => {
+    const alvo = acharEntre(ligadosA(eu), pos[0])
+    if (!texto.trim()) throw new Error('falta o pedido: mpro pedir <nome> "texto" (ou --arquivo pedido.md)')
+    if (!alvo.processo) throw new Error(`"${alvo.espec.nome}" está encerrado`)
+    await recusarSeEmPergunta(alvo)
+    // num agente, o pedido entra na fila dele; num shell rodando um comando, cairia no meio desse comando
+    if (alvo.espec.agente === 'shell' && (await situacao(alvo)) === 'trabalhando') {
+      throw new Error(`"${alvo.espec.nome}" está rodando um comando; espere terminar (\`mpro esperar "${alvo.espec.nome}"\`) e mande de novo`)
     }
+    registrar(eu, alvo, 'pedir', texto)
+    await digitarPedido(alvo, texto)
+    if (opcoes['sem-esperar']) return { saida: `Pedido enviado para "${alvo.espec.nome}".` }
+    return { saida: await resultado(alvo, tempoDe(opcoes), cancelado) }
+  },
 
-    default:
-      throw new Error(`comando desconhecido: ${comando}. Veja \`mpro ajuda\`.`)
+  esperar: async ({ eu, pos, opcoes, cancelado }) => {
+    const alvo = acharEntre(ligadosA(eu), pos[0])
+    return { saida: await resultado(alvo, tempoDe(opcoes), cancelado) }
+  },
+
+  ver: async ({ eu, pos, opcoes }) => {
+    const alvo = acharEntre(ligadosA(eu), pos[0])
+    const linhas = Math.min(2000, Math.max(1, Number(opcoes.linhas) || 50))
+    return { saida: `"${alvo.espec.nome}" · ${await situacao(alvo)}\n${await telaDe(alvo, linhas)}` }
+  },
+
+  teclas: async ({ eu, pos }) => {
+    const alvo = acharEntre(ligadosA(eu), pos[0])
+    const teclas = pos.slice(1)
+    if (!teclas.length) throw new Error('quais teclas? ex.: mpro teclas <nome> enter (veja `mpro ajuda`)')
+    const sequencias = teclas.map((t) => {
+      const s = TECLAS[t.toLowerCase()] ?? (t.length === 1 ? t : null)
+      if (s === null) throw new Error(`tecla desconhecida: ${t}`)
+      return s
+    })
+    registrar(eu, alvo, 'teclas', teclas.join(' '))
+    for (const s of sequencias) {
+      escreverNoProcesso(alvo, s)
+      await esperar(120)
+    }
+    await esperar(800)
+    return { saida: `"${alvo.espec.nome}" · ${await situacao(alvo)}\n${await telaDe(alvo, 30)}` }
+  },
+
+  limpar: async ({ eu, pos, cancelado }) => {
+    const alvo = acharEntre(ligadosA(eu), pos[0])
+    if (!alvo.processo) throw new Error(`"${alvo.espec.nome}" está encerrado`)
+    if ((await situacao(alvo)) === 'trabalhando') throw new Error(`"${alvo.espec.nome}" está trabalhando; espere terminar antes de limpar`)
+    await recusarSeEmPergunta(alvo)
+    registrar(eu, alvo, 'limpar')
+    const comandoLimpar =
+      alvo.espec.agente === 'claude' ? '/clear' : alvo.espec.agente === 'codex' ? '/new' : process.platform === 'win32' ? 'Clear-Host' : 'clear'
+    escreverNoProcesso(alvo, comandoLimpar)
+    await esperar(400)
+    escreverNoProcesso(alvo, '\r')
+    await aguardarFim(alvo, 15_000, cancelado)
+    return { saida: `Contexto de "${alvo.espec.nome}" zerado.` }
+  },
+
+  fechar: async ({ eu, pos }) => {
+    const meus = sessoesCriadasPor(eu.id)
+    const alvo = acharEntre(meus, pos[0])
+    const herdadas = sessoesCriadasPor(alvo.id)
+    // Fechar não mata trabalho em andamento: os filhos passam para quem fechou, como numa passagem de bastão.
+    await transferirSessoes(alvo, eu, herdadas)
+    await abrirJanelaPronta(alvo.espacoId)
+    const r = await pedirAJanela({ tipo: 'fechar', espacoId: alvo.espacoId, id: alvo.id })
+    if (!r.ok) throw new Error(r.erro)
+    registrar(eu, alvo, 'fechar')
+    encerrarAgora(alvo.id)
+    return {
+      saida: herdadas.length
+        ? `Fechei "${alvo.espec.nome}". ${herdadas.length === 1 ? 'A sessão' : `As ${herdadas.length} sessões`} que ela tinha aberto agora ${
+            herdadas.length === 1 ? 'é sua' : 'são suas'
+          }.`
+        : `Fechei "${alvo.espec.nome}".`
+    }
+  },
+
+  passar: async ({ eu, pos }) => {
+    const sucessor = acharEntre(ligadosA(eu), pos[0])
+    if (sucessor.id === eu.id) throw new Error('você não pode passar sessões para si mesmo')
+    if (!sucessor.processo) throw new Error(`"${sucessor.espec.nome}" está encerrado; escolha uma sessão viva`)
+    const transferidas = sessoesCriadasPor(eu.id).filter((s) => s.id !== sucessor.id)
+    const totalDoSucessor = sessoesCriadasPor(sucessor.id, { comFolga: true }).length + transferidas.length
+    if (totalDoSucessor > MAX_SESSOES_POR_AGENTE) {
+      throw new Error(`"${sucessor.espec.nome}" ficaria com ${contaSessoes(totalDoSucessor)} (o limite é ${MAX_SESSOES_POR_AGENTE}); nada foi passado`)
+    }
+    if (!transferidas.length) return { saida: `Não havia outras sessões para passar a "${sucessor.espec.nome}".` }
+    await transferirSessoes(eu, sucessor, transferidas)
+    registrar(eu, sucessor, 'passar', contaSessoes(transferidas.length))
+    return { saida: `Passei ${contaSessoes(transferidas.length)} para "${sucessor.espec.nome}".` }
+  },
+
+  sair: async ({ eu, opcoes }) => {
+    const minhas = sessoesCriadasPor(eu.id)
+    if (minhas.length && !opcoes['com-as-minhas']) {
+      throw new Error(
+        `você ainda tem ${contaSessoes(minhas.length)} aberta${minhas.length === 1 ? '' : 's'}; use \`mpro passar <nome>\` primeiro, ou \`mpro sair --com-as-minhas\` para fechar todas junto`
+      )
+    }
+    const motivo = typeof opcoes.motivo === 'string' ? opcoes.motivo : ''
+    const comAsMinhas = opcoes['com-as-minhas'] ? descendentesDe(eu.id) : []
+    registrar(eu, null, 'sair', motivo)
+    return {
+      saida: comAsMinhas.length
+        ? `Vou fechar seu cartão e ${contaSessoes(comAsMinhas.length)} sua${comAsMinhas.length === 1 ? '' : 's'}.`
+        : 'Vou fechar seu cartão.',
+      sair: [...comAsMinhas, eu]
+    }
   }
+}
+
+/** O main normaliza, valida pelo registro e entrega ao handler declarado. Verbo desconhecido morre na validação. */
+async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): Promise<ResultadoDoComando> {
+  const comandoInformado = typeof pedido.comando === 'string' ? pedido.comando : 'ajuda'
+  const posicionais = Array.isArray(pedido.posicionais) ? pedido.posicionais.filter((p): p is string => typeof p === 'string') : []
+  const opcoesRecebidas = typeof pedido.opcoes === 'object' && pedido.opcoes !== null ? (pedido.opcoes as Record<string, unknown>) : {}
+  const chamada = validarChamada(comandoInformado, posicionais, opcoesRecebidas)
+  const texto = desfazerConversaoDoGitBash(typeof pedido.texto === 'string' ? pedido.texto : '')
+  return HANDLERS[chamada.verbo.nome as NomeDeVerbo]({ eu, pos: chamada.posicionais, opcoes: chamada.opcoes, texto, cancelado })
 }
 
 async function atender(linha: string, socket: Socket, fechado: () => boolean): Promise<void> {
@@ -743,7 +811,7 @@ export function registrarComandos(): void {
           nome: s.espec.nome,
           agente: s.espec.agente,
           situacao: situacaoNaTela(s, tela),
-          contexto: extrairContextoRestante(tela)
+          contexto: contextoNaTela(s, tela).contexto
         }
       })
     )
