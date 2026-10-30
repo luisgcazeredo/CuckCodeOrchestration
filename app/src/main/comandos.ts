@@ -167,15 +167,26 @@ function pedirAJanela(pedido: PedidoDoAgente): Promise<RespostaAoAgente> {
 /** `pergunta`: parado num diálogo, esperando alguém responder (nada deve ser digitado nele por engano). */
 type Situacao = 'encerrado' | 'trabalhando' | 'pergunta' | 'livre'
 
-async function situacao(s: Sessao): Promise<Situacao> {
+/**
+ * Poucas linhas podem deixar passar uma pergunta verdadeira e fazer o mpro digitar em cima dela (foi assim que
+ * o Codex atualizou sem querer em 28/10); linhas demais tratam uma citação velha como pergunta e travam à toa.
+ */
+function ultimasLinhasComTexto(tela: string, quantidade = 6): string {
+  return tela.split('\n').filter((linha) => linha.trim()).slice(-quantidade).join('\n')
+}
+
+function situacaoNaTela(s: Sessao, tela: string): Situacao {
   if (!s.processo) return 'encerrado'
-  const fim = await telaDe(s, 20)
   // a pergunta vem antes de "teve saída agora": uma pergunta que acabou de aparecer não pode receber texto
-  if (s.espec.agente !== 'shell' && DIALOGO.test(fim)) return 'pergunta'
+  if (s.espec.agente !== 'shell' && DIALOGO.test(ultimasLinhasComTexto(tela))) return 'pergunta'
   if (Date.now() - s.ultimaSaida < 1200) return 'trabalhando'
   // shell: livre só com o prompt no fim (um comando quieto, como um Start-Sleep, ainda está rodando)
-  if (s.espec.agente === 'shell') return PROMPT_LIVRE.test(fim.split('\n').pop() ?? '') ? 'livre' : 'trabalhando'
-  return OCUPADO.test(fim) ? 'trabalhando' : 'livre'
+  if (s.espec.agente === 'shell') return PROMPT_LIVRE.test(tela.split('\n').pop() ?? '') ? 'livre' : 'trabalhando'
+  return OCUPADO.test(tela) ? 'trabalhando' : 'livre'
+}
+
+async function situacao(s: Sessao): Promise<Situacao> {
+  return situacaoNaTela(s, await telaDe(s, 20))
 }
 
 /**
@@ -231,7 +242,7 @@ async function aguardarPronto(s: Sessao, ms: number, cancelado: () => boolean): 
     if (Date.now() - s.iniciadoEm < 2000 || quieto < 1500) continue
     if (s.espec.agente === 'shell') return 'pronto'
     const tela = await telaDe(s, 40)
-    if (DIALOGO.test(tela.split('\n').slice(-20).join('\n'))) return 'confirmar'
+    if (DIALOGO.test(ultimasLinhasComTexto(tela))) return 'confirmar'
     if (PRONTO.test(tela)) return 'pronto'
     // sem a marca de pronto (outra versão do agente?): quieto há 6 s, sem diálogo e sem o prompt do shell no fim
     if (quieto > 6000 && tela.trim() && !PROMPT_DO_SHELL.test(tela.split('\n').pop() ?? '')) return 'pronto'
@@ -324,6 +335,98 @@ async function fecharCartoesDepoisDaResposta(sessoes: Sessao[]): Promise<void> {
       // A resposta já saiu: não há cliente esperando este detalhe. O cartão continua visível para o usuário recuperar.
     }
   }
+}
+
+/** Todos os filhos vivos, em qualquer profundidade; propriedade ruim não pode prender o fechamento num ciclo. */
+/** "1 sessão" / "2 sessões": o app fala português com os agentes. */
+const contaSessoes = (n: number): string => `${n} ${n === 1 ? 'sessão' : 'sessões'}`
+
+function descendentesDe(id: string): Sessao[] {
+  const vistos = new Set([id])
+  const descendentes: Sessao[] = []
+  const fila = [id]
+  while (fila.length) {
+    const criador = fila.shift()!
+    for (const filho of sessoesCriadasPor(criador)) {
+      if (vistos.has(filho.id)) continue
+      vistos.add(filho.id)
+      descendentes.push(filho)
+      fila.push(filho.id)
+    }
+  }
+  return descendentes
+}
+
+const nomeDoEspaco = (id: string): string => resumosDosEspacos().find((espaco) => espaco.id === id)?.nome ?? id
+
+/**
+ * A loja é quem grava propriedade e cordas. Centralizar a passagem mantém `fechar` e `passar` com o mesmo bastão,
+ * inclusive quando os cartões estão em janelas diferentes.
+ */
+async function transferirSessoes(antigo: Sessao, sucessor: Sessao, transferidas: Sessao[]): Promise<void> {
+  if (!transferidas.length) return
+  const porEspaco = new Map<string, Sessao[]>()
+  for (const s of transferidas) porEspaco.set(s.espacoId, [...(porEspaco.get(s.espacoId) ?? []), s])
+  const sucessorEraDoAntigo = sucessor.espec.criadoPor === antigo.id
+  if (sucessorEraDoAntigo && !porEspaco.has(sucessor.espacoId)) porEspaco.set(sucessor.espacoId, [])
+  // Reservar todas as janelas antes de mudar qualquer cartão reduz a chance de uma passagem pela metade.
+  for (const espacoId of porEspaco.keys()) await abrirJanelaPronta(espacoId)
+  const concluidos: Array<[string, Sessao[]]> = []
+  try {
+    for (const [espacoId, sessoes] of porEspaco) {
+      const r = await pedirAJanela({
+        tipo: 'passar',
+        espacoId,
+        ids: sessoes.map((s) => s.id),
+        sucessor: sucessor.id,
+        novoCriador: sucessor.id,
+        antigo: antigo.id,
+        ...(sucessorEraDoAntigo && espacoId === sucessor.espacoId ? { donoDoSucessor: null } : {})
+      })
+      if (!r.ok) throw new Error(r.erro)
+      concluidos.push([espacoId, sessoes])
+    }
+  } catch (erro) {
+    const causa = erro instanceof Error ? erro.message : String(erro)
+    const voltaram: string[] = []
+    const presos: Array<[string, Sessao[]]> = []
+    // Cada janela já foi reservada. Mesmo assim, anotar o desfazer que falhar evita dizer que nada mudou.
+    for (const [espacoId, sessoes] of concluidos.reverse()) {
+      try {
+        const r = await pedirAJanela({
+          tipo: 'passar',
+          espacoId,
+          ids: sessoes.map((s) => s.id),
+          sucessor: sucessor.id,
+          novoCriador: antigo.id,
+          antigo: sucessor.id,
+          ...(sucessorEraDoAntigo && espacoId === sucessor.espacoId ? { donoDoSucessor: antigo.id } : {})
+        })
+        if (r.ok) voltaram.push(nomeDoEspaco(espacoId))
+        else presos.push([espacoId, sessoes])
+      } catch {
+        presos.push([espacoId, sessoes])
+      }
+    }
+    if (presos.length) {
+      // Sem confirmação do desfazer, conservamos o dono novo no main para não devolver ao antigo um acesso divergente da loja.
+      for (const [, sessoes] of presos) for (const s of sessoes) s.espec = { ...s.espec, criadoPor: sucessor.id }
+      if (sucessorEraDoAntigo && presos.some(([espacoId]) => espacoId === sucessor.espacoId)) {
+        sucessor.espec = { ...sucessor.espec, criadoPor: undefined }
+      }
+      const ficaram = presos.map(([espacoId]) => nomeDoEspaco(espacoId))
+      const detalhe = `falhou: ${causa}; voltaram: ${voltaram.join(', ') || 'nenhum'}; ficaram com o sucessor: ${ficaram.join(', ')}`
+      registrar(antigo, sucessor, 'passar parcial', detalhe)
+      throw new Error(
+        `a passagem falhou: ${causa}. Voltaram: ${voltaram.join(', ') || 'nenhum'}. ` +
+          `A propriedade no(s) espaço(s) ${ficaram.join(', ')} ficou com "${sucessor.espec.nome}".`
+      )
+    }
+    registrar(antigo, sucessor, 'passar desfeito', `falhou: ${causa}; voltaram: ${voltaram.join(', ') || 'nenhum'}`)
+    throw new Error(`não passei nada: ${causa}. Voltei: ${voltaram.join(', ') || 'nenhum'}.`)
+  }
+  for (const s of transferidas) s.espec = { ...s.espec, criadoPor: sucessor.id }
+  if (sucessorEraDoAntigo) sucessor.espec = { ...sucessor.espec, criadoPor: undefined }
 }
 
 const TECLAS: Record<string, string> = {
@@ -440,9 +543,9 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
       const agente = agenteDe(pos[0])
       if (!agente) throw new Error('diga qual agente: mpro abrir claude|codex|shell [--espaco "Nome"] [--nome N] [--pedido "texto"]')
       // as aberturas ainda em andamento contam: vários `abrir` ao mesmo tempo não passam do limite
-      const filhos = sessoesCriadasPor(eu.id).length + (abrindo.get(eu.id) ?? 0)
+      const filhos = sessoesCriadasPor(eu.id, { comFolga: true }).length + (abrindo.get(eu.id) ?? 0)
       if (filhos >= MAX_SESSOES_POR_AGENTE) {
-        throw new Error(`você já abriu ${filhos} sessões (o limite é ${MAX_SESSOES_POR_AGENTE}); feche uma com \`mpro fechar\``)
+        throw new Error(`você já abriu ${contaSessoes(filhos)} (o limite é ${MAX_SESSOES_POR_AGENTE}); feche uma com \`mpro fechar\``)
       }
       const pasta = typeof opcoes.pasta === 'string' ? opcoes.pasta : undefined
       if (pasta && !(existsSync(pasta) && statSync(pasta).isDirectory())) throw new Error(`a pasta não existe: ${pasta}`)
@@ -541,12 +644,17 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
     case 'fechar': {
       const meus = sessoesCriadasPor(eu.id)
       const alvo = acharEntre(meus, pos[0])
+      const herdadas = sessoesCriadasPor(alvo.id)
+      // Fechar não mata trabalho em andamento: os filhos passam para quem fechou, como numa passagem de bastão.
+      await transferirSessoes(alvo, eu, herdadas)
       await abrirJanelaPronta(alvo.espacoId)
       const r = await pedirAJanela({ tipo: 'fechar', espacoId: alvo.espacoId, id: alvo.id })
       if (!r.ok) throw new Error(r.erro)
       registrar(eu, alvo, 'fechar')
       encerrarAgora(alvo.id)
-      return { saida: `Fechei "${alvo.espec.nome}".` }
+      return { saida: herdadas.length
+        ? `Fechei "${alvo.espec.nome}". ${herdadas.length === 1 ? 'A sessão' : `As ${herdadas.length} sessões`} que ela tinha aberto agora ${herdadas.length === 1 ? 'é sua' : 'são suas'}.`
+        : `Fechei "${alvo.espec.nome}".` }
     }
 
     case 'passar': {
@@ -554,67 +662,31 @@ async function executar(eu: Sessao, pedido: Pedido, cancelado: () => boolean): P
       if (sucessor.id === eu.id) throw new Error('você não pode passar sessões para si mesmo')
       if (!sucessor.processo) throw new Error(`"${sucessor.espec.nome}" está encerrado; escolha uma sessão viva`) 
       const transferidas = sessoesCriadasPor(eu.id).filter((s) => s.id !== sucessor.id)
-      const totalDoSucessor = sessoesCriadasPor(sucessor.id).length + transferidas.length
+      const totalDoSucessor = sessoesCriadasPor(sucessor.id, { comFolga: true }).length + transferidas.length
       if (totalDoSucessor > MAX_SESSOES_POR_AGENTE) {
         throw new Error(
-          `"${sucessor.espec.nome}" ficaria com ${totalDoSucessor} sessões (o limite é ${MAX_SESSOES_POR_AGENTE}); nada foi passado`
+          `"${sucessor.espec.nome}" ficaria com ${contaSessoes(totalDoSucessor)} (o limite é ${MAX_SESSOES_POR_AGENTE}); nada foi passado`
         )
       }
       if (!transferidas.length) return { saida: `Não havia outras sessões para passar a "${sucessor.espec.nome}".` }
-      const porEspaco = new Map<string, Sessao[]>()
-      for (const s of transferidas) porEspaco.set(s.espacoId, [...(porEspaco.get(s.espacoId) ?? []), s])
-      const sucessorEraMeu = sucessor.espec.criadoPor === eu.id
-      if (sucessorEraMeu && !porEspaco.has(sucessor.espacoId)) porEspaco.set(sucessor.espacoId, [])
-      // Reservar todas as janelas antes de mudar qualquer cartão reduz a chance de uma passagem pela metade.
-      for (const espacoId of porEspaco.keys()) await abrirJanelaPronta(espacoId)
-      const concluidos: Array<[string, Sessao[]]> = []
-      try {
-        for (const [espacoId, sessoes] of porEspaco) {
-          const r = await pedirAJanela({
-            tipo: 'passar',
-            espacoId,
-            ids: sessoes.map((s) => s.id),
-            sucessor: sucessor.id,
-            novoCriador: sucessor.id,
-            antigo: eu.id,
-            ...(sucessorEraMeu && espacoId === sucessor.espacoId ? { donoDoSucessor: null } : {})
-          })
-          if (!r.ok) throw new Error(r.erro)
-          concluidos.push([espacoId, sessoes])
-        }
-      } catch (erro) {
-        // Cada janela já foi reservada; se alguma ainda falhar, desfazemos as anteriores antes de responder.
-        for (const [espacoId, sessoes] of concluidos.reverse()) {
-          await pedirAJanela({
-            tipo: 'passar',
-            espacoId,
-            ids: sessoes.map((s) => s.id),
-            sucessor: sucessor.id,
-            novoCriador: eu.id,
-            antigo: sucessor.id,
-            ...(sucessorEraMeu && espacoId === sucessor.espacoId ? { donoDoSucessor: eu.id } : {})
-          }).catch(() => undefined)
-        }
-        throw new Error(`não passei nada: ${erro instanceof Error ? erro.message : String(erro)}`)
-      }
-      for (const s of transferidas) s.espec = { ...s.espec, criadoPor: sucessor.id }
-      if (sucessorEraMeu) sucessor.espec = { ...sucessor.espec, criadoPor: undefined }
-      registrar(eu, sucessor, 'passar', `${transferidas.length} sessões`)
-      return { saida: `Passei ${transferidas.length} sessões para "${sucessor.espec.nome}".` }
+      await transferirSessoes(eu, sucessor, transferidas)
+      registrar(eu, sucessor, 'passar', contaSessoes(transferidas.length))
+      return { saida: `Passei ${contaSessoes(transferidas.length)} para "${sucessor.espec.nome}".` }
     }
 
     case 'sair': {
       const minhas = sessoesCriadasPor(eu.id)
       if (minhas.length && !opcoes['com-as-minhas']) {
         throw new Error(
-          `você ainda tem ${minhas.length} sessões abertas; use \`mpro passar <nome>\` primeiro, ou \`mpro sair --com-as-minhas\` para fechar todas junto`
+          `você ainda tem ${contaSessoes(minhas.length)} aberta${minhas.length === 1 ? '' : 's'}; use \`mpro passar <nome>\` primeiro, ou \`mpro sair --com-as-minhas\` para fechar todas junto`
         )
       }
       const motivo = typeof opcoes.motivo === 'string' ? opcoes.motivo : ''
+      const comAsMinhas = opcoes['com-as-minhas'] ? descendentesDe(eu.id) : []
       registrar(eu, null, 'sair', motivo)
       return {
-        saida: minhas.length ? `Vou fechar seu cartão e ${minhas.length} sessões suas.` : 'Vou fechar seu cartão.',
-        sair: [...minhas, eu]
+        saida: comAsMinhas.length ? `Vou fechar seu cartão e ${contaSessoes(comAsMinhas.length)} sua${comAsMinhas.length === 1 ? '' : 's'}.` : 'Vou fechar seu cartão.',
+        sair: [...comAsMinhas, eu]
       }
     }
 
@@ -648,6 +720,8 @@ export function registrarComandos(): void {
 
   ipcMain.on(CANAIS_AGENTES.pronta, (evento) => {
     janelasProntas.add(evento.sender.id)
+    // Recarregar preserva o WebContents, mas derruba o atendente do renderer; até ele se anunciar de novo não enviamos pedidos.
+    evento.sender.once('did-start-loading', () => janelasProntas.delete(evento.sender.id))
     evento.sender.once('destroyed', () => janelasProntas.delete(evento.sender.id))
   })
 
@@ -661,13 +735,17 @@ export function registrarComandos(): void {
   ipcMain.handle(CANAIS.contextos, async (evento, espacoId: unknown): Promise<ResumoContextoTerminal[]> => {
     if (typeof espacoId !== 'string' || donoDe(espacoId) !== evento.sender.id) return []
     return Promise.all(
-      sessoesDoEspaco(espacoId).map(async (s) => ({
-        id: s.id,
-        nome: s.espec.nome,
-        agente: s.espec.agente,
-        situacao: await situacao(s),
-        contexto: await contextoRestante(s)
-      }))
+      sessoesDoEspaco(espacoId).map(async (s) => {
+        // O painel precisa das duas leituras, mas o mesmo recorte de 80 linhas basta para situação e rodapé.
+        const tela = await telaDe(s, 80)
+        return {
+          id: s.id,
+          nome: s.espec.nome,
+          agente: s.espec.agente,
+          situacao: situacaoNaTela(s, tela),
+          contexto: extrairContextoRestante(tela)
+        }
+      })
     )
   })
 

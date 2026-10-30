@@ -17,10 +17,10 @@ export const AJUDA = `mpro — fala com o Maestri Próprio de dentro de um termi
   mpro ver <nome> [--linhas N]        lê a tela sem mandar nada
   mpro teclas <nome> <tecla>...       enter, esc, tab, shift-tab, cima, baixo, esquerda, direita, ctrl-c, espaco, 1, 2, y, n…
   mpro limpar <nome>                  zera o contexto da sessão (/clear no Claude, /new no Codex)
-  mpro fechar <nome>                  fecha uma sessão que você abriu (some do quadro)
+  mpro fechar <nome>                  fecha uma sessão que você abriu; o que ela abriu passa para você
   mpro passar <nome>                  passa ao sucessor vivo (aberto por você ou ligado) as outras sessões que abriu
   mpro sair [--motivo "texto"] [--com-as-minhas]
-                                      fecha seu cartão; com as minhas, fecha também suas sessões
+                                      fecha seu cartão; com as minhas, fecha toda a árvore de sessões que você abriu
 
   <nome> é o nome do cartão (ou o começo dele). --tempo em segundos (padrão 100, máx. 3600).
   Só fala com quem está ligado a você por uma corda, ou com quem você mesmo abriu. Quem abre no mesmo espaço já nasce

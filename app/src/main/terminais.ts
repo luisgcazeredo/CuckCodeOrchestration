@@ -393,9 +393,9 @@ export const sessaoPorId = (id: string): Sessao | undefined => sessoes.get(id)
 
 export const sessoesDoEspaco = (espacoId: string): Sessao[] => [...sessoes.values()].filter((s) => s.espacoId === espacoId && !s.fim)
 
-/** A autoria atravessa espaços: quem abriu o cartão continua sendo responsável por ele. */
-export const sessoesCriadasPor = (criador: string): Sessao[] =>
-  [...sessoes.values()].filter((s) => !s.fim && s.espec.criadoPor === criador)
+/** A autoria atravessa espaços: quem abriu o cartão continua sendo responsável por ele; só o limite conta a folga do Ctrl+Z. */
+export const sessoesCriadasPor = (criador: string, opcoes: { comFolga?: boolean } = {}): Sessao[] =>
+  [...sessoes.values()].filter((s) => (opcoes.comFolga || !s.fim) && s.espec.criadoPor === criador)
 
 export const cordasDoEspaco = (espacoId: string): Array<[string, string]> => cordas.get(espacoId) ?? []
 

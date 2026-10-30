@@ -1207,6 +1207,16 @@ export function apagarDesenhosPerto(x: number, y: number, raio: number, chaveDoG
 /** Cartões fechados por um agente (`mpro fechar`): o desfazer do usuário não os traz de volta. */
 const fechadosPorAgente = new Set<string>()
 let firmaTerminais = ''
+/** O pedaço de assinatura de cada cartão, guardado pela identidade do objeto (ver sincronizarTerminais). */
+const assinaturas = new WeakMap<object, { pasta: string; texto: string }>()
+
+function firmaDoCartao(n: { id: string; nome: string; agente: string; comando?: string; sessao?: string; criadoPor?: string }, pasta: string): string {
+  const guardado = assinaturas.get(n)
+  if (guardado && guardado.pasta === pasta) return guardado.texto
+  const texto = [n.id, n.nome, n.agente, n.comando ?? '', pasta, n.sessao ?? '', n.criadoPor ?? ''].join('\u0001')
+  assinaturas.set(n, { pasta, texto })
+  return texto
+}
 
 /** Pasta onde os terminais de um plano abrem: a do andar (worktree) ou a do projeto. */
 function pastaDe(espaco: Espaco, plano: Plano): string {
@@ -1220,6 +1230,19 @@ function pastaDe(espaco: Espaco, plano: Plano): string {
 function sincronizarTerminais(): void {
   const e = estado.espaco
   if (!e) return
+  // Roda a cada mudança do espaço — inclusive a cada quadro de tela de um arrasto. Por isso a assinatura é
+  // montada sem criar objeto nem serializar nada: o texto de cada cartão fica guardado pela identidade do
+  // objeto (o estado é imutável, então um cartão mudado é um objeto novo) e num arrasto só o cartão movido
+  // muda. A lista de verdade só é montada quando a assinatura muda.
+  const partes: string[] = [e.id]
+  for (const plano of [e, ...e.andares]) {
+    const pastaDoPlano = pastaDe(e, plano)
+    for (const n of plano.nos) if (n.tipo === 'terminal') partes.push(firmaDoCartao(n, n.pasta || pastaDoPlano))
+    for (const c of plano.cordas) partes.push(`c\u0001${c.de}\u0001${c.para}`)
+  }
+  const firma = partes.join('\u0002')
+  if (firma === firmaTerminais) return
+  firmaTerminais = firma
   const especs: EspecTerminal[] = []
   const cordas: Array<[string, string]> = []
   for (const plano of [e, ...e.andares]) {
@@ -1230,9 +1253,6 @@ function sincronizarTerminais(): void {
     }
     for (const c of plano.cordas) cordas.push([c.de, c.para])
   }
-  const firma = e.id + JSON.stringify(especs) + JSON.stringify(cordas)
-  if (firma === firmaTerminais) return
-  firmaTerminais = firma
   window.mp.terminal.sincronizar(e.id, especs, cordas).then(anotarSessoes, () => (firmaTerminais = ''))
 }
 

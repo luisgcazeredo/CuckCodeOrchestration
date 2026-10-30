@@ -882,6 +882,16 @@ export async function rodarAutoteste(
       await digitar(linha)
       await teclar('Return')
     }
+    // A entrada sintética pode se perder logo depois de aparecer um cartão; só repete enquanto o eco ainda não veio.
+    const comandoAte = async (id: string, linha: string, procurado: string | RegExp, ms = 8_000): Promise<string> => {
+      let tela = ''
+      for (let tentativa = 0; tentativa < 3; tentativa++) {
+        await comando(id, linha)
+        tela = await aguardar(() => telaNoApp(id), procurado, ms)
+        if (typeof procurado === 'string' ? tela.includes(procurado) : procurado.test(tela)) break
+      }
+      return tela
+    }
     const ultimas = (texto: string, n = 2): string => texto.split('\n').filter((l) => l.trim()).slice(-n).join(' | ')
 
     await aguardar(() => telaNoApp(chefe), /PS .*>/)
@@ -1089,6 +1099,40 @@ export async function rodarAutoteste(
     // sem isto, o que vem abaixo é digitado no vazio
     janela.focus()
     await esperar(400)
+
+    await comandoAte(chefe, 'mpro abrir shell --nome "Diálogo antigo"', 'Abri "Diálogo antigo"')
+    const dialogoAntigo = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Diálogo antigo')?.id ?? ''`)
+    await aguardar(() => telaNoApp(dialogoAntigo), /PS .*>/)
+    // As linhas em branco imitam a folga visual; as seguras contam como texto e empurram a citação para fora da janela.
+    await comando(dialogoAntigo, 'Write-Output "[y/n]"; 1..6 | ForEach-Object { Write-Output ""; Write-Output "linha segura $_" }')
+    await aguardar(() => telaNoApp(dialogoAntigo), 'linha segura 6')
+    await esperar(1300)
+    const pediuDepoisDoDialogo = await comandoAte(chefe, 'mpro pedir "Diálogo antigo" "echo MP-DIALOGO-ANTIGO"', 'MP-DIALOGO-ANTIGO')
+    conferir(
+      'diálogo citado fora das últimas seis linhas não bloqueia mpro pedir',
+      pediuDepoisDoDialogo.includes('MP-DIALOGO-ANTIGO'),
+      ultimas(pediuDepoisDoDialogo, 5)
+    )
+    await comandoAte(chefe, 'mpro fechar "Diálogo antigo"', 'Fechei "Diálogo antigo"')
+
+    const heranca = await js<string>(`(() => { const L = window.__teste.loja
+      const id = L.adicionarNo({ tipo: 'terminal', preset: ${presetShell} }, 2200, 1280); L.atualizarNo(id, { nome: 'Raiz herança' }); return id })()`)
+    await aguardar(() => telaNoApp(heranca), /PS .*>/)
+    await comandoAte(heranca, 'mpro abrir shell --nome "Filho herança"', 'Abri "Filho herança"')
+    const filhoHeranca = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Filho herança')?.id ?? ''`)
+    await aguardar(() => telaNoApp(filhoHeranca), /PS .*>/)
+    await comandoAte(filhoHeranca, 'mpro abrir shell --nome "Neto herança"', 'Abri "Neto herança"')
+    const netoHeranca = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Neto herança')?.id ?? ''`)
+    const fechouFilho = await comandoAte(heranca, 'mpro fechar "Filho herança"', 'que ela tinha aberto agora')
+    const viuNeto = await comandoAte(heranca, 'mpro ver "Neto herança"', '"Neto herança"')
+    const fechouNeto = await comandoAte(heranca, 'mpro fechar "Neto herança"', 'Fechei "Neto herança"')
+    conferir(
+      'mpro fechar herda netos e o novo dono consegue ver e fechar',
+      !!netoHeranca && fechouFilho.includes('que ela tinha aberto agora') && viuNeto.includes('"Neto herança"') && fechouNeto.includes('Fechei "Neto herança"') && !sessaoPorId(filhoHeranca) && !sessaoPorId(netoHeranca),
+      `herança: ${fechouFilho.includes('que ela tinha aberto agora')} · viu: ${viuNeto.includes('"Neto herança"')} · fechou: ${fechouNeto.includes('Fechei "Neto herança"')}`
+    )
+    await js(`window.__teste.loja.apagar({ tipo: 'no', id: '${heranca}' })`)
+
     const aposentadoria = await js<{ antigo: string; sucessor: string }>(`(() => { const L = window.__teste.loja
       const preset = L.lerEstado().preferencias.presets.find((p) => p.agente === 'shell')
       const antigo = L.adicionarNo({ tipo: 'terminal', preset }, 2200, 300)
@@ -1107,7 +1151,7 @@ export async function rodarAutoteste(
       recusouSair = await aguardar(() => telaNoApp(aposentadoria.antigo), 'mpro passar', 8000)
     }
     await comando(aposentadoria.antigo, 'mpro passar Sucessor')
-    const passouSessao = await aguardar(() => telaNoApp(aposentadoria.antigo), 'Passei 1 sessões para "Sucessor"')
+    const passouSessao = await aguardar(() => telaNoApp(aposentadoria.antigo), 'Passei 1 sessão para "Sucessor"')
     await comando(aposentadoria.antigo, 'mpro fechar Herdado')
     const antigoNaoFecha = await aguardar(() => telaNoApp(aposentadoria.antigo), 'ninguém ligado a você se chama "Herdado"')
     await comando(aposentadoria.sucessor, 'mpro fechar Herdado')
@@ -1137,12 +1181,18 @@ export async function rodarAutoteste(
       const preset = L.lerEstado().preferencias.presets.find((p) => p.agente === 'shell')
       const id = L.adicionarNo({ tipo: 'terminal', preset }, 2900, 300); L.atualizarNo(id, { nome: 'Com as minhas' }); return id })()`)
     await aguardar(() => telaNoApp(sairComAsMinhas), /PS .*>/)
-    await comando(sairComAsMinhas, 'mpro abrir shell --nome Junto')
-    await aguardar(() => telaNoApp(sairComAsMinhas), 'Abri "Junto"')
+    await comandoAte(sairComAsMinhas, 'mpro abrir shell --nome Junto', 'Abri "Junto"')
     const junto = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Junto')?.id ?? ''`)
+    await aguardar(() => telaNoApp(junto), /PS .*>/)
+    await comandoAte(junto, 'mpro abrir shell --nome "Neto junto"', 'Abri "Neto junto"')
+    const netoJunto = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Neto junto')?.id ?? ''`)
     await comando(sairComAsMinhas, 'mpro sair --com-as-minhas')
-    for (let i = 0; i < 30 && (sessaoPorId(sairComAsMinhas) || sessaoPorId(junto)); i++) await esperar(100)
-    conferir('mpro sair --com-as-minhas fecha o agente e as sessões dele', !sessaoPorId(sairComAsMinhas) && !sessaoPorId(junto), `agente: ${!!sessaoPorId(sairComAsMinhas)} · filho: ${!!sessaoPorId(junto)}`)
+    for (let i = 0; i < 30 && (sessaoPorId(sairComAsMinhas) || sessaoPorId(junto) || sessaoPorId(netoJunto)); i++) await esperar(100)
+    conferir(
+      'mpro sair --com-as-minhas fecha a árvore inteira',
+      !sessaoPorId(sairComAsMinhas) && !sessaoPorId(junto) && !sessaoPorId(netoJunto),
+      `raiz: ${!!sessaoPorId(sairComAsMinhas)} · filho: ${!!sessaoPorId(junto)} · neto: ${!!sessaoPorId(netoJunto)}`
+    )
 
     for (let i = 1; i <= 7; i++) {
       const nome = `Limite ${i}`
@@ -1152,6 +1202,16 @@ export async function rodarAutoteste(
     await comando(chefe, 'mpro abrir --espaco "Frente 2" shell --nome "Nono"')
     const nono = await aguardar(() => telaNoApp(chefe), 'o limite é 8', 20_000)
     conferir('mpro mantém o limite de 8 somando os dois espaços', nono.includes('o limite é 8'), ultimas(nono, 3))
+
+    const limiteEmFolga = await js<string>(`(() => { const L = window.__teste.loja
+      const n = L.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Limite 1'); if (!n) return ''
+      L.apagar({ tipo: 'no', id: n.id }); return n.id })()`)
+    const recusouNaFolga = await comandoAte(chefe, 'mpro abrir shell --nome "Durante a folga"', 'o limite é 8')
+    conferir(
+      'limite de 8 inclui cartão apagado durante a folga do Ctrl+Z',
+      !!limiteEmFolga && recusouNaFolga.includes('o limite é 8'),
+      ultimas(recusouNaFolga, 3)
+    )
 
     await js(`(() => { const L = window.__teste.loja
       for (const n of L.planoAtual().nos.filter((n) => n.tipo === 'terminal' && n.criadoPor === '${chefe}')) L.apagar({ tipo: 'no', id: n.id })
