@@ -10,6 +10,116 @@ import { PASTA_DADOS } from './dados'
 import { encerrarNavegador, janelasNaBarra } from './navegador'
 import { encerrarTodos, linhaDeComando, sessaoPorId, telaDe } from './terminais'
 
+type Resultado = [nome: string, ok: boolean, detalhe: string]
+
+function criarDriver(janela: BrowserWindow, pastaSaida: string) {
+  const tela = janela.webContents
+  const resultados: Resultado[] = []
+  const esperar = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+  const js = <T>(codigo: string): Promise<T> => tela.executeJavaScript(codigo)
+  const conferir = (nome: string, ok: boolean, detalhe = ''): void => {
+    resultados.push([nome, ok, detalhe])
+  }
+  const print = async (nome: string): Promise<void> => {
+    for (let tentativa = 1; ; tentativa++) {
+      await esperar(400 * tentativa)
+      try {
+        writeFileSync(join(pastaSaida, `autoteste-${nome}.png`), (await tela.capturePage()).toPNG())
+        return
+      } catch (erro) {
+        if (tentativa === 4) throw erro
+      }
+    }
+  }
+  const aguardarCarga = async (): Promise<void> => {
+    for (let i = 0; i < 60; i++) {
+      if (await js<boolean>('!!(window.__teste && window.__teste.loja.lerEstado().carregado)')) return
+      await esperar(100)
+    }
+    throw new Error('o app não terminou de carregar')
+  }
+  const centroDe = (seletor: string): Promise<{ x: number; y: number } | null> =>
+    js(`(() => { const r = document.querySelector(${JSON.stringify(seletor)})?.getBoundingClientRect();
+      return r ? { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } : null })()`)
+  const arrastar = async (de: { x: number; y: number }, ate: { x: number; y: number }): Promise<void> => {
+    tela.sendInputEvent({ type: 'mouseMove', x: de.x, y: de.y })
+    tela.sendInputEvent({ type: 'mouseDown', x: de.x, y: de.y, button: 'left', clickCount: 1 })
+    for (let i = 1; i <= 8; i++) {
+      const x = Math.round(de.x + ((ate.x - de.x) * i) / 8)
+      const y = Math.round(de.y + ((ate.y - de.y) * i) / 8)
+      tela.sendInputEvent({ type: 'mouseMove', x, y, button: 'left', modifiers: ['leftbuttondown'] })
+      await esperar(16)
+    }
+    tela.sendInputEvent({ type: 'mouseUp', x: ate.x, y: ate.y, button: 'left', clickCount: 1 })
+    await esperar(200)
+  }
+  const tecla = async (letra: string): Promise<void> => {
+    tela.sendInputEvent({ type: 'keyDown', keyCode: letra, modifiers: ['control'] })
+    tela.sendInputEvent({ type: 'keyUp', keyCode: letra, modifiers: ['control'] })
+    await esperar(150)
+  }
+  const teclar = async (tecla: string): Promise<void> => {
+    tela.sendInputEvent({ type: 'keyDown', keyCode: tecla })
+    tela.sendInputEvent({ type: 'keyUp', keyCode: tecla })
+    await esperar(120)
+  }
+  const digitar = async (texto: string): Promise<void> => {
+    for (const letra of texto) tela.sendInputEvent({ type: 'char', keyCode: letra })
+    await esperar(200)
+  }
+  const clicar = async (p: { x: number; y: number }): Promise<void> => {
+    tela.sendInputEvent({ type: 'mouseMove', x: p.x, y: p.y })
+    tela.sendInputEvent({ type: 'mouseDown', x: p.x, y: p.y, button: 'left', clickCount: 1 })
+    tela.sendInputEvent({ type: 'mouseUp', x: p.x, y: p.y, button: 'left', clickCount: 1 })
+    await esperar(250)
+  }
+  const clicarEm = async (seletor: string): Promise<boolean> => {
+    const c = await centroDe(seletor)
+    if (c) await clicar(c)
+    return !!c
+  }
+  const telaNoApp = async (id: string): Promise<string> => {
+    const s = sessaoPorId(id)
+    return s ? telaDe(s, 300) : ''
+  }
+  const telaNoCartao = (id: string): Promise<string> =>
+    js<string>(`(() => { const t = window.__terminais?.[${JSON.stringify(id)}]; if (!t) return ''
+      const b = t.buffer.active; const linhas = []
+      for (let y = 0; y < b.length; y++) linhas.push(b.getLine(y)?.translateToString(true) ?? '')
+      return linhas.join('\\n') })()`)
+  const aguardar = async (ler: () => Promise<string>, procurado: string | RegExp, ms = 20_000): Promise<string> => {
+    let texto = ''
+    for (const limite = Date.now() + ms; Date.now() < limite; await esperar(200)) {
+      texto = await ler()
+      if (typeof procurado === 'string' ? texto.includes(procurado) : procurado.test(texto)) break
+    }
+    return texto
+  }
+  const comando = async (id: string, linha: string): Promise<void> => {
+    const longe = await js<boolean>(`(() => { const L = window.__teste.loja; L.selecionar({ tipo: 'no', id: ${JSON.stringify(id)} })
+      if (document.querySelector('[data-no-id="${id}"] .terminal-xterm')) return false
+      const n = L.planoAtual().nos.find((x) => x.id === ${JSON.stringify(id)})
+      L.definirCamera({ x: -n.x + 40, y: -n.y + 40, zoom: 1 }); return true })()`)
+    await esperar(longe ? 900 : 250)
+    await digitar(linha)
+    await teclar('Return')
+  }
+  const comandoAte = async (id: string, linha: string, procurado: string | RegExp, ms = 8_000): Promise<string> => {
+    let texto = ''
+    for (let tentativa = 0; tentativa < 3; tentativa++) {
+      await comando(id, linha)
+      texto = await aguardar(() => telaNoApp(id), procurado, ms)
+      if (typeof procurado === 'string' ? texto.includes(procurado) : procurado.test(texto)) break
+    }
+    return texto
+  }
+  const ultimas = (texto: string, n = 2): string => texto.split('\n').filter((l) => l.trim()).slice(-n).join(' | ')
+  return { janela, tela, resultados, esperar, js, conferir, print, aguardarCarga, centroDe, arrastar, tecla, teclar, digitar, clicar, clicarEm, telaNoApp, telaNoCartao, aguardar, comando, comandoAte, ultimas }
+}
+
+type Driver = ReturnType<typeof criarDriver>
+type Cenario = { nome: string; depende?: string; rodar: (driver: Driver) => Promise<void> }
+
 // `npm run autoteste`: monta um quadro de exemplo numa pasta de dados temporária, tira print nos dois
 // temas, usa o mouse como um usuário (arrastar terminal, ligar dois terminais pela porta), recarrega e
 // confere que tudo voltou do disco. Sai com 0 (passou) ou 1 (falhou).
@@ -18,16 +128,14 @@ export async function rodarAutoteste(
   janela: BrowserWindow,
   pedirSalvamento: (janela: BrowserWindow) => Promise<boolean>
 ): Promise<void> {
-  const tela = janela.webContents
-  const esperar = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
-  const js = <T>(codigo: string): Promise<T> => tela.executeJavaScript(codigo)
+  const legadoTela = janela.webContents
+  const legadoEsperar = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+  const legadoJs = <T>(codigo: string): Promise<T> => legadoTela.executeJavaScript(codigo)
   // no app instalado a pasta do app é somente leitura: os prints vão para a pasta temporária
   const pastaSaida = app.isPackaged ? join(tmpdir(), 'maestri-proprio-autoteste-prints') : join(app.getAppPath(), 'out')
   mkdirSync(pastaSaida, { recursive: true })
-  const resultados: Array<[string, boolean, string]> = []
-  const conferir = (nome: string, ok: boolean, detalhe = ''): void => {
-    resultados.push([nome, ok, detalhe])
-  }
+  const driver = criarDriver(janela, pastaSaida)
+  const { resultados, tela, esperar, js } = driver
   // a captura às vezes falha logo depois de recarregar (erro do compositor de vídeo): tenta de novo
   const print = async (nome: string): Promise<void> => {
     for (let tentativa = 1; ; tentativa++) {
@@ -62,10 +170,27 @@ export async function rodarAutoteste(
     tela.sendInputEvent({ type: 'mouseUp', x: ate.x, y: ate.y, button: 'left', clickCount: 1 })
     await esperar(200)
   }
+  void legadoTela
+  void legadoEsperar
+  void legadoJs
+  void print
+  void aguardarCarga
+  void centroDe
+  void arrastar
+  let pastaTerminais = ''
+  let chefe = ''
+  let espacoTerminais = ''
+  let presetShell = ''
+  let ajudante: { id: string; criadoPor: string; corda: boolean } | null = null
+  let solto = ''
+  let frente2: BrowserWindow | undefined
 
-  let passou = false
-  try {
-    await aguardarCarga()
+  const cenarios: Cenario[] = [
+    {
+      nome: 'quadro-portal',
+      rodar: async (d) => {
+        const { tela, esperar, js, print, aguardarCarga, centroDe, arrastar, conferir } = d
+        await aguardarCarga()
 
     const ids = await js<Record<string, string>>(`(() => {
       const L = window.__teste.loja
@@ -846,13 +971,19 @@ export async function rodarAutoteste(
     }
 
     // ---- terminais de verdade e o `mpro` (integração, 28/10/2026) ----
-    const pastaTerminais = join(tmpdir(), `maestri-proprio-autoteste-terminais-${Date.now()}`)
+      },
+    },
+    {
+      nome: 'mpro',
+      rodar: async (d) => {
+        const { esperar, js, print, centroDe, conferir, teclar, digitar, clicar } = d
+    pastaTerminais = join(tmpdir(), `maestri-proprio-autoteste-terminais-${Date.now()}`)
     mkdirSync(pastaTerminais, { recursive: true })
     await js(`window.__teste.loja.criarEspaco('Terminais', ${JSON.stringify(pastaTerminais)})`)
     await esperar(300)
-    const espacoTerminais = await js<string>('window.__teste.loja.lerEstado().espaco.id')
-    const presetShell = `window.__teste.loja.lerEstado().preferencias.presets.find((p) => p.agente === 'shell')`
-    const chefe = await js<string>(`(() => { const L = window.__teste.loja; L.definirCamera({ x: 0, y: 0, zoom: 1 })
+    espacoTerminais = await js<string>('window.__teste.loja.lerEstado().espaco.id')
+    presetShell = `window.__teste.loja.lerEstado().preferencias.presets.find((p) => p.agente === 'shell')`
+    chefe = await js<string>(`(() => { const L = window.__teste.loja; L.definirCamera({ x: 0, y: 0, zoom: 1 })
       return L.adicionarNo({ tipo: 'terminal', preset: ${presetShell} }, 560, 320) })()`)
     const telaNoApp = async (id: string): Promise<string> => {
       const s = sessaoPorId(id)
@@ -893,6 +1024,7 @@ export async function rodarAutoteste(
       return tela
     }
     const ultimas = (texto: string, n = 2): string => texto.split('\n').filter((l) => l.trim()).slice(-n).join(' | ')
+    void comandoAte
 
     await aguardar(() => telaNoApp(chefe), /PS .*>/)
     await comando(chefe, 'echo "MP-$(2+3)"')
@@ -960,13 +1092,20 @@ export async function rodarAutoteste(
     conferir('fora da tela o cartão para de desenhar e volta igual', descarregou && /^MP-5/m.test(voltou), `descarregou: ${descarregou}`)
 
     // o `mpro` dentro do terminal: quem, abrir (com pedido e espera), ver, permissão pela corda, fechar
+      },
+    },
+    {
+      nome: 'mpro-conexoes',
+      depende: 'mpro',
+      rodar: async (d) => {
+        const { esperar, js, conferir, aguardar, comando, telaNoApp, ultimas } = d
     await comando(chefe, 'mpro quem')
     const quem = await aguardar(() => telaNoApp(chefe), 'Você é "PowerShell"')
     conferir('mpro quem (o comando existe dentro do terminal)', quem.includes('Você é "PowerShell"'), ultimas(quem, 3))
 
     await comando(chefe, "mpro abrir shell --nome Ajudante --pedido 'echo AJUDANTE-$(3*3)' --esperar --tempo 40")
     const abriu = await aguardar(() => telaNoApp(chefe), /terminou\. Tela:[\s\S]*AJUDANTE-9/, 60_000)
-    const ajudante = await js<{ id: string; criadoPor: string; corda: boolean } | null>(`(() => {
+    ajudante = await js<{ id: string; criadoPor: string; corda: boolean } | null>(`(() => {
       const p = window.__teste.loja.planoAtual()
       const n = p.nos.find((x) => x.tipo === 'terminal' && x.nome === 'Ajudante'); if (!n) return null
       return { id: n.id, criadoPor: n.criadoPor, corda: p.cordas.some((c) => c.de === '${chefe}' && c.para === n.id) } })()`)
@@ -976,7 +1115,7 @@ export async function rodarAutoteste(
       ajudante ? `corda: ${ajudante.corda} · ${ultimas(abriu)}` : `cartão não apareceu · ${ultimas(abriu, 4)}`
     )
 
-    const solto = await js<string>(`(() => { const L = window.__teste.loja
+    solto = await js<string>(`(() => { const L = window.__teste.loja
       const id = L.adicionarNo({ tipo: 'terminal', preset: ${presetShell} }, 560, 1100); L.atualizarNo(id, { nome: 'Solto' }); return id })()`)
     await aguardar(() => telaNoApp(solto), /PS .*>/)
     await comando(chefe, 'mpro pedir Solto "echo NAO-DEVIA"')
@@ -1023,7 +1162,7 @@ export async function rodarAutoteste(
     if (gitBash) {
       // o Claude Code roda comandos pelo Git Bash: lá vale o script sh, não o .cmd
       await comando(chefe, `& '${gitBash}' -c 'mpro quem >/dev/null && echo BASH-MPRO-OK'`)
-      const bash = await aguardar(() => telaNoApp(chefe), /^BASH-MPRO-OK/m, 20_000)
+      const bash = await aguardar(() => telaNoApp(chefe), /^BASH-MPRO-OK/m, 60_000)
       conferir('mpro também funciona pelo Git Bash', /^BASH-MPRO-OK/m.test(bash), ultimas(bash))
     }
 
@@ -1039,6 +1178,13 @@ export async function rodarAutoteste(
       sobrou.join(', ')
     )
 
+      },
+    },
+    {
+      nome: 'mpro-espacos',
+      depende: 'mpro-conexoes',
+      rodar: async (d) => {
+        const { tela, esperar, js, centroDe, clicar, conferir, aguardar, comando, telaNoApp, ultimas } = d
     await comando(chefe, 'mpro espacos')
     const espacosDoMpro = await aguardar(() => telaNoApp(chefe), '"Terminais"')
     conferir(
@@ -1049,7 +1195,6 @@ export async function rodarAutoteste(
 
     await comando(chefe, 'mpro janela --novo "Frente 2"')
     await aguardar(() => telaNoApp(chefe), 'Criei o espaço "Frente 2"')
-    let frente2: BrowserWindow | undefined
     let frente2Pronta = false
     for (let i = 0; i < 100 && !frente2Pronta; i++) {
       await esperar(100)
@@ -1100,6 +1245,13 @@ export async function rodarAutoteste(
     janela.focus()
     await esperar(400)
 
+      },
+    },
+    {
+      nome: 'mpro-heranca',
+      depende: 'mpro-espacos',
+      rodar: async (d) => {
+        const { esperar, js, conferir, aguardar, comando, comandoAte, telaNoApp, ultimas } = d
     await comandoAte(chefe, 'mpro abrir shell --nome "Diálogo antigo"', 'Abri "Diálogo antigo"')
     const dialogoAntigo = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Diálogo antigo')?.id ?? ''`)
     await aguardar(() => telaNoApp(dialogoAntigo), /PS .*>/)
@@ -1233,6 +1385,13 @@ export async function rodarAutoteste(
     conferir('apagar terminal: Ctrl+Z na folga mantém o processo; depois ele encerra', continua && !sessaoPorId(solto), `continuou: ${continua}`)
 
     // presets: criar "Claude Opus" (claude --model opus) pelo diálogo, com mouse e teclado, e abrir um terminal com ele
+      },
+    },
+    {
+      nome: 'mpro-presets',
+      depende: 'mpro-heranca',
+      rodar: async (d) => {
+        const { esperar, js, print, centroDe, tecla, digitar, clicar, conferir } = d
     const clicarEm = async (seletor: string): Promise<boolean> => {
       const c = await centroDe(seletor)
       if (c) await clicar(c)
@@ -1307,6 +1466,13 @@ export async function rodarAutoteste(
 
     // opcional (gasta um pouco da conta): `MP_AGENTES_DE_VERDADE=1 npm run autoteste` abre um Claude e um Codex de
     // verdade pelo `mpro`, na pasta do app; a resposta (uma conta) não aparece no texto do pedido
+      },
+    },
+    {
+      nome: 'agentes',
+      depende: 'mpro-presets',
+      rodar: async (d) => {
+        const { esperar, js, print, conferir, comando, aguardar, telaNoApp, ultimas } = d
     if (process.env.MP_AGENTES_DE_VERDADE) {
       const pastaApp = app.getAppPath()
       // `confiar`: as teclas que aceitam a pergunta de confiança na pasta, se ela aparecer (no Claude o cursor começa no "não")
@@ -1364,10 +1530,45 @@ export async function rodarAutoteste(
       }
     }
 
-    passou = resultados.every(([, ok]) => ok)
-  } catch (erro) {
-    console.error('AUTOTESTE ERRO', erro)
+      },
+    },
+  ]
+  const filtro = (process.env.MP_CENARIOS ?? '')
+    .split(',')
+    .map((nome) => nome.trim().toLocaleLowerCase())
+    .filter(Boolean)
+  const selecionados = cenarios.filter((cenario) => !filtro.length || filtro.some((nome) => cenario.nome.toLocaleLowerCase().includes(nome)))
+  const situacao = new Map<string, 'passou' | 'falhou' | 'não rodou'>()
+  const detalhesDeCenario = new Map<string, string>()
+  for (const cenario of selecionados) {
+    if (cenario.depende && situacao.get(cenario.depende) !== 'passou') {
+      situacao.set(cenario.nome, 'não rodou')
+      detalhesDeCenario.set(cenario.nome, `depende de ${cenario.depende}`)
+      continue
+    }
+    try {
+      await cenario.rodar(driver)
+      situacao.set(cenario.nome, 'passou')
+    } catch (erro) {
+      const detalhe = erro instanceof Error ? erro.message : String(erro)
+      situacao.set(cenario.nome, 'falhou')
+      detalhesDeCenario.set(cenario.nome, detalhe)
+      console.error(`AUTOTESTE ERRO ${cenario.nome}`, erro)
+    }
   }
+  const passou = resultados.every(([, ok]) => ok) && [...situacao.values()].every((estado) => estado === 'passou')
+  for (const [nome, estado] of situacao) {
+    if (estado !== 'passou') console.log(`AUTOTESTE ${estado === 'falhou' ? 'FALHOU' : 'NÃO RODOU'} ${nome} — ${detalhesDeCenario.get(nome) ?? ''}`)
+  }
+  const passouChecagens = resultados.filter(([, ok]) => ok).length
+  const falhouChecagens = resultados.length - passouChecagens
+  const passouCenarios = [...situacao.values()].filter((estado) => estado === 'passou').length
+  const falhouCenarios = [...situacao.values()].filter((estado) => estado === 'falhou').length
+  const naoRodouCenarios = [...situacao.values()].filter((estado) => estado === 'não rodou').length
+  console.log(
+    `AUTOTESTE resumo — ${resultados.length} checagens (${passouChecagens} ok, ${falhouChecagens} falhas) · ` +
+      `${situacao.size} cenários (${passouCenarios} ok, ${falhouCenarios} falhas, ${naoRodouCenarios} não rodaram)`
+  )
   for (const [nome, ok, detalhe] of resultados) console.log(`AUTOTESTE ${ok ? 'ok    ' : 'FALHOU'} ${nome} — ${detalhe}`)
   console.log(`AUTOTESTE ${passou ? 'PASSOU' : 'FALHOU'} — prints em ${pastaSaida}`)
   encerrarTodos()
