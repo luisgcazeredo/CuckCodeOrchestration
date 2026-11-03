@@ -1553,8 +1553,16 @@ export async function rodarAutoteste(
 
         // o shell grava um arquivo na pasta do espaço: é o que um agente faria
         await gravar('exemplo.ts', 'const um = 1', 'FIM-GRAVOU1')
-        const idCodigo = await js<string>(`(() => { const L = window.__teste.loja
-          return L.adicionarNo({ tipo: 'codigo', terminal: ${JSON.stringify(chefe)} }, 1700, 320) })()`)
+        // o cartão tem de nascer sozinho com a gravação: ninguém clicou em nada aqui
+        const procurarCodigo = (): Promise<string> =>
+          js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'codigo')?.id ?? ''`)
+        let idCodigo = ''
+        for (let i = 0; i < 40 && !idCodigo; i++) {
+          idCodigo = await procurarCodigo()
+          if (!idCodigo) await esperar(300)
+        }
+        conferir('o cartão de código nasce sozinho quando o agente grava', !!idCodigo, idCodigo || 'nenhum cartão apareceu')
+        if (!idCodigo) throw new Error('sem cartão de código: o resto do cenário depende dele')
         const noCartao = (parte: string): Promise<string> =>
           js<string>(`document.querySelector('[data-no-id="${idCodigo}"] ${parte}')?.innerText ?? ''`)
         const corpo = (): Promise<string> => noCartao('.codigo-corpo')
@@ -1618,6 +1626,17 @@ export async function rodarAutoteste(
         await teclar('Escape')
         await js('window.__teste.loja.alternarExplorador()')
         await esperar(300)
+
+        // fechar o cartão desliga o automático da pasta: ele não volta na gravação seguinte (nem colado no
+        // agente vizinho, que é o que aconteceria se o desligamento fosse só do dono do cartão)
+        const dono = await js<string>(`window.__teste.loja.acharNo('${idCodigo}')?.terminal ?? ''`)
+        await js(`window.__teste.loja.apagar({ tipo: 'no', id: '${idCodigo}' })`)
+        await esperar(400)
+        const desligou = await js<boolean>(`window.__teste.loja.acharNo('${dono}')?.codigoSozinho === false`)
+        await gravar('quarto.ts', 'const quatro = 4', 'FIM-GRAVOU4')
+        await esperar(1500)
+        const quantos = await js<number>(`window.__teste.loja.planoAtual().nos.filter((n) => n.tipo === 'codigo').length`)
+        conferir('fechar o cartão desliga o automático daquela pasta', desligou && quantos === 0, `desligou ${desligou} · cartões ${quantos}`)
       }
     },
   ]

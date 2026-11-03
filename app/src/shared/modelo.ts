@@ -38,6 +38,8 @@ export interface NoTerminal extends NoBase {
   sessao?: string
   /** Cartão do agente que abriu este pelo `mpro abrir` (só ele pode fechar). */
   criadoPor?: string
+  /** false: o usuário fechou o cartão de código deste agente, então ele não nasce mais sozinho. */
+  codigoSozinho?: boolean
 }
 
 export type CorPostIt = 'amarelo' | 'rosa' | 'azul' | 'verde' | 'roxo'

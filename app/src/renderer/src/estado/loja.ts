@@ -8,6 +8,7 @@ import {
   type Desenho,
   type Espaco,
   type No,
+  type NoCodigo,
   type NoTerminal,
   type NoPostIt,
   type PincelDesenho,
@@ -21,7 +22,7 @@ import {
 import { MAX_SESSOES_POR_AGENTE, type AvisoJanelas, type EspecTerminal, type PedidoDoAgente, type RespostaAoAgente } from '../../../shared/api'
 import { proximoZ } from '../../../shared/quadro/geometria'
 import { abrir, fechar, passar } from '../../../shared/quadro/transformacoes'
-import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, enquadrar, lerViewport, uniao, type Caixa } from '../quadro/geometria'
+import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, enquadrar, lerViewport, seTocam, uniao, type Caixa } from '../quadro/geometria'
 
 export type Ferramenta = 'selecionar' | 'postit' | 'texto' | 'desenho'
 
@@ -100,7 +101,10 @@ export function usarLoja<T>(seletor: (e: EstadoUI) => T): T {
 
 function definir(parcial: Partial<EstadoUI>): void {
   estado = { ...estado, ...parcial }
-  if ('espaco' in parcial) sincronizarTerminais()
+  if ('espaco' in parcial) {
+    sincronizarTerminais()
+    ajustarVigiasDeCodigo()
+  }
   ouvintes.forEach((o) => o())
 }
 
@@ -1095,6 +1099,24 @@ export function apagarSelecao(): void {
       }),
     false
   )
+  // Fechar o cartão de código é o jeito natural de dizer "não quero isto aqui": o automático desliga para
+  // todos os agentes daquela pasta, não só para o dono do cartão — senão ele renasceria colado no agente
+  // vizinho na próxima gravação. Volta pelo menu do cartão do agente.
+  const donos = plano.nos.flatMap((n) => (n.tipo === 'codigo' && nos.has(n.id) && n.terminal ? [n.terminal] : []))
+  const espaco = estado.espaco
+  if (donos.length && espaco) {
+    const pastaDe = (n: NoTerminal): string => n.pasta || pastaDoPlano(espaco)
+    const pastas = new Set(
+      plano.nos.flatMap((n) => (n.tipo === 'terminal' && donos.includes(n.id) ? [pastaDe(n)] : []))
+    )
+    mudarPlano(
+      (p) => ({
+        ...p,
+        nos: p.nos.map((n) => (n.tipo === 'terminal' && pastas.has(pastaDe(n)) ? { ...n, codigoSozinho: false } : n))
+      }),
+      false
+    )
+  }
   const notas = { ...estado.notas }
   for (const n of plano.nos) if (n.tipo === 'postit' && nos.has(n.id)) delete notas[n.arquivo]
   definir({ notas, selecao: { ...NADA, nos: selecao.nos.filter((id) => !nos.has(id)) }, editando: null })
@@ -1331,6 +1353,102 @@ function sincronizarTerminais(): void {
 }
 
 /** Muda um cartão de terminal em qualquer plano (térreo ou andar), fora do desfazer. */
+// ---------- cartão de código que nasce sozinho ----------
+
+/** Pastas de agente vigiadas agora, com a função que desliga cada uma. */
+const vigiasDeCodigo = new Map<string, () => void>()
+/** Uma gravação em rajada não deve criar dois cartões: a criação é uma por vez. */
+let criandoCodigo = false
+
+/**
+ * Vigia a pasta de cada agente do plano à mostra. É o que faz o cartão de código aparecer sozinho — sem
+ * isso, só havia vigia quando já existia um cartão, e o primeiro nunca nascia.
+ */
+function ajustarVigiasDeCodigo(): void {
+  const e = estado.espaco
+  const pastas = new Set<string>()
+  if (e) {
+    for (const n of planoDe(e).nos) if (n.tipo === 'terminal') pastas.add(n.pasta || pastaDoPlano(e))
+  }
+  for (const [pasta, desligar] of [...vigiasDeCodigo]) {
+    if (pastas.has(pasta)) continue
+    desligar()
+    vigiasDeCodigo.delete(pasta)
+  }
+  for (const pasta of pastas) {
+    if (vigiasDeCodigo.has(pasta)) continue
+    vigiasDeCodigo.set(pasta, window.mp.codigo.vigiar(pasta, () => void aoGravaremNaPasta(pasta)))
+  }
+}
+
+/**
+ * Gravaram um arquivo na pasta de um agente. Se nenhum agente de lá tem cartão de código, nasce um ao lado
+ * do que está trabalhando — vigiar a pasta não diz qual dos agentes gravou, então quem escolhe é a situação
+ * da sessão. Um cartão por pasta: dois cartões mostrariam o mesmo arquivo.
+ */
+async function aoGravaremNaPasta(pasta: string): Promise<void> {
+  const e = estado.espaco
+  if (!e || criandoCodigo) return
+  const plano = planoDe(e)
+  const daPasta = plano.nos.filter((n): n is NoTerminal => n.tipo === 'terminal' && (n.pasta || pastaDoPlano(e)) === pasta)
+  const jaTemCartao = new Set(plano.nos.flatMap((n) => (n.tipo === 'codigo' && n.terminal ? [n.terminal] : [])))
+  if (!daPasta.length || daPasta.some((n) => jaTemCartao.has(n.id))) return
+  const candidatos = daPasta.filter((n) => n.codigoSozinho !== false)
+  if (!candidatos.length) return
+  criandoCodigo = true
+  try {
+    const situacoes = await window.mp.terminal.contextos(e.id).catch(() => [])
+    const como = new Map(situacoes.map((s) => [s.id, s.situacao]))
+    const escolhido =
+      candidatos.find((n) => como.get(n.id) === 'trabalhando') ??
+      candidatos.find((n) => como.get(n.id) !== 'encerrado') ??
+      candidatos[0]
+    // o quadro pode ter mudado enquanto a resposta vinha
+    const agoraNo = acharNo(escolhido.id)
+    if (agoraNo?.tipo === 'terminal') criarCodigoSozinho(agoraNo)
+  } finally {
+    criandoCodigo = false
+  }
+}
+
+/**
+ * Cartão de código ao lado do agente. Não rouba a seleção nem entra no desfazer: o usuário não pediu agora,
+ * e tirar o teclado dele no meio de uma frase seria pior do que não mostrar o código.
+ */
+function criarCodigoSozinho(terminal: NoTerminal): void {
+  const plano = planoAtual()
+  if (!plano) return
+  const largura = 620
+  const altura = Math.max(320, Math.min(560, terminal.altura))
+  const x = terminal.x + terminal.largura + 40
+  let y = terminal.y
+  // não nasce em cima de outro cartão: desce até achar lugar
+  for (let tentativa = 0; tentativa < 12; tentativa++) {
+    if (!plano.nos.some((n) => seTocam({ x, y, largura, altura }, caixaDoNo(n)))) break
+    y += altura + 30
+  }
+  const no: NoCodigo = {
+    id: novoId(),
+    x,
+    y,
+    largura,
+    altura,
+    z: proximoZ(plano),
+    criadoEm: agora(),
+    tipo: 'codigo',
+    terminal: terminal.id,
+    modo: 'diff'
+  }
+  mudarPlano((p) => ({ ...p, nos: [...p.nos, no] }), false)
+}
+
+/** Ligar ou desligar o cartão de código automático de um agente. */
+export function alternarCodigoSozinho(id: string): void {
+  const no = acharNo(id)
+  if (no?.tipo !== 'terminal') return
+  atualizarNo(id, { codigoSozinho: no.codigoSozinho === false } as Partial<No>, false)
+}
+
 function mudarTerminal(id: string, mudar: (n: NoTerminal) => NoTerminal): void {
   const trocar = (p: Plano): Plano =>
     p.nos.some((n) => n.id === id) ? { ...p, nos: p.nos.map((n) => (n.id === id && n.tipo === 'terminal' ? mudar(n) : n)) } : p

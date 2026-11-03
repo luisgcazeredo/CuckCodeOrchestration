@@ -47,6 +47,7 @@ import {
   adicionarNo,
   agrupar,
   alinhar,
+  alternarCodigoSozinho,
   alternarMiniMapa,
   alternarTravaSelecao,
   apagar,
@@ -320,6 +321,12 @@ export function itensDoNo(no: No): ItemMenu[] {
           }
         },
         { rotulo: 'Ver o código que ele escreve', icone: FileCode, acao: () => verCodigoDoTerminal(no) },
+        {
+          rotulo: 'Abrir o código sozinho quando ele gravar',
+          icone: FileCode,
+          marcado: no.codigoSozinho !== false,
+          acao: () => alternarCodigoSozinho(no.id)
+        },
         {
           rotulo: 'Anexar ao prompt',
           icone: Paperclip,
