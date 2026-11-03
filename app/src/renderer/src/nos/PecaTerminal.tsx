@@ -5,7 +5,7 @@ import { MolduraNo, type Marca } from '../quadro/MolduraNo'
 import { CorpoXterm } from '../terminal/CorpoXterm'
 import { abrirMenu } from '../ui/MenuContexto'
 import { anexarArquivosAoPrompt, anexarPastaAoPrompt } from '../ui/anexar'
-import { verCodigoDoTerminal } from '../ui/menus'
+import { itensDoCodigoDoTerminal } from '../ui/menus'
 import { COR_AGENTE, ICONE_AGENTE } from './icones'
 
 /** Fora da tela por este tempo, o cartão para de desenhar (o processo segue rodando). */
@@ -88,9 +88,12 @@ export const PecaTerminal = memo(function PecaTerminal({ no, selecionado, pastaD
         </button>
         <button
           className="botao-mini"
-          title="Ver o código que ele está escrevendo"
+          title="Os cartões de código deste agente: abrir, recolher todos, fechar todos"
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => verCodigoDoTerminal(no)}
+          onClick={(e) => {
+            const caixa = e.currentTarget.getBoundingClientRect()
+            abrirMenu(caixa.left, caixa.top, itensDoCodigoDoTerminal(no))
+          }}
         >
           <FileCode size={12} />
         </button>

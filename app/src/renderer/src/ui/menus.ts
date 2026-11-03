@@ -10,6 +10,8 @@ import {
   AppWindow,
   ArrowDownToLine,
   ArrowUpToLine,
+  ChevronsDownUp,
+  ChevronsUpDown,
   ClipboardPaste,
   Copy,
   FileCode,
@@ -48,6 +50,10 @@ import {
   agrupar,
   alinhar,
   alternarCodigoSozinho,
+  alternarLinhasDoCodigo,
+  contarCodigos,
+  fecharCodigosDoTerminal,
+  recolherCodigosDoTerminal,
   alternarMiniMapa,
   alternarTravaSelecao,
   apagar,
@@ -111,6 +117,46 @@ const separador: ItemMenu = { separador: true }
 export function verCodigoDoTerminal(no: NoTerminal): void {
   // adicionarNo centra no ponto; isto põe o cartão colado à direita do terminal, alinhado pelo topo
   adicionarNo({ tipo: 'codigo', terminal: no.id }, no.x + no.largura + 40 + 310, no.y + 230)
+}
+
+/**
+ * O "node" do mapa mental: tudo sobre os cartões de código de um agente num lugar só. Serve ao menu do
+ * cartão e ao botão no rodapé dele.
+ */
+export function itensDoCodigoDoTerminal(no: NoTerminal): ItemMenu[] {
+  const { total, recolhidos } = contarCodigos(no.id)
+  const comLinhas = lerEstado().preferencias.linhasDoCodigo !== false
+  return [
+    {
+      rotulo: 'Abrir o código sozinho quando ele gravar',
+      icone: FileCode,
+      marcado: no.codigoSozinho !== false,
+      acao: () => alternarCodigoSozinho(no.id)
+    },
+    { rotulo: 'Abrir um cartão agora (segue o que ele mexer)', icone: FileCode, acao: () => verCodigoDoTerminal(no) },
+    separador,
+    {
+      rotulo: total ? `Recolher os ${total} em bloquinhos` : 'Recolher todos',
+      icone: ChevronsDownUp,
+      desligado: !total || recolhidos === total,
+      acao: () => recolherCodigosDoTerminal(no.id, true)
+    },
+    {
+      rotulo: 'Abrir todos',
+      icone: ChevronsUpDown,
+      desligado: !recolhidos,
+      acao: () => recolherCodigosDoTerminal(no.id, false)
+    },
+    {
+      rotulo: total ? `Fechar os ${total} e parar de abrir` : 'Fechar todos e parar de abrir',
+      icone: Trash2,
+      perigo: true,
+      desligado: !total,
+      acao: () => fecharCodigosDoTerminal(no.id)
+    },
+    separador,
+    { rotulo: 'Mostrar as linhas até os cartões', icone: Unlink, marcado: comLinhas, acao: alternarLinhasDoCodigo }
+  ]
 }
 
 /** Terminais deste plano, para escolher a quem anexar ou quem o cartão de código acompanha. */
@@ -320,13 +366,7 @@ export function itensDoNo(no: No): ItemMenu[] {
             if (nome) atualizarNo(no.id, { nome })
           }
         },
-        { rotulo: 'Ver o código que ele escreve', icone: FileCode, acao: () => verCodigoDoTerminal(no) },
-        {
-          rotulo: 'Abrir o código sozinho quando ele gravar',
-          icone: FileCode,
-          marcado: no.codigoSozinho !== false,
-          acao: () => alternarCodigoSozinho(no.id)
-        },
+        { rotulo: 'Código que ele escreve', icone: FileCode, submenu: itensDoCodigoDoTerminal(no) },
         {
           rotulo: 'Anexar ao prompt',
           icone: Paperclip,

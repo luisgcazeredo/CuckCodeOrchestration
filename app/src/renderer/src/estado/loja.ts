@@ -22,7 +22,7 @@ import {
 import { MAX_SESSOES_POR_AGENTE, type AvisoJanelas, type EspecTerminal, type PedidoDoAgente, type RespostaAoAgente } from '../../../shared/api'
 import { proximoZ } from '../../../shared/quadro/geometria'
 import { abrir, fechar, passar } from '../../../shared/quadro/transformacoes'
-import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, enquadrar, lerViewport, seTocam, uniao, type Caixa } from '../quadro/geometria'
+import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, enquadrar, lerViewport, uniao, type Caixa } from '../quadro/geometria'
 
 export type Ferramenta = 'selecionar' | 'postit' | 'texto' | 'desenho'
 
@@ -493,6 +493,12 @@ export function definirTema(tema: Tema): void {
 }
 
 /** Presets de agente (o botão de terminal): ficam nas preferências, valem para todas as janelas. */
+export function alternarLinhasDoCodigo(): void {
+  const atual = estado.preferencias.linhasDoCodigo !== false
+  definir({ preferencias: { ...estado.preferencias, linhasDoCodigo: !atual } })
+  void window.mp.dados.salvarPreferencias(estado.preferencias)
+}
+
 export function definirPresets(presets: PresetAgente[]): void {
   const preferencias = { ...estado.preferencias, presets }
   definir({ preferencias })
@@ -861,7 +867,10 @@ export function adicionarNo(novo: NovoNo, x: number, y: number): string {
 
 /** `chave`: mudanças seguidas com a mesma chave viram um passo de desfazer; `false`: fora do histórico. */
 export function atualizarNo(id: string, parcial: Partial<No>, chave?: string | false): void {
-  mudarPlano((p) => ({ ...p, nos: p.nos.map((n) => (n.id === id ? ({ ...n, ...parcial } as No) : n)) }), chave)
+  // mexer num cartão de código (recolher, prender, redimensionar) tira ele do automático: daí em diante a
+  // posição e o tamanho são do usuário, e o app não arruma mais a coluna por cima dele
+  const meu = (n: No): No => ({ ...n, ...parcial, ...(n.tipo === 'codigo' ? { automatico: false } : {}) }) as No
+  mudarPlano((p) => ({ ...p, nos: p.nos.map((n) => (n.id === id ? meu(n) : n)) }), chave)
 }
 
 /** Põe os cartões por cima de todo o resto, na mesma ordem entre eles. Fora do desfazer. */
@@ -1064,7 +1073,9 @@ export function moverItens(originais: Posicoes, dx: number, dy: number, chave: s
       ...p,
       nos: p.nos.map((n) => {
         const o = nos.get(n.id)
-        return o ? { ...n, x: o.x + dx, y: o.y + dy } : n
+        if (!o) return n
+        // arrastar um cartão de código também o tira do automático (ver atualizarNo)
+        return { ...n, x: o.x + dx, y: o.y + dy, ...(n.tipo === 'codigo' ? { automatico: false } : {}) } as No
       }),
       desenhos: p.desenhos.map((d) => {
         const o = desenhos.get(d.id)
@@ -1099,24 +1110,6 @@ export function apagarSelecao(): void {
       }),
     false
   )
-  // Fechar o cartão de código é o jeito natural de dizer "não quero isto aqui": o automático desliga para
-  // todos os agentes daquela pasta, não só para o dono do cartão — senão ele renasceria colado no agente
-  // vizinho na próxima gravação. Volta pelo menu do cartão do agente.
-  const donos = plano.nos.flatMap((n) => (n.tipo === 'codigo' && nos.has(n.id) && n.terminal ? [n.terminal] : []))
-  const espaco = estado.espaco
-  if (donos.length && espaco) {
-    const pastaDe = (n: NoTerminal): string => n.pasta || pastaDoPlano(espaco)
-    const pastas = new Set(
-      plano.nos.flatMap((n) => (n.tipo === 'terminal' && donos.includes(n.id) ? [pastaDe(n)] : []))
-    )
-    mudarPlano(
-      (p) => ({
-        ...p,
-        nos: p.nos.map((n) => (n.tipo === 'terminal' && pastas.has(pastaDe(n)) ? { ...n, codigoSozinho: false } : n))
-      }),
-      false
-    )
-  }
   const notas = { ...estado.notas }
   for (const n of plano.nos) if (n.tipo === 'postit' && nos.has(n.id)) delete notas[n.arquivo]
   definir({ notas, selecao: { ...NADA, nos: selecao.nos.filter((id) => !nos.has(id)) }, editando: null })
@@ -1377,69 +1370,171 @@ function ajustarVigiasDeCodigo(): void {
   }
   for (const pasta of pastas) {
     if (vigiasDeCodigo.has(pasta)) continue
-    vigiasDeCodigo.set(pasta, window.mp.codigo.vigiar(pasta, () => void aoGravaremNaPasta(pasta)))
+    vigiasDeCodigo.set(pasta, window.mp.codigo.vigiar(pasta, (m) => void aoGravaremNaPasta(pasta, m.caminho)))
   }
 }
 
+/** Tamanho de um cartão de código aberto, e do bloquinho quando ele está recolhido. */
+const ABERTO = { largura: 620, altura: 460 }
+const BLOQUINHO = { largura: 300, altura: 30 }
+/** Quantos arquivos de um agente ficam na coluna. Passando disso, os mais velhos saem. */
+const MAX_NA_COLUNA = 12
+
 /**
- * Gravaram um arquivo na pasta de um agente. Se nenhum agente de lá tem cartão de código, nasce um ao lado
- * do que está trabalhando — vigiar a pasta não diz qual dos agentes gravou, então quem escolhe é a situação
- * da sessão. Um cartão por pasta: dois cartões mostrariam o mesmo arquivo.
+ * Gravaram um arquivo na pasta de um agente: nasce um cartão **para aquele arquivo** ao lado dele, e o do
+ * arquivo anterior se recolhe num bloquinho com o nome — como os ramos de um mapa mental. Um cartão por
+ * arquivo, não um cartão que troca de conteúdo, porque o que interessa é o histórico do que foi mexido.
  */
-async function aoGravaremNaPasta(pasta: string): Promise<void> {
+async function aoGravaremNaPasta(pasta: string, caminho: string): Promise<void> {
   const e = estado.espaco
   if (!e || criandoCodigo) return
   const plano = planoDe(e)
   const daPasta = plano.nos.filter((n): n is NoTerminal => n.tipo === 'terminal' && (n.pasta || pastaDoPlano(e)) === pasta)
-  const jaTemCartao = new Set(plano.nos.flatMap((n) => (n.tipo === 'codigo' && n.terminal ? [n.terminal] : [])))
-  if (!daPasta.length || daPasta.some((n) => jaTemCartao.has(n.id))) return
+  if (!daPasta.length) return
+  const ids = new Set(daPasta.map((n) => n.id))
+  const cartoes = plano.nos.filter((n): n is NoCodigo => n.tipo === 'codigo' && !!n.terminal && ids.has(n.terminal))
+  // já há cartão mostrando este arquivo (preso nele, ou um que segue a pasta): ele mesmo relê
+  if (cartoes.some((c) => c.caminho === caminho || !c.caminho)) return
   const candidatos = daPasta.filter((n) => n.codigoSozinho !== false)
   if (!candidatos.length) return
   criandoCodigo = true
   try {
-    const situacoes = await window.mp.terminal.contextos(e.id).catch(() => [])
-    const como = new Map(situacoes.map((s) => [s.id, s.situacao]))
-    const escolhido =
-      candidatos.find((n) => como.get(n.id) === 'trabalhando') ??
-      candidatos.find((n) => como.get(n.id) !== 'encerrado') ??
-      candidatos[0]
+    // os arquivos de uma pasta ficam na mesma coluna: o dono é quem já tem cartão ali. No primeiro cartão,
+    // decide a situação da sessão — vigiar a pasta não diz qual dos agentes gravou.
+    let dono = candidatos.find((n) => cartoes.some((c) => c.terminal === n.id))
+    if (!dono) {
+      const situacoes = await window.mp.terminal.contextos(e.id).catch(() => [])
+      const como = new Map(situacoes.map((s) => [s.id, s.situacao]))
+      dono =
+        candidatos.find((n) => como.get(n.id) === 'trabalhando') ??
+        candidatos.find((n) => como.get(n.id) !== 'encerrado') ??
+        candidatos[0]
+    }
     // o quadro pode ter mudado enquanto a resposta vinha
-    const agoraNo = acharNo(escolhido.id)
-    if (agoraNo?.tipo === 'terminal') criarCodigoSozinho(agoraNo)
+    const agoraNo = acharNo(dono.id)
+    if (agoraNo?.tipo === 'terminal') criarCodigoDoArquivo(agoraNo, caminho)
   } finally {
     criandoCodigo = false
   }
 }
 
 /**
- * Cartão de código ao lado do agente. Não rouba a seleção nem entra no desfazer: o usuário não pediu agora,
- * e tirar o teclado dele no meio de uma frase seria pior do que não mostrar o código.
+ * Cartão para um arquivo, ao lado do agente. Não rouba a seleção nem entra no desfazer: o usuário não pediu
+ * agora, e tirar o teclado dele no meio de uma frase seria pior do que não mostrar o código.
  */
-function criarCodigoSozinho(terminal: NoTerminal): void {
+function criarCodigoDoArquivo(terminal: NoTerminal, caminho: string): void {
   const plano = planoAtual()
   if (!plano) return
-  const largura = 620
-  const altura = Math.max(320, Math.min(560, terminal.altura))
-  const x = terminal.x + terminal.largura + 40
-  let y = terminal.y
-  // não nasce em cima de outro cartão: desce até achar lugar
-  for (let tentativa = 0; tentativa < 12; tentativa++) {
-    if (!plano.nos.some((n) => seTocam({ x, y, largura, altura }, caixaDoNo(n)))) break
-    y += altura + 30
-  }
   const no: NoCodigo = {
     id: novoId(),
-    x,
-    y,
-    largura,
-    altura,
+    x: terminal.x + terminal.largura + 40,
+    y: terminal.y,
+    ...ABERTO,
     z: proximoZ(plano),
     criadoEm: agora(),
     tipo: 'codigo',
     terminal: terminal.id,
-    modo: 'diff'
+    caminho,
+    modo: 'diff',
+    automatico: true
   }
-  mudarPlano((p) => ({ ...p, nos: [...p.nos, no] }), false)
+  mudarPlano((p) => arrumarColuna({ ...p, nos: [...p.nos, no] }, terminal.id, no.id), false)
+}
+
+/**
+ * Arruma a coluna de um agente: o arquivo mais novo aberto, os outros recolhidos em bloquinhos, do mais novo
+ * para o mais velho. Só mexe nos cartões que o app criou e o usuário não tocou (campo automatico) — depois que
+ * você mexe num cartão, ele é seu e fica onde está.
+ */
+function arrumarColuna(plano: Plano, terminalId: string, abertoId: string): Plano {
+  const terminal = plano.nos.find((n) => n.id === terminalId)
+  if (terminal?.tipo !== 'terminal') return plano
+  const meus = plano.nos
+    .filter((n): n is NoCodigo => n.tipo === 'codigo' && n.automatico === true && n.terminal === terminalId)
+    .sort((a, b) => (a.id === abertoId ? -1 : b.id === abertoId ? 1 : b.criadoEm.localeCompare(a.criadoEm)))
+  const sobrando = new Set(meus.slice(MAX_NA_COLUNA).map((n) => n.id))
+  const x = terminal.x + terminal.largura + 40
+  let y = terminal.y
+  const ajustes = new Map<string, Partial<NoCodigo>>()
+  for (const cartao of meus.slice(0, MAX_NA_COLUNA)) {
+    const aberto = cartao.id === abertoId
+    const larguraAberta = cartao.larguraAberta ?? (cartao.recolhido ? ABERTO.largura : cartao.largura)
+    const alturaAberta = cartao.alturaAberta ?? (cartao.recolhido ? ABERTO.altura : cartao.altura)
+    const largura = aberto ? larguraAberta : BLOQUINHO.largura
+    const altura = aberto ? alturaAberta : BLOQUINHO.altura
+    ajustes.set(cartao.id, { x, y, largura, altura, recolhido: !aberto, larguraAberta, alturaAberta })
+    y += altura + 12
+  }
+  return {
+    ...plano,
+    nos: plano.nos
+      .filter((n) => !sobrando.has(n.id))
+      .map((n) => (ajustes.has(n.id) ? ({ ...n, ...ajustes.get(n.id) } as No) : n))
+  }
+}
+
+/** Cartões de código de um agente, do mais novo para o mais velho. */
+function codigosDoTerminal(plano: Plano, terminalId: string): NoCodigo[] {
+  return plano.nos
+    .filter((n): n is NoCodigo => n.tipo === 'codigo' && n.terminal === terminalId)
+    .sort((a, b) => b.criadoEm.localeCompare(a.criadoEm))
+}
+
+/** Quantos cartões de código um agente tem, e quantos estão recolhidos (para o menu do cartão dele). */
+export function contarCodigos(terminalId: string): { total: number; recolhidos: number } {
+  const plano = planoAtual()
+  if (!plano) return { total: 0, recolhidos: 0 }
+  const meus = codigosDoTerminal(plano, terminalId)
+  return { total: meus.length, recolhidos: meus.filter((n) => n.recolhido).length }
+}
+
+export function recolherCodigosDoTerminal(terminalId: string, recolher: boolean): void {
+  const plano = planoAtual()
+  if (!plano) return
+  const meus = codigosDoTerminal(plano, terminalId)
+  if (!meus.length) return
+  registrarHistorico()
+  const ajustes = new Map<string, Partial<NoCodigo>>()
+  for (const cartao of meus) {
+    if (!!cartao.recolhido === recolher) continue
+    const larguraAberta = cartao.larguraAberta ?? (cartao.recolhido ? ABERTO.largura : cartao.largura)
+    const alturaAberta = cartao.alturaAberta ?? (cartao.recolhido ? ABERTO.altura : cartao.altura)
+    ajustes.set(cartao.id, {
+      recolhido: recolher,
+      larguraAberta,
+      alturaAberta,
+      largura: recolher ? BLOQUINHO.largura : larguraAberta,
+      altura: recolher ? BLOQUINHO.altura : alturaAberta
+    })
+  }
+  mudarPlano(
+    (p) => ({ ...p, nos: p.nos.map((n) => (ajustes.has(n.id) ? ({ ...n, ...ajustes.get(n.id) } as No) : n)) }),
+    false
+  )
+}
+
+/**
+ * Fecha todos os cartões de código de um agente e desliga o automático da pasta dele. É o gesto de "não
+ * quero isto aqui": fechar um cartão só fecha aquele arquivo, e o próximo que o agente mexer abre de novo.
+ */
+export function fecharCodigosDoTerminal(terminalId: string): void {
+  const espaco = estado.espaco
+  const plano = planoAtual()
+  if (!espaco || !plano) return
+  const meus = new Set(codigosDoTerminal(plano, terminalId).map((n) => n.id))
+  const alvo = plano.nos.find((n) => n.id === terminalId)
+  if (alvo?.tipo !== 'terminal') return
+  const pastaDoAgente = alvo.pasta || pastaDoPlano(espaco)
+  registrarHistorico()
+  mudarPlano(
+    (p) => ({
+      ...p,
+      nos: p.nos
+        .filter((n) => !meus.has(n.id))
+        .map((n) => (n.tipo === 'terminal' && (n.pasta || pastaDoPlano(espaco)) === pastaDoAgente ? { ...n, codigoSozinho: false } : n))
+    }),
+    false
+  )
 }
 
 /** Ligar ou desligar o cartão de código automático de um agente. */

@@ -2083,9 +2083,36 @@ kbd {
 }
 
 .codigo-linha {
-  display: block;
-  padding: 0 10px;
+  display: flex;
+  /* a linha ocupa a largura do conteúdo, para o fundo do diff cobrir até o fim da linha mais longa */
+  width: max-content;
+  min-width: 100%;
   white-space: pre;
+}
+
+/* canaleta da esquerda: número da linha, ou o sinal do diff */
+.codigo-numero {
+  flex-shrink: 0;
+  width: 3.4em;
+  padding-right: 10px;
+  text-align: right;
+  color: var(--texto-suave);
+  opacity: 0.65;
+  user-select: none;
+}
+
+.codigo-linha.mais .codigo-numero {
+  color: #34c759;
+  opacity: 1;
+}
+
+.codigo-linha.menos .codigo-numero {
+  color: #ff3b30;
+  opacity: 1;
+}
+
+.codigo-linha code {
+  padding-right: 10px;
 }
 
 /* o verde e o vermelho do diff, fundo discreto para não brigar com o texto */
@@ -2151,4 +2178,136 @@ kbd {
   stroke-width: 1.4;
   stroke-dasharray: 3 5;
   opacity: 0.75;
+}
+
+/* ---------- realce de sintaxe: cores do Dark+ e do Light+ do VS Code ---------- */
+/* Os nomes das classes vêm do highlight.js; os valores, dos temas do VS Code. */
+
+.tema-escuro {
+  --cod-texto: #d4d4d4;
+  --cod-comentario: #6a9955;
+  --cod-palavra: #569cd6;
+  --cod-controle: #c586c0;
+  --cod-texto-literal: #ce9178;
+  --cod-numero: #b5cea8;
+  --cod-funcao: #dcdcaa;
+  --cod-tipo: #4ec9b0;
+  --cod-variavel: #9cdcfe;
+  --cod-regex: #d16969;
+}
+
+.tema-claro {
+  --cod-texto: #000000;
+  --cod-comentario: #008000;
+  --cod-palavra: #0000ff;
+  --cod-controle: #af00db;
+  --cod-texto-literal: #a31515;
+  --cod-numero: #098658;
+  --cod-funcao: #795e26;
+  --cod-tipo: #267f99;
+  --cod-variavel: #001080;
+  --cod-regex: #811f3f;
+}
+
+.codigo-linhas {
+  color: var(--cod-texto);
+}
+
+.codigo-linhas .hljs-comment,
+.codigo-linhas .hljs-quote {
+  color: var(--cod-comentario);
+  font-style: italic;
+}
+
+.codigo-linhas .hljs-keyword,
+.codigo-linhas .hljs-selector-tag,
+.codigo-linhas .hljs-literal,
+.codigo-linhas .hljs-tag,
+.codigo-linhas .hljs-name,
+.codigo-linhas .hljs-doctag {
+  color: var(--cod-palavra);
+}
+
+.codigo-linhas .hljs-meta,
+.codigo-linhas .hljs-section,
+.codigo-linhas .hljs-selector-pseudo {
+  color: var(--cod-controle);
+}
+
+.codigo-linhas .hljs-string,
+.codigo-linhas .hljs-char.escape_,
+.codigo-linhas .hljs-link,
+.codigo-linhas .hljs-symbol,
+.codigo-linhas .hljs-bullet {
+  color: var(--cod-texto-literal);
+}
+
+.codigo-linhas .hljs-number,
+.codigo-linhas .hljs-selector-attr {
+  color: var(--cod-numero);
+}
+
+.codigo-linhas .hljs-title.function_,
+.codigo-linhas .hljs-title.function_.invoke__,
+.codigo-linhas .hljs-built_in {
+  color: var(--cod-funcao);
+}
+
+.codigo-linhas .hljs-title,
+.codigo-linhas .hljs-title.class_,
+.codigo-linhas .hljs-type,
+.codigo-linhas .hljs-selector-class {
+  color: var(--cod-tipo);
+}
+
+.codigo-linhas .hljs-variable,
+.codigo-linhas .hljs-attr,
+.codigo-linhas .hljs-attribute,
+.codigo-linhas .hljs-property,
+.codigo-linhas .hljs-params,
+.codigo-linhas .hljs-template-variable,
+.codigo-linhas .hljs-selector-id {
+  color: var(--cod-variavel);
+}
+
+.codigo-linhas .hljs-regexp {
+  color: var(--cod-regex);
+}
+
+.codigo-linhas .hljs-strong,
+.codigo-linhas .hljs-emphasis {
+  color: var(--cod-palavra);
+}
+
+.codigo-linhas .hljs-strong {
+  font-weight: 700;
+}
+
+.codigo-linhas .hljs-emphasis {
+  font-style: italic;
+}
+
+/* linha vazia ocupa a altura de uma linha, senão o diff "pula" */
+.codigo-linha {
+  min-height: 1.45em;
+}
+
+.codigo-linhas {
+  padding-left: 0;
+}
+
+/* ---------- cartão de código recolhido: o bloquinho com o nome ---------- */
+
+.no-codigo.recolhido .cartao-ferramenta-cabecalho {
+  cursor: grab;
+}
+
+.no-codigo.recolhido .cartao-ferramenta {
+  border-radius: 8px;
+}
+
+.no-codigo.recolhido .cartao-ferramenta-titulo {
+  font-weight: 500;
+  font-family: var(--fonte-mono);
+  font-size: 11px;
 }

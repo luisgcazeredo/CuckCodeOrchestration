@@ -53,6 +53,7 @@ export function Quadro() {
   const selecao = usarLoja((e) => e.selecao)
   const editando = usarLoja((e) => e.editando)
   const ferramenta = usarLoja((e) => e.ferramenta)
+  const linhasDoCodigo = usarLoja((e) => e.preferencias.linhasDoCodigo !== false)
   const estilo = usarLoja((e) => e.estiloDesenho)
   const area = useRef<HTMLDivElement>(null)
   const [gesto, setGesto] = useState<Gesto | null>(null)
@@ -374,7 +375,7 @@ export function Quadro() {
               return <Codigo key={no.id} no={no} selecionado={marcado} />
           }
         })}
-        <CamadaVinculos nos={plano.nos} />
+        {linhasDoCodigo && <CamadaVinculos nos={plano.nos} />}
         <CamadaSelecao plano={plano} selecao={selecao} />
         <CamadaGuias />
         {gesto?.tipo === 'desenhar' && (

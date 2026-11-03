@@ -87,8 +87,14 @@ export interface NoCodigo extends NoBase {
   modo: 'diff' | 'conteudo'
   /** Só o cabeçalho à mostra, para não espalhar o quadro. */
   recolhido?: boolean
-  /** Altura de antes de recolher, para o cartão voltar ao tamanho que era. */
+  /** Tamanho de antes de recolher, para o cartão voltar ao que era. */
   alturaAberta?: number
+  larguraAberta?: number
+  /**
+   * Criado pelo app, e o usuário ainda não tocou. Só nesses o app mexe sozinho (arruma a coluna, recolhe o
+   * anterior): depois que você mexe num cartão, ele é seu e fica onde está.
+   */
+  automatico?: boolean
 }
 
 /** Navegador dentro do quadro. */
@@ -230,6 +236,8 @@ export interface Preferencias {
   tema: Tema
   presets: PresetAgente[]
   corPostItPadrao: CorPostIt
+  /** false esconde as linhas entre o agente e os cartões de código dele. Campo novo: sem ele, mostra. */
+  linhasDoCodigo?: boolean
 }
 
 export interface EstadoJanela {

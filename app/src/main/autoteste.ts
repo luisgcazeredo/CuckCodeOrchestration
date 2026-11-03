@@ -1536,7 +1536,7 @@ export async function rodarAutoteste(
       nome: 'codigo-explorador',
       depende: 'mpro',
       rodar: async (d) => {
-        const { esperar, js, conferir, comando, aguardar, telaNoApp, clicarEm, print, teclar, ultimas } = d
+        const { esperar, js, conferir, comando, comandoAte, aguardar, telaNoApp, clicarEm, print, teclar, ultimas } = d
         // o cenário anterior pode ter deixado outro espaço à mostra; o shell "chefe" mora neste
         await js(`window.__teste.loja.abrirEspaco(${JSON.stringify(espacoTerminais)}, null)`)
         await esperar(700)
@@ -1545,9 +1545,11 @@ export async function rodarAutoteste(
             if (n) L.definirCamera({ x: -n.x + 60, y: -n.y + 60, zoom: 1 }) })()`)
           await esperar(500)
         }
+        // a marca é procurada no começo da linha: a própria linha digitada aparece na tela com o texto dela
+        // dentro, e sem a âncora a espera terminava no eco, antes de o comando ter rodado
         const gravar = async (nome: string, texto: string, marca: string): Promise<void> => {
           await comando(chefe, `Set-Content -Encoding utf8 ${nome} '${texto}'; echo ${marca}`)
-          await aguardar(() => telaNoApp(chefe), marca, 15_000)
+          await aguardar(() => telaNoApp(chefe), new RegExp(`^${marca}`, 'm'), 15_000)
           await esperar(600) // a vigia junta a rajada de gravação antes de avisar
         }
 
@@ -1566,41 +1568,92 @@ export async function rodarAutoteste(
         const noCartao = (parte: string): Promise<string> =>
           js<string>(`document.querySelector('[data-no-id="${idCodigo}"] ${parte}')?.innerText ?? ''`)
         const corpo = (): Promise<string> => noCartao('.codigo-corpo')
-        const titulo = (): Promise<string> => noCartao('.cartao-ferramenta-titulo')
 
         const visto = await aguardar(corpo, 'const um = 1', 15_000)
         conferir('cartão de código mostra o arquivo que o agente acabou de gravar', visto.includes('const um = 1'), ultimas(visto, 2))
         // pasta de teste não tem git: o cartão mostra o arquivo e diz por quê, em vez de só dar erro
         conferir('sem git, o cartão cai para o arquivo inteiro', visto.includes('pasta sem git'), ultimas(visto, 2))
 
-        await gravar('outro.ts', 'const dois = 2', 'FIM-GRAVOU2')
-        const segundo = await aguardar(titulo, 'outro.ts', 15_000)
-        conferir('o cartão segue o arquivo mexido por último', segundo === 'outro.ts', segundo)
+        // realce de sintaxe: o corpo vem com as marcas do highlight.js, não texto cru
+        const html = await js<string>(`document.querySelector('[data-no-id="${idCodigo}"] .codigo-linhas')?.innerHTML ?? ''`)
+        conferir('o código aparece colorido (realce de sintaxe)', html.includes('class="hljs-'), html.slice(0, 80))
 
-        // segredo não é seguido nem mostrado, mesmo recém-gravado
-        await gravar('.env', 'SENHA=1234', 'FIM-ENV')
-        await esperar(1200)
-        const tituloDepois = await titulo()
-        const corpoDepois = await corpo()
+        // arquivo novo = cartão novo; o do arquivo anterior fica de bloquinho com o nome
+        const cartoes = (): Promise<Array<{ id: string; caminho: string; recolhido: boolean; terminal: string }>> =>
+          js(`window.__teste.loja.planoAtual().nos.filter((n) => n.tipo === 'codigo')
+            .map((n) => ({ id: n.id, caminho: n.caminho ?? '', recolhido: !!n.recolhido, terminal: n.terminal ?? '' }))`)
+        await gravar('outro.ts', 'const dois = 2', 'FIM-GRAVOU2')
+        let lista = await cartoes()
+        for (let i = 0; i < 40 && lista.length < 2; i++) {
+          await esperar(300)
+          lista = await cartoes()
+        }
+        const aberto = lista.find((c) => !c.recolhido)
+        const bloquinho = lista.find((c) => c.recolhido)
+        const resumo = (l: typeof lista): string => l.map((c) => `${c.caminho}${c.recolhido ? ' (bloquinho)' : ''}`).join(' | ')
         conferir(
-          'arquivo com cara de segredo não é seguido nem mostrado',
-          tituloDepois === 'outro.ts' && !corpoDepois.includes('SENHA=1234'),
-          `título ${tituloDepois}`
+          'arquivo novo abre cartão novo e o anterior vira bloquinho',
+          lista.length === 2 && !!aberto?.caminho.endsWith('outro.ts') && !!bloquinho?.caminho.endsWith('exemplo.ts'),
+          resumo(lista)
+        )
+        const dono = lista[0]?.terminal ?? ''
+
+        // segredo não abre cartão, mesmo recém-gravado
+        await gravar('.env', 'SENHA=1234', 'FIM-ENV')
+        await esperar(1500)
+        const comEnv = await cartoes()
+        conferir(
+          'arquivo com cara de segredo não abre cartão',
+          comEnv.length === 2 && !comEnv.some((c) => c.caminho.endsWith('.env')),
+          resumo(comEnv)
         )
 
-        // prender: o cartão para de seguir e fica no arquivo escolhido
-        await irPara(idCodigo)
-        const prendeu = await clicarEm(`[data-no-id="${idCodigo}"] button[title^="Prender"]`)
-        await gravar('terceiro.ts', 'const tres = 3', 'FIM-GRAVOU3')
-        await esperar(1200)
-        const presoEm = await titulo()
-        conferir('preso num arquivo, não muda quando o agente grava outro', prendeu && presoEm === 'outro.ts', `${prendeu ? '' : 'sem botão · '}${presoEm}`)
-
-        // recolher encolhe o cartão de verdade (era o pedido de não espalhar o quadro)
-        const recolheu = await clicarEm(`[data-no-id="${idCodigo}"] button[title^="Recolher"]`)
+        // recolher pelo botão do cartão: encolhe de verdade (era o pedido de não espalhar o quadro)
+        const idAberto = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'codigo' && !n.recolhido)?.id ?? ''`)
+        await irPara(idAberto)
+        const recolheu = await clicarEm(`[data-no-id="${idAberto}"] button[title^="Recolher"]`)
         await esperar(400)
-        const altura = await js<number>(`window.__teste.loja.acharNo('${idCodigo}').altura`)
-        conferir('recolher encolhe o cartão', recolheu && altura === 30, `altura ${altura}`)
+        const tamanho = await js<{ largura: number; altura: number }>(`(() => { const n = window.__teste.loja.acharNo('${idAberto}')
+          return { largura: n.largura, altura: n.altura } })()`)
+        conferir('recolher encolhe o cartão num bloquinho', recolheu && tamanho.altura === 30 && tamanho.largura === 300, JSON.stringify(tamanho))
+
+        // o "node" do agente: recolher todos e abrir todos de uma vez
+        await js(`window.__teste.loja.recolherCodigosDoTerminal('${dono}', true)`)
+        await esperar(400)
+        const todosBloquinho = (await cartoes()).every((c) => c.recolhido)
+        await js(`window.__teste.loja.recolherCodigosDoTerminal('${dono}', false)`)
+        await esperar(400)
+        const todosAbertos = (await cartoes()).every((c) => !c.recolhido)
+        conferir('recolher todos e abrir todos, pelo agente', todosBloquinho && todosAbertos, `recolheu ${todosBloquinho} · abriu ${todosAbertos}`)
+
+        // com git, o cartão mostra o diff de verdade — é o caso principal, e sem repositório ele nunca roda
+        // comandoAte repete: tecla sintética se perde de vez em quando, e esta linha vem depois de muito
+        // clique na interface (é a armadilha conhecida do autoteste)
+        const saidaGit = await comandoAte(
+          chefe,
+          'git init -q; git add -A; git -c user.email=t@teste -c user.name=Teste commit -qm base; ' +
+            'if (Test-Path .git) { echo GIT-PRONTO } else { echo GIT-FALHOU }',
+          /^GIT-(PRONTO|FALHOU)/m,
+          40_000
+        )
+        conferir('o git do cenário foi preparado', /^GIT-PRONTO/m.test(saidaGit), ultimas(saidaGit, 3))
+        const doExemplo = (await cartoes()).find((c) => c.caminho.endsWith('exemplo.ts'))?.id ?? ''
+        await gravar('exemplo.ts', 'const um = 111', 'FIM-GRAVOU-DIFF')
+        const comDiff = await aguardar(
+          () => js<string>(`document.querySelector('[data-no-id="${doExemplo}"] .codigo-corpo')?.innerText ?? ''`),
+          'const um = 111',
+          15_000
+        )
+        const linhasDoDiff = await js<{ mais: number; menos: number }>(`(() => {
+          const corpo = document.querySelector('[data-no-id="${doExemplo}"] .codigo-corpo')
+          return { mais: corpo?.querySelectorAll('.codigo-linha.mais').length ?? 0, menos: corpo?.querySelectorAll('.codigo-linha.menos').length ?? 0 }
+        })()`)
+        conferir(
+          'com git, o cartão mostra o diff: linha que entrou e linha que saiu',
+          linhasDoDiff.mais === 1 && linhasDoDiff.menos === 1 && !comDiff.includes('pasta sem git'),
+          `+${linhasDoDiff.mais} -${linhasDoDiff.menos} · ${ultimas(comDiff, 2)}`
+        )
+        await print('codigo-diff')
 
         // explorador da direita
         await js('window.__teste.loja.alternarExplorador()')
@@ -1627,16 +1680,26 @@ export async function rodarAutoteste(
         await js('window.__teste.loja.alternarExplorador()')
         await esperar(300)
 
-        // fechar o cartão desliga o automático da pasta: ele não volta na gravação seguinte (nem colado no
-        // agente vizinho, que é o que aconteceria se o desligamento fosse só do dono do cartão)
-        const dono = await js<string>(`window.__teste.loja.acharNo('${idCodigo}')?.terminal ?? ''`)
+        // fechar um cartão só fecha aquele arquivo: o próximo que o agente mexer abre outro
         await js(`window.__teste.loja.apagar({ tipo: 'no', id: '${idCodigo}' })`)
+        await esperar(300)
+        await gravar('terceiro.ts', 'const tres = 3', 'FIM-GRAVOU3')
+        await esperar(1500)
+        const depoisDeFecharUm = await cartoes()
+        conferir(
+          'fechar um cartão não para o automático; o arquivo seguinte abre outro',
+          depoisDeFecharUm.some((c) => c.caminho.endsWith('terceiro.ts')),
+          resumo(depoisDeFecharUm)
+        )
+
+        // "fechar todos" é o gesto de parar: apaga a coluna e desliga o automático da pasta
+        await js(`window.__teste.loja.fecharCodigosDoTerminal('${dono}')`)
         await esperar(400)
         const desligou = await js<boolean>(`window.__teste.loja.acharNo('${dono}')?.codigoSozinho === false`)
         await gravar('quarto.ts', 'const quatro = 4', 'FIM-GRAVOU4')
         await esperar(1500)
-        const quantos = await js<number>(`window.__teste.loja.planoAtual().nos.filter((n) => n.tipo === 'codigo').length`)
-        conferir('fechar o cartão desliga o automático daquela pasta', desligou && quantos === 0, `desligou ${desligou} · cartões ${quantos}`)
+        const quantos = (await cartoes()).length
+        conferir('fechar todos desliga o automático da pasta', desligou && quantos === 0, `desligou ${desligou} · cartões ${quantos}`)
       }
     },
   ]
