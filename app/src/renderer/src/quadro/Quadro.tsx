@@ -21,6 +21,7 @@ import {
   type Alvo
 } from '../estado/loja'
 import { Arquivo } from '../nos/Arquivo'
+import { Codigo } from '../nos/Codigo'
 import { Imagem } from '../nos/Imagem'
 import { ArvorePasta } from '../nos/ArvorePasta'
 import { PecaTerminal } from '../nos/PecaTerminal'
@@ -29,7 +30,7 @@ import { PostIt } from '../nos/PostIt'
 import { Texto } from '../nos/Texto'
 import { abrirMenu } from '../ui/MenuContexto'
 import { itensDaCorda, itensDaSelecao, itensDoDesenho, itensDoFundo, itensDoNo } from '../ui/menus'
-import { CamadaCordas, CamadaDesenhos, CamadaGuias, CamadaSelecao, FormaDesenho } from './Camadas'
+import { CamadaCordas, CamadaDesenhos, CamadaGuias, CamadaSelecao, CamadaVinculos, FormaDesenho } from './Camadas'
 import { marcarGesto, type Marca } from './MolduraNo'
 import { caixaDoDesenho, caixaDoNo, caixaEntre, definirMouse, definirViewport, seTocam, telaParaQuadro, zoomEm, type Ponto } from './geometria'
 
@@ -369,8 +370,11 @@ export function Quadro() {
               return <Portal key={no.id} no={no} selecionado={marcado} />
             case 'imagem':
               return <Imagem key={no.id} no={no} selecionado={marcado} />
+            case 'codigo':
+              return <Codigo key={no.id} no={no} selecionado={marcado} />
           }
         })}
+        <CamadaVinculos nos={plano.nos} />
         <CamadaSelecao plano={plano} selecao={selecao} />
         <CamadaGuias />
         {gesto?.tipo === 'desenhar' && (

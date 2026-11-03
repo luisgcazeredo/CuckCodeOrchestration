@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { CANAIS_APP } from '../shared/api'
 import { registrarAndares } from './andares'
 import { registrarArea, registrarEsquemaImagem, servirImagens } from './area'
+import { registrarCodigo } from './codigo'
 import { registrarComandos } from './comandos'
 import { idsDosEspacos, quandoApagarEspaco, registrarDados } from './dados'
 import { encerrarNavegador, registrarNavegador, soltarAbasDaJanela } from './navegador'
@@ -187,6 +188,7 @@ if (!autoteste && !app.requestSingleInstanceLock()) {
     servirImagens()
     registrarTerminais()
     registrarComandos()
+    registrarCodigo()
     quandoApagarEspaco(encerrarDoEspaco)
     criarJanela()
   })

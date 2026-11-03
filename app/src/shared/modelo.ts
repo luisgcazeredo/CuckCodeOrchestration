@@ -71,6 +71,24 @@ export interface NoPasta extends NoBase {
   expandidas: string[]
 }
 
+/**
+ * Cartão que mostra o código: acompanha um cartão de terminal e segue o arquivo que o agente mexeu por
+ * último, ou fica preso num arquivo escolhido à mão.
+ */
+export interface NoCodigo extends NoBase {
+  tipo: 'codigo'
+  /** Terminal acompanhado; sem ele (ou se o cartão saiu do quadro), segue a pasta do espaço ou do andar. */
+  terminal?: string
+  /** Arquivo preso pelo usuário; sem ele, segue o mais recente da pasta. */
+  caminho?: string
+  /** O que mudou desde o último commit, ou o arquivo inteiro. */
+  modo: 'diff' | 'conteudo'
+  /** Só o cabeçalho à mostra, para não espalhar o quadro. */
+  recolhido?: boolean
+  /** Altura de antes de recolher, para o cartão voltar ao tamanho que era. */
+  alturaAberta?: number
+}
+
 /** Navegador dentro do quadro. */
 export interface NoPortal extends NoBase {
   tipo: 'portal'
@@ -90,7 +108,7 @@ export interface EntradaPasta {
   ehPasta: boolean
 }
 
-export type No = NoTerminal | NoPostIt | NoTexto | NoArquivo | NoPasta | NoPortal | NoImagem
+export type No = NoTerminal | NoPostIt | NoTexto | NoArquivo | NoPasta | NoPortal | NoImagem | NoCodigo
 export type TipoNo = No['tipo']
 
 /** Ligação entre dois terminais: é a permissão de um agente falar com o outro pelo `mpro`. */
@@ -216,6 +234,8 @@ export interface EstadoJanela {
   versao: 1
   espacoAtivo: string | null
   lateralAberta: boolean
+  /** Barra da direita: as pastas que o usuário deixou abertas ali. Campo novo: arquivo antigo não tem. */
+  explorador?: { aberto: boolean; raizes: string[] }
 }
 
 export interface EspacoCarregado {

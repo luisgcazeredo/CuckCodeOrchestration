@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { Gauge, Map as IconeMapa, Minus, Moon, PanelLeft, Plus, Scan, Sun } from 'lucide-react'
+import { Gauge, Map as IconeMapa, Minus, Moon, PanelLeft, PanelRight, Plus, Scan, Sun } from 'lucide-react'
 import type { ResumoContextoTerminal } from '../../../shared/api'
-import { alternarLateral, alternarMiniMapa, definirCamera, definirTema, enquadrarNo, planoAtual, planoDe, usarLoja } from '../estado/loja'
+import {
+  alternarExplorador,
+  alternarLateral,
+  alternarMiniMapa,
+  definirCamera,
+  definirTema,
+  enquadrarNo,
+  planoAtual,
+  planoDe,
+  usarLoja
+} from '../estado/loja'
 import { COR_AGENTE, ICONE_AGENTE } from '../nos/icones'
 import { BotaoAndares, IndicadorAndar } from './Andares'
 import {
@@ -46,8 +56,16 @@ export function BotaoLateral() {
 
 export function CantoSuperior() {
   const tema = usarLoja((e) => e.preferencias.tema)
+  const explorador = usarLoja((e) => e.explorador.aberto)
   return (
     <div className="canto-superior">
+      <button
+        className={`botao-redondo ${explorador ? 'ativo' : ''}`}
+        title="Arquivos e pastas (Ctrl+Shift+E)"
+        onClick={alternarExplorador}
+      >
+        <PanelRight size={16} />
+      </button>
       <button className="botao-redondo" title="Ver tudo" onClick={enquadrarTudo}>
         <Scan size={16} />
       </button>

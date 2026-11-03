@@ -139,6 +139,27 @@ export const CamadaCordas = memo(function CamadaCordas({
 })
 
 /**
+ * Linha pontilhada do cartão de código até o agente que ele acompanha. Não é corda: corda é permissão de um
+ * agente falar com outro; isto é só "estes dois se olham juntos".
+ */
+export const CamadaVinculos = memo(function CamadaVinculos({ nos }: { nos: No[] }) {
+  const porId = new Map(nos.map((n) => [n.id, n]))
+  const pares = nos.flatMap((n) => {
+    if (n.tipo !== 'codigo' || !n.terminal) return []
+    const agente = porId.get(n.terminal)
+    return agente ? [{ id: n.id, agente, cartao: n }] : []
+  })
+  if (!pares.length) return null
+  return (
+    <svg className="camada-svg camada-vinculos">
+      {pares.map(({ id, agente, cartao }) => (
+        <path key={id} d={curvaEntre(agente, cartao)} className="vinculo-linha" />
+      ))}
+    </svg>
+  )
+})
+
+/**
  * Por cima de tudo: a caixa em volta da seleção (com mais de um item) e, quando só parte de um grupo está
  * selecionada (você "entrou" no grupo), o contorno pontilhado do grupo inteiro.
  */

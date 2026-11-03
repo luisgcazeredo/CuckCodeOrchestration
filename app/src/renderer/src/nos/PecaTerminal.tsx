@@ -1,8 +1,11 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Folder, PanelBottom } from 'lucide-react'
+import { FileCode, Folder, PanelBottom, Paperclip } from 'lucide-react'
 import type { NoTerminal } from '../../../shared/modelo'
 import { MolduraNo, type Marca } from '../quadro/MolduraNo'
 import { CorpoXterm } from '../terminal/CorpoXterm'
+import { abrirMenu } from '../ui/MenuContexto'
+import { anexarArquivosAoPrompt, anexarPastaAoPrompt } from '../ui/anexar'
+import { verCodigoDoTerminal } from '../ui/menus'
 import { COR_AGENTE, ICONE_AGENTE } from './icones'
 
 /** Fora da tela por este tempo, o cartão para de desenhar (o processo segue rodando). */
@@ -69,6 +72,28 @@ export const PecaTerminal = memo(function PecaTerminal({ no, selecionado, pastaD
       <footer className="terminal-rodape" data-arrasta>
         <Folder size={11} />
         <span title={pasta}>{pastaCurta(pasta)}</span>
+        <button
+          className="botao-mini"
+          title="Anexar arquivo ou pasta ao prompt (escreve o caminho na linha do agente)"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            const caixa = e.currentTarget.getBoundingClientRect()
+            abrirMenu(caixa.left, caixa.top, [
+              { rotulo: 'Arquivo…', acao: () => void anexarArquivosAoPrompt(no.id) },
+              { rotulo: 'Pasta…', acao: () => void anexarPastaAoPrompt(no.id) }
+            ])
+          }}
+        >
+          <Paperclip size={12} />
+        </button>
+        <button
+          className="botao-mini"
+          title="Ver o código que ele está escrevendo"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => verCodigoDoTerminal(no)}
+        >
+          <FileCode size={12} />
+        </button>
         <PanelBottom size={12} className="terminal-alternar" />
       </footer>
       <span className="porta porta-esquerda" data-porta={no.id} title="Arraste até outro terminal para ligar" />

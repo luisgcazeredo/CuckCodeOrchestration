@@ -93,6 +93,7 @@ const COR_MINI: Record<No['tipo'], string> = {
   texto: 'transparent',
   arquivo: '#d8d8dc',
   pasta: '#d8d8dc',
+  codigo: '#2b2b32',
   portal: '#ffffff',
   imagem: '#8e8e93'
 }

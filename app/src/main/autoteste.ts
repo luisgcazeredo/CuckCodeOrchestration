@@ -1532,6 +1532,94 @@ export async function rodarAutoteste(
 
       },
     },
+    {
+      nome: 'codigo-explorador',
+      depende: 'mpro',
+      rodar: async (d) => {
+        const { esperar, js, conferir, comando, aguardar, telaNoApp, clicarEm, print, teclar, ultimas } = d
+        // o cenário anterior pode ter deixado outro espaço à mostra; o shell "chefe" mora neste
+        await js(`window.__teste.loja.abrirEspaco(${JSON.stringify(espacoTerminais)}, null)`)
+        await esperar(700)
+        const irPara = async (id: string): Promise<void> => {
+          await js(`(() => { const L = window.__teste.loja; const n = L.planoAtual().nos.find((x) => x.id === ${JSON.stringify(id)})
+            if (n) L.definirCamera({ x: -n.x + 60, y: -n.y + 60, zoom: 1 }) })()`)
+          await esperar(500)
+        }
+        const gravar = async (nome: string, texto: string, marca: string): Promise<void> => {
+          await comando(chefe, `Set-Content -Encoding utf8 ${nome} '${texto}'; echo ${marca}`)
+          await aguardar(() => telaNoApp(chefe), marca, 15_000)
+          await esperar(600) // a vigia junta a rajada de gravação antes de avisar
+        }
+
+        // o shell grava um arquivo na pasta do espaço: é o que um agente faria
+        await gravar('exemplo.ts', 'const um = 1', 'FIM-GRAVOU1')
+        const idCodigo = await js<string>(`(() => { const L = window.__teste.loja
+          return L.adicionarNo({ tipo: 'codigo', terminal: ${JSON.stringify(chefe)} }, 1700, 320) })()`)
+        const noCartao = (parte: string): Promise<string> =>
+          js<string>(`document.querySelector('[data-no-id="${idCodigo}"] ${parte}')?.innerText ?? ''`)
+        const corpo = (): Promise<string> => noCartao('.codigo-corpo')
+        const titulo = (): Promise<string> => noCartao('.cartao-ferramenta-titulo')
+
+        const visto = await aguardar(corpo, 'const um = 1', 15_000)
+        conferir('cartão de código mostra o arquivo que o agente acabou de gravar', visto.includes('const um = 1'), ultimas(visto, 2))
+        // pasta de teste não tem git: o cartão mostra o arquivo e diz por quê, em vez de só dar erro
+        conferir('sem git, o cartão cai para o arquivo inteiro', visto.includes('pasta sem git'), ultimas(visto, 2))
+
+        await gravar('outro.ts', 'const dois = 2', 'FIM-GRAVOU2')
+        const segundo = await aguardar(titulo, 'outro.ts', 15_000)
+        conferir('o cartão segue o arquivo mexido por último', segundo === 'outro.ts', segundo)
+
+        // segredo não é seguido nem mostrado, mesmo recém-gravado
+        await gravar('.env', 'SENHA=1234', 'FIM-ENV')
+        await esperar(1200)
+        const tituloDepois = await titulo()
+        const corpoDepois = await corpo()
+        conferir(
+          'arquivo com cara de segredo não é seguido nem mostrado',
+          tituloDepois === 'outro.ts' && !corpoDepois.includes('SENHA=1234'),
+          `título ${tituloDepois}`
+        )
+
+        // prender: o cartão para de seguir e fica no arquivo escolhido
+        await irPara(idCodigo)
+        const prendeu = await clicarEm(`[data-no-id="${idCodigo}"] button[title^="Prender"]`)
+        await gravar('terceiro.ts', 'const tres = 3', 'FIM-GRAVOU3')
+        await esperar(1200)
+        const presoEm = await titulo()
+        conferir('preso num arquivo, não muda quando o agente grava outro', prendeu && presoEm === 'outro.ts', `${prendeu ? '' : 'sem botão · '}${presoEm}`)
+
+        // recolher encolhe o cartão de verdade (era o pedido de não espalhar o quadro)
+        const recolheu = await clicarEm(`[data-no-id="${idCodigo}"] button[title^="Recolher"]`)
+        await esperar(400)
+        const altura = await js<number>(`window.__teste.loja.acharNo('${idCodigo}').altura`)
+        conferir('recolher encolhe o cartão', recolheu && altura === 30, `altura ${altura}`)
+
+        // explorador da direita
+        await js('window.__teste.loja.alternarExplorador()')
+        await esperar(500)
+        await clicarEm('.explorador-raiz-topo')
+        const listado = await aguardar(() => js<string>(`document.querySelector('.explorador-arvore')?.innerText ?? ''`), 'exemplo.ts', 10_000)
+        conferir(
+          'explorador da direita lista os arquivos da pasta do espaço',
+          listado.includes('exemplo.ts') && listado.includes('outro.ts'),
+          listado.split('\n').filter(Boolean).slice(0, 6).join(' | ')
+        )
+        await print('codigo-explorador')
+
+        // botão de anexo no cartão do terminal (o diálogo do sistema não dá para dirigir no teste)
+        await irPara(chefe)
+        const abriu = await clicarEm(`[data-no-id="${chefe}"] button[title^="Anexar"]`)
+        const menu = await js<string>(`document.querySelector('.menu-contexto')?.innerText ?? ''`)
+        conferir(
+          'botão de anexo abre as opções no cartão do terminal',
+          abriu && menu.includes('Arquivo') && menu.includes('Pasta'),
+          menu.split('\n').filter(Boolean).join(' | ') || 'menu não abriu'
+        )
+        await teclar('Escape')
+        await js('window.__teste.loja.alternarExplorador()')
+        await esperar(300)
+      }
+    },
   ]
   const filtro = (process.env.MP_CENARIOS ?? '')
     .split(',')

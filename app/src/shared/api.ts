@@ -106,6 +106,8 @@ export interface ApiDados {
   salvarEstado(estado: EstadoJanela): Promise<void>
   escolherPasta(): Promise<string | null>
   escolherArquivo(): Promise<{ caminho: string; nome: string } | null>
+  /** Vários arquivos de uma vez (anexar ao prompt de um agente). */
+  escolherArquivos(): Promise<Array<{ caminho: string; nome: string }>>
   abrirArquivo(caminho: string): Promise<string>
   /** Conteúdo de `caminho`, que precisa estar dentro de `raiz` (a pasta de uma árvore do quadro). */
   listarPasta(raiz: string, caminho: string): Promise<EntradaPasta[]>
@@ -216,6 +218,47 @@ export interface ApiPortal {
   aoAvisar(noId: string, ouvinte: (aviso: AvisoPortal) => void): () => void
 }
 
+/** Um arquivo que acabou de ser gravado dentro de uma pasta vigiada. */
+export interface MudancaArquivo {
+  pasta: string
+  caminho: string
+  /** Quando o app viu a gravação (Date.now()). */
+  em: number
+}
+
+export interface TextoArquivo {
+  caminho: string
+  conteudo: string
+  /** Arquivo grande: só o começo veio. */
+  truncado: boolean
+  /** Por que não deu para mostrar (segredo, binário, fora do quadro, não existe). */
+  erro?: string
+}
+
+export interface DiffArquivo {
+  caminho: string
+  /** Saída do `git diff`; null quando não há repositório, não há mudança, ou o arquivo é novo. */
+  patch: string | null
+  /** Arquivo que o git ainda não conhece: não há com o que comparar. */
+  novo: boolean
+  /** A pasta não é repositório git: não é erro, só não há diff — quem mostra cai para o arquivo inteiro. */
+  semGit?: boolean
+  erro?: string
+}
+
+/**
+ * O que o cartão de código usa: vigiar a pasta de um agente e ler arquivo de dentro dela. Só caminho que
+ * está no quadro (pasta de espaço, de andar, de cartão de terminal, de árvore, ou raiz do explorador).
+ */
+export interface ApiCodigo {
+  /** Começa a vigiar a pasta e avisa a cada gravação. A função devolvida desliga o aviso e a vigia. */
+  vigiar(pasta: string, ouvinte: (mudanca: MudancaArquivo) => void): () => void
+  /** Os últimos arquivos gravados nessa pasta, do mais novo para o mais velho. */
+  recentes(pasta: string): Promise<MudancaArquivo[]>
+  ler(caminho: string): Promise<TextoArquivo>
+  diff(caminho: string): Promise<DiffArquivo>
+}
+
 /** Avisos que o processo principal manda para cada janela. */
 export type AvisoJanelas =
   /** Espaços foram criados ou apagados: ler a lista de novo. */
@@ -244,6 +287,7 @@ export interface ApiJanelas {
 export interface ApiMaestri {
   terminal: ApiTerminal
   dados: ApiDados
+  codigo: ApiCodigo
   andares: ApiAndares
   area: ApiArea
   janelas: ApiJanelas
@@ -290,6 +334,7 @@ export const CANAIS_DADOS = {
   salvarEstado: 'dados:salvar-estado',
   escolherPasta: 'dados:escolher-pasta',
   escolherArquivo: 'dados:escolher-arquivo',
+  escolherArquivos: 'dados:escolher-arquivos',
   abrirArquivo: 'dados:abrir-arquivo',
   listarPasta: 'dados:listar-pasta',
   apagarEspaco: 'dados:apagar-espaco',
@@ -317,6 +362,15 @@ export const CANAIS_PORTAL = {
   alternarJanela: 'portal:alternar-janela',
   fechar: 'portal:fechar',
   aviso: 'portal:aviso'
+} as const
+
+export const CANAIS_CODIGO = {
+  vigiar: 'codigo:vigiar',
+  pararDeVigiar: 'codigo:parar-de-vigiar',
+  recentes: 'codigo:recentes',
+  ler: 'codigo:ler',
+  diff: 'codigo:diff',
+  aviso: 'codigo:aviso'
 } as const
 
 export const CANAIS_AREA = {

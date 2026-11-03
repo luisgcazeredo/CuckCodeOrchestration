@@ -12,6 +12,7 @@ import {
   ArrowUpToLine,
   ClipboardPaste,
   Copy,
+  FileCode,
   ExternalLink,
   FileText,
   FolderOpen,
@@ -39,7 +40,7 @@ import {
   Unlink,
   Unlock
 } from 'lucide-react'
-import type { Andar, Desenho, EstadoAndar, No, NoPostIt, ResumoEspaco } from '../../../shared/modelo'
+import type { Andar, Desenho, EntradaPasta, EstadoAndar, No, NoPostIt, NoTerminal, ResumoEspaco } from '../../../shared/modelo'
 import {
   abrirEspaco,
   abrirNovaJanela,
@@ -72,8 +73,11 @@ import {
   tirarDoGrupo,
   trazerParaFrente
 } from '../estado/loja'
+import { anexarAoPrompt, anexarArquivosAoPrompt, anexarPastaAoPrompt } from './anexar'
 import { abrirAtalhos } from './Atalhos'
 import { colar, copiarSelecao } from './area'
+import { alternarRecolhido } from '../nos/Codigo'
+import { ICONE_AGENTE } from '../nos/icones'
 import { COR_POSTIT } from '../nos/PostIt'
 import { abrirNovoAndar, apagarAndarComConfirmacao, juntarAndar } from './acoesAndar'
 import { enquadrarTudo } from './Controles'
@@ -101,6 +105,54 @@ const NOMES_POSTIT: Record<NoPostIt['cor'], string> = {
 }
 
 const separador: ItemMenu = { separador: true }
+
+/** Cartão de código do lado do terminal, acompanhando o que ele escreve. */
+export function verCodigoDoTerminal(no: NoTerminal): void {
+  // adicionarNo centra no ponto; isto põe o cartão colado à direita do terminal, alinhado pelo topo
+  adicionarNo({ tipo: 'codigo', terminal: no.id }, no.x + no.largura + 40 + 310, no.y + 230)
+}
+
+/** Terminais deste plano, para escolher a quem anexar ou quem o cartão de código acompanha. */
+function terminaisDoPlano(): NoTerminal[] {
+  const espaco = lerEstado().espaco
+  if (!espaco) return []
+  const plano = espaco.andarAtivo ? espaco.andares.find((a) => a.id === espaco.andarAtivo) : espaco
+  return (plano?.nos ?? []).filter((n): n is NoTerminal => n.tipo === 'terminal')
+}
+
+/** Submenu "Anexar ao prompt de": um terminal só vai direto. */
+function anexarEmAlgumTerminal(caminhos: string[]): ItemMenu {
+  const terminais = terminaisDoPlano()
+  if (terminais.length === 1) {
+    return { rotulo: `Anexar ao prompt de "${terminais[0].nome}"`, icone: Paperclip, acao: () => anexarAoPrompt(terminais[0].id, caminhos) }
+  }
+  return {
+    rotulo: 'Anexar ao prompt de',
+    icone: Paperclip,
+    desligado: !terminais.length,
+    submenu: terminais.map((t) => ({ rotulo: t.nome, icone: ICONE_AGENTE[t.agente], acao: () => anexarAoPrompt(t.id, caminhos) }))
+  }
+}
+
+/** Menu de um arquivo ou pasta do explorador da direita. */
+export function itensDoItemDoExplorador(item: EntradaPasta, x: number, y: number): ItemMenu[] {
+  const comuns: ItemMenu[] = [
+    anexarEmAlgumTerminal([item.caminho]),
+    { rotulo: 'Mostrar no Explorer', icone: FolderOpen, acao: () => void window.mp.dados.mostrarNoExplorer(item.caminho) }
+  ]
+  if (item.ehPasta) {
+    return [
+      { rotulo: 'Pôr a árvore no quadro', icone: FolderTree, acao: () => adicionarNo({ tipo: 'pasta', caminho: item.caminho }, x, y) },
+      ...comuns
+    ]
+  }
+  return [
+    { rotulo: 'Ver o código no quadro', icone: FileCode, acao: () => adicionarNo({ tipo: 'codigo', caminho: item.caminho }, x, y) },
+    { rotulo: 'Abrir no programa do sistema', icone: FileText, acao: () => void window.mp.dados.abrirArquivo(item.caminho) },
+    { rotulo: 'Pôr o arquivo no quadro', icone: Paperclip, acao: () => adicionarNo({ tipo: 'arquivo', caminho: item.caminho, nome: item.nome }, x, y) },
+    ...comuns
+  ]
+}
 
 // ---------- criar coisas ----------
 
@@ -258,14 +310,25 @@ export function itensDoNo(no: No): ItemMenu[] {
   const especificos: ItemMenu[] = []
   switch (no.tipo) {
     case 'terminal':
-      especificos.push({
-        rotulo: 'Renomear…',
-        icone: Pencil,
-        acao: async () => {
-          const nome = await perguntarTexto('Renomear terminal', 'Nome', no.nome, 'Renomear')
-          if (nome) atualizarNo(no.id, { nome })
+      especificos.push(
+        {
+          rotulo: 'Renomear…',
+          icone: Pencil,
+          acao: async () => {
+            const nome = await perguntarTexto('Renomear terminal', 'Nome', no.nome, 'Renomear')
+            if (nome) atualizarNo(no.id, { nome })
+          }
+        },
+        { rotulo: 'Ver o código que ele escreve', icone: FileCode, acao: () => verCodigoDoTerminal(no) },
+        {
+          rotulo: 'Anexar ao prompt',
+          icone: Paperclip,
+          submenu: [
+            { rotulo: 'Arquivo…', icone: FileText, acao: () => void anexarArquivosAoPrompt(no.id) },
+            { rotulo: 'Pasta…', icone: FolderOpen, acao: () => void anexarPastaAoPrompt(no.id) }
+          ]
         }
-      })
+      )
       break
     case 'postit':
       especificos.push({ rotulo: 'Editar texto', icone: Pencil, acao: () => editar(no.id) })
@@ -301,6 +364,23 @@ export function itensDoNo(no: No): ItemMenu[] {
       break
     case 'portal':
       especificos.push({ rotulo: 'Abrir no navegador do sistema', icone: ExternalLink, acao: () => window.open(no.url) })
+      break
+    case 'codigo':
+      especificos.push(
+        {
+          rotulo: no.modo === 'diff' ? 'Ver o arquivo inteiro' : 'Ver o que mudou',
+          icone: FileCode,
+          acao: () => atualizarNo(no.id, { modo: no.modo === 'diff' ? 'conteudo' : 'diff' }, false)
+        },
+        { rotulo: no.recolhido ? 'Abrir' : 'Recolher', icone: FileCode, acao: () => alternarRecolhido(no) },
+        ...(no.caminho
+          ? [
+              { rotulo: 'Soltar (voltar a seguir o agente)', icone: Unlink, acao: () => atualizarNo(no.id, { caminho: undefined }, false) },
+              { rotulo: 'Abrir no programa do sistema', icone: FileText, acao: () => void window.mp.dados.abrirArquivo(no.caminho!) },
+              { rotulo: 'Mostrar no Explorer', icone: FolderOpen, acao: () => void window.mp.dados.mostrarNoExplorer(no.caminho!) }
+            ]
+          : [])
+      )
       break
   }
   return [

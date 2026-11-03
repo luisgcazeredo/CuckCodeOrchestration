@@ -23,6 +23,8 @@ function textoSimples(f: Fragmento): string {
         return n.url
       case 'imagem':
         return ''
+      case 'codigo':
+        return n.caminho ?? ''
     }
   }
   return [...f.nos]

@@ -11,6 +11,7 @@ import {
   editar,
   empurrarSelecao,
   escolherFerramenta,
+  alternarExplorador,
   iniciar,
   refazer,
   salvarParaFechar,
@@ -25,6 +26,7 @@ import { colar, copiarSelecao } from './ui/area'
 import { abrirAtalhos, Atalhos } from './ui/Atalhos'
 import { BarraSelecao } from './ui/BarraSelecao'
 import { BarraFerramentas } from './ui/BarraFerramentas'
+import { BarraExplorador } from './ui/BarraExplorador'
 import { BarraLateral } from './ui/BarraLateral'
 import { BotaoLateral, CantoInferior, CantoSuperior, enquadrarTudo, zoomPeloCentro } from './ui/Controles'
 import { MenuContexto, menuAberto } from './ui/MenuContexto'
@@ -73,6 +75,7 @@ function atalhos(e: KeyboardEvent): void {
   if (ctrl && tecla === 'v') return (e.preventDefault(), void colar())
   if (ctrl && tecla === 'k') return (e.preventDefault(), abrirPaleta())
   if (ctrl && e.shiftKey && tecla === 'n') return (e.preventDefault(), abrirNovaJanela())
+  if (ctrl && e.shiftKey && tecla === 'e') return (e.preventDefault(), alternarExplorador())
   if (ctrl || e.altKey) return
   const seta: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
   if (seta[e.key]) {
@@ -134,6 +137,7 @@ export function App() {
           </div>
         )}
       </main>
+      {temEspaco && <BarraExplorador />}
       <MenuContexto />
       <DialogoNovoAndar />
       <Perguntas />

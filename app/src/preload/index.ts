@@ -5,17 +5,20 @@ import {
   CANAIS_ANDARES,
   CANAIS_APP,
   CANAIS_AREA,
+  CANAIS_CODIGO,
   CANAIS_DADOS,
   CANAIS_JANELAS,
   CANAL_AVISO,
   CANAIS_PORTAL,
   type ApiAndares,
   type ApiArea,
+  type ApiCodigo,
   type ApiDados,
   type ApiJanelas,
   type ApiPortal,
   type AvisoPortal,
   type AvisoJanelas,
+  type MudancaArquivo,
   type ApiMaestri,
   type PedidoDoAgente
 } from '../shared/api'
@@ -70,6 +73,23 @@ const portal: ApiPortal = {
   aoAvisar: avisosDoPortal
 }
 
+// Avisos de gravação chegam pela pasta vigiada, com a mesma distribuição dos terminais: cada cartão de
+// código só é acordado pela pasta dele.
+const avisosDeCodigo = distribuidor<MudancaArquivo>(CANAIS_CODIGO.aviso)
+const codigo: ApiCodigo = {
+  vigiar: (pasta, ouvinte) => {
+    const sair = avisosDeCodigo(pasta, ouvinte)
+    ipcRenderer.send(CANAIS_CODIGO.vigiar, pasta)
+    return () => {
+      sair()
+      ipcRenderer.send(CANAIS_CODIGO.pararDeVigiar, pasta)
+    }
+  },
+  recentes: (pasta) => ipcRenderer.invoke(CANAIS_CODIGO.recentes, pasta),
+  ler: (caminho) => ipcRenderer.invoke(CANAIS_CODIGO.ler, caminho),
+  diff: (caminho) => ipcRenderer.invoke(CANAIS_CODIGO.diff, caminho)
+}
+
 // A janela não tem acesso ao Node: só a estas funções, nesta forma.
 const api: ApiMaestri = {
   terminal: {
@@ -100,6 +120,7 @@ const api: ApiMaestri = {
     }
   },
   dados,
+  codigo,
   andares,
   area,
   janelas,

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import {
   AppWindow,
   ClipboardPaste,
+  FileCode,
   FolderTree,
   Folder,
   Globe,
@@ -96,6 +97,8 @@ function nomeDoCartao(n: No, notas: Record<string, string>): string {
       }
     case 'imagem':
       return 'Imagem'
+    case 'codigo':
+      return n.caminho ? (n.caminho.split(/[/]/).pop() ?? 'Código') : 'Código do agente'
   }
 }
 
@@ -105,7 +108,8 @@ const ICONE_DO_CARTAO: Record<Exclude<No['tipo'], 'terminal'>, LucideIcon> = {
   arquivo: Paperclip,
   pasta: FolderTree,
   portal: Globe,
-  imagem: Image
+  imagem: Image,
+  codigo: FileCode
 }
 
 /** Leva a tela até o cartão (no zoom atual, se ele couber) e o seleciona. */

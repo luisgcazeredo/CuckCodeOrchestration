@@ -198,6 +198,13 @@ export function criarEspacoDoAgente(nome: string, pasta: string): ResumoEspaco {
   return novo
 }
 
+const ESTADO_PADRAO: EstadoJanela = { versao: 1, espacoAtivo: null, lateralAberta: true, explorador: { aberto: false, raizes: [] } }
+
+export function lerEstadoDaJanela(): EstadoJanela {
+  const lido = lerJson<EstadoJanela>(join(RAIZ, 'estado.json'), ESTADO_PADRAO)
+  return { ...ESTADO_PADRAO, ...lido, explorador: { ...ESTADO_PADRAO.explorador!, ...lido.explorador } }
+}
+
 /** Nós de todos os espaços e de todos os andares. */
 function todosOsNos(): No[] {
   return todosOsEspacos().flatMap((e) => planos(e).flatMap((p) => p.nos))
@@ -227,7 +234,38 @@ function dentroDeUmaArvore(caminho: string): boolean {
   })
 }
 
-const TIPOS_DE_NO = new Set(['terminal', 'postit', 'texto', 'arquivo', 'pasta', 'portal', 'imagem'])
+/**
+ * Pastas de onde a janela pode listar e ler: as dos espaços e dos andares, as dos cartões (terminal e
+ * árvore) e as que o usuário abriu no explorador. É a mesma regra de sempre — nada de caminho qualquer —,
+ * só mais larga do que a da árvore, porque agora o explorador e o cartão de código também leem.
+ */
+export function raizesDoQuadro(): string[] {
+  const raizes = new Set<string>()
+  for (const espaco of todosOsEspacos()) {
+    raizes.add(espaco.pasta)
+    for (const andar of espaco.andares) if (andar.git) raizes.add(andar.git.pasta)
+    for (const plano of planos(espaco)) {
+      for (const no of plano.nos) {
+        if (no.tipo === 'pasta') raizes.add(no.caminho)
+        if (no.tipo === 'terminal' && no.pasta) raizes.add(no.pasta)
+      }
+    }
+  }
+  for (const raiz of lerEstadoDaJanela().explorador?.raizes ?? []) raizes.add(raiz)
+  return [...raizes]
+}
+
+/** O caminho está dentro de alguma raiz do quadro? Comparado pelo caminho real (link para fora não passa). */
+export function dentroDeUmaRaiz(caminho: string): boolean {
+  const alvo = real(caminho)
+  if (!alvo) return false
+  return raizesDoQuadro().some((raiz) => {
+    const r = real(raiz)
+    return r !== null && estaDentro(r, alvo)
+  })
+}
+
+const TIPOS_DE_NO = new Set(['terminal', 'postit', 'texto', 'arquivo', 'pasta', 'portal', 'imagem', 'codigo'])
 const LIMITE_JSON = 20 * 1024 * 1024
 
 function planoValido(p: Plano): boolean {
@@ -244,7 +282,8 @@ function planoValido(p: Plano): boolean {
         (n.tipo !== 'postit' || NOTA_VALIDA.test(n.arquivo)) &&
         (n.tipo !== 'imagem' || IMAGEM_VALIDA.test(n.arquivo)) &&
         (n.tipo !== 'pasta' || typeof n.caminho === 'string') &&
-        (n.tipo !== 'portal' || /^https?:\/\//.test(n.url))
+        (n.tipo !== 'portal' || /^https?:\/\//.test(n.url)) &&
+        (n.tipo !== 'codigo' || n.modo === 'diff' || n.modo === 'conteudo')
     )
   )
 }
@@ -420,9 +459,7 @@ export function registrarDados(): void {
     avisarTodas({ tipo: 'preferencias' }, evento.sender)
   })
 
-  ipcMain.handle(CANAIS_DADOS.carregarEstado, (): EstadoJanela =>
-    lerJson<EstadoJanela>(join(RAIZ, 'estado.json'), { versao: 1, espacoAtivo: null, lateralAberta: true })
-  )
+  ipcMain.handle(CANAIS_DADOS.carregarEstado, (): EstadoJanela => lerEstadoDaJanela())
 
   ipcMain.handle(CANAIS_DADOS.salvarEstado, (_e, estado: EstadoJanela) => gravarJson(join(RAIZ, 'estado.json'), estado))
 
@@ -438,17 +475,23 @@ export function registrarDados(): void {
     return r.canceled ? null : { caminho: r.filePaths[0], nome: basename(r.filePaths[0]) }
   })
 
+  ipcMain.handle(CANAIS_DADOS.escolherArquivos, async (evento): Promise<Array<{ caminho: string; nome: string }>> => {
+    const janela = BrowserWindow.fromWebContents(evento.sender)
+    const r = await dialog.showOpenDialog(janela!, { properties: ['openFile', 'multiSelections'] })
+    return r.canceled ? [] : r.filePaths.map((caminho) => ({ caminho, nome: basename(caminho) }))
+  })
+
   // só abre arquivo que está num quadro (anexado pelo diálogo ou dentro de uma árvore), nunca um caminho qualquer
   ipcMain.handle(CANAIS_DADOS.abrirArquivo, (_e, caminho: string) => {
     if (typeof caminho !== 'string') return 'caminho inválido'
     const anexado = todosOsNos().some((n) => n.tipo === 'arquivo' && n.caminho === caminho)
-    if (!anexado && !dentroDeUmaArvore(caminho)) return 'arquivo não está no quadro'
+    if (!anexado && !dentroDeUmaRaiz(caminho)) return 'arquivo não está no quadro'
     if (!existsSync(caminho)) return 'arquivo não encontrado'
     return shell.openPath(caminho)
   })
 
   ipcMain.handle(CANAIS_DADOS.listarPasta, (_e, raiz: string, caminho: string): EntradaPasta[] => {
-    const raizes = todosOsNos().flatMap((n) => (n.tipo === 'pasta' ? [resolve(n.caminho)] : []))
+    const raizes = raizesDoQuadro().map((r) => resolve(r))
     if (typeof raiz !== 'string' || typeof caminho !== 'string' || !raizes.includes(resolve(raiz))) {
       throw new Error('pasta não está no quadro')
     }

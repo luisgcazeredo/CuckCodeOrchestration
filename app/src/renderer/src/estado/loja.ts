@@ -60,6 +60,8 @@ export interface EstadoUI {
   vistaAndares: boolean
   /** Espaços abertos em outras janelas (esta não pode abrir: traz a outra para a frente). */
   emOutrasJanelas: string[]
+  /** Explorador de arquivos da direita: aberto, as pastas que ele mostra e as que estão abertas nele. */
+  explorador: { aberto: boolean; raizes: string[]; expandidas: string[] }
 }
 
 let estado: EstadoUI = {
@@ -76,7 +78,8 @@ let estado: EstadoUI = {
   miniMapa: false,
   erroAoSalvar: null,
   vistaAndares: false,
-  emOutrasJanelas: []
+  emOutrasJanelas: [],
+  explorador: { aberto: false, raizes: [], expandidas: [] }
 }
 
 const ouvintes = new Set<() => void>()
@@ -304,7 +307,13 @@ export async function iniciar(): Promise<void> {
     window.mp.dados.listarEspacos(),
     window.mp.janelas.inicio()
   ])
-  definir({ preferencias, espacos, lateralAberta: janela.lateralAberta, emOutrasJanelas: inicio.abertosEmOutras })
+  definir({
+    preferencias,
+    espacos,
+    lateralAberta: janela.lateralAberta,
+    emOutrasJanelas: inicio.abertosEmOutras,
+    explorador: { aberto: janela.explorador?.aberto ?? false, raizes: janela.explorador?.raizes ?? [], expandidas: [] }
+  })
   // o espaço pedido para esta janela; senão o último usado, se estiver livre; senão o primeiro livre
   const livre = (id: string | null): boolean => !!id && espacos.some((e) => e.id === id) && !inicio.abertosEmOutras.includes(id)
   const ativo = [inicio.espacoId, janela.espacoAtivo, ...espacos.map((e) => e.id)].find(livre)
@@ -409,11 +418,62 @@ export async function apagarEspaco(id: string): Promise<void> {
   } else definir({ espacos })
 }
 
-function salvarJanela(): void {
-  void window.mp.dados.salvarEstado({
-    versao: 1,
-    espacoAtivo: estado.espaco?.id ?? null,
-    lateralAberta: estado.lateralAberta
+let salvandoJanela: Promise<void> = Promise.resolve()
+
+function salvarJanela(): Promise<void> {
+  const { aberto, raizes } = estado.explorador
+  salvandoJanela = window.mp.dados
+    .salvarEstado({
+      versao: 1,
+      espacoAtivo: estado.espaco?.id ?? null,
+      lateralAberta: estado.lateralAberta,
+      explorador: { aberto, raizes }
+    })
+    .catch(() => undefined)
+  return salvandoJanela
+}
+
+/**
+ * O processo principal só lista e lê pasta que está salva (no quadro ou no estado da janela): quem vai ler
+ * espera por isto antes de pedir. Sem isso, a pasta recém-aberta é recusada na primeira leitura.
+ */
+export async function prepararLeitura(): Promise<void> {
+  await Promise.all([salvarAgora(), salvandoJanela])
+}
+
+export function alternarExplorador(): void {
+  definir({ explorador: { ...estado.explorador, aberto: !estado.explorador.aberto } })
+  void salvarJanela()
+}
+
+/** Põe uma pasta no explorador. Devolve quando o estado já está salvo, para a leitura não ser recusada. */
+export async function adicionarRaizExplorador(pasta: string): Promise<void> {
+  const { raizes } = estado.explorador
+  if (!raizes.includes(pasta)) {
+    definir({ explorador: { ...estado.explorador, aberto: true, raizes: [...raizes, pasta] } })
+  }
+  await salvarJanela()
+}
+
+export function removerRaizExplorador(pasta: string): void {
+  const explorador = estado.explorador
+  definir({
+    explorador: {
+      ...explorador,
+      raizes: explorador.raizes.filter((r) => r !== pasta),
+      expandidas: explorador.expandidas.filter((p) => p !== pasta)
+    }
+  })
+  void salvarJanela()
+}
+
+export function alternarPastaExplorador(caminho: string): void {
+  const { expandidas } = estado.explorador
+  definir({
+    explorador: {
+      ...estado.explorador,
+      expandidas: expandidas.includes(caminho) ? expandidas.filter((p) => p !== caminho) : [...expandidas, caminho]
+    }
   })
 }
 
@@ -719,6 +779,8 @@ export type NovoNo =
   | { tipo: 'arquivo'; caminho: string; nome: string }
   | { tipo: 'pasta'; caminho: string }
   | { tipo: 'portal'; url: string }
+  /** Cartão de código: acompanha um terminal (segue o que ele mexe) ou fica preso num arquivo. */
+  | { tipo: 'codigo'; terminal?: string; caminho?: string }
   /** Imagem já gravada em `imagens/` do espaço; largura e altura em pixels da imagem. */
   | { tipo: 'imagem'; arquivo: string; largura: number; altura: number }
 
@@ -771,6 +833,17 @@ export function adicionarNo(novo: NovoNo, x: number, y: number): string {
       break
     case 'portal':
       no = { ...base, ...centrado(900, 600), tipo: 'portal', url: novo.url }
+      break
+    case 'codigo':
+      // preso num arquivo, o interesse é o arquivo inteiro; acompanhando um agente, é o que ele mudou
+      no = {
+        ...base,
+        ...centrado(620, 460),
+        tipo: 'codigo',
+        terminal: novo.terminal,
+        caminho: novo.caminho,
+        modo: novo.caminho && !novo.terminal ? 'conteudo' : 'diff'
+      }
       break
   }
   mudarPlano((p) => ({ ...p, nos: [...p.nos, no] }), false)
@@ -915,6 +988,9 @@ export function colarFragmento(f: Fragmento, dx: number, dy: number, sufixoTermi
       }
       return copia
     })
+  // cartão de código copiado junto com o agente passa a acompanhar a cópia dele; copiado sozinho, fica
+  // sem agente e volta a seguir a pasta (apontar para o id antigo seria uma ligação morta)
+  for (const copia of nos) if (copia.tipo === 'codigo' && copia.terminal) copia.terminal = ids.get(copia.terminal)
   const desenhos: Desenho[] = f.desenhos.map((d) => ({
     ...d,
     id: novoId(),

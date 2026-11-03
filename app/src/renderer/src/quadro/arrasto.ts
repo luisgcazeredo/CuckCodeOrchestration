@@ -14,7 +14,8 @@ const MINIMO = {
   arquivo: { largura: 120, altura: 100 },
   pasta: { largura: 200, altura: 160 },
   portal: { largura: 320, altura: 220 },
-  imagem: { largura: 40, altura: 40 }
+  imagem: { largura: 40, altura: 40 },
+  codigo: { largura: 280, altura: 120 }
 } as const
 
 /** Quanto o mouse anda antes de um clique virar arrasto. */
