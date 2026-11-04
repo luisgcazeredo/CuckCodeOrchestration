@@ -1701,6 +1701,10 @@ export async function rodarAutoteste(
         const quantos = (await cartoes()).length
         conferir('fechar todos desliga o automático da pasta', desligou && quantos === 0, `desligou ${desligou} · cartões ${quantos}`)
 
+        // religa o automático (o "fechar todos" acima desligou) para o resto do cenário
+        await js(`window.__teste.loja.alternarCodigoSozinho('${dono}')`)
+        await esperar(300)
+
         // cartão aberto à mão antes de haver arquivo (e o que sobrou da versão que trocava de conteúdo):
         // ele vira o cartão do primeiro arquivo gravado, em vez de trocar de conteúdo para sempre
         await js(`(() => { const L = window.__teste.loja
@@ -1713,6 +1717,25 @@ export async function rodarAutoteste(
           depoisDoVazio.length === 1 && depoisDoVazio[0].caminho.endsWith('quinto.ts'),
           resumo(depoisDoVazio) || 'nenhum cartão'
         )
+        // e o app passa a tratá-lo como dele: o arquivo seguinte recolhe este num bloquinho
+        await gravar('sexto.ts', 'const seis = 6', 'FIM-GRAVOU6')
+        await esperar(1500)
+        const depoisDoSexto = await cartoes()
+        conferir(
+          'cartão adotado entra na coluna e se recolhe quando chega o próximo arquivo',
+          depoisDoSexto.length === 2 && depoisDoSexto.some((c) => c.caminho.endsWith('quinto.ts') && c.recolhido),
+          resumo(depoisDoSexto)
+        )
+
+        // arquivo apagado: o cartão diz "não encontrado", não "não está em pasta do quadro"
+        await comandoAte(chefe, 'Remove-Item sexto.ts; if (Test-Path sexto.ts) { echo AINDA } else { echo SUMIU }', /^SUMIU/m, 15_000)
+        const doSexto = (await cartoes()).find((c) => c.caminho.endsWith('sexto.ts'))?.id ?? ''
+        const recado = await aguardar(
+          () => js<string>(`document.querySelector('[data-no-id="${doSexto}"] .codigo-aviso')?.innerText ?? ''`),
+          /não encontrado|não está em pasta/,
+          8000
+        )
+        conferir('arquivo apagado: o cartão diz que não encontrou, e não que está fora do quadro', recado.includes('não encontrado'), recado)
       }
     },
   ]

@@ -105,7 +105,10 @@ export const Codigo = memo(function Codigo({ no, selecionado }: { no: NoCodigo; 
   useEffect(() => {
     if (!pasta) return
     return window.mp.codigo.vigiar(pasta, (mudanca) => {
-      definirRecentes((lista) => [mudanca, ...lista.filter((m) => m.caminho !== mudanca.caminho)].slice(0, 30))
+      definirRecentes((lista) => {
+        const outros = lista.filter((m) => m.caminho !== mudanca.caminho)
+        return mudanca.sumiu ? outros : [mudanca, ...outros].slice(0, 30)
+      })
       if (mudanca.caminho === no.caminho) definirRodada((r) => r + 1)
     })
   }, [pasta, no.caminho])

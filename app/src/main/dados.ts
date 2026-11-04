@@ -12,7 +12,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { basename, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import {
   PRESETS_PADRAO,
   type Andar,
@@ -257,7 +257,11 @@ export function raizesDoQuadro(): string[] {
 
 /** O caminho está dentro de alguma raiz do quadro? Comparado pelo caminho real (link para fora não passa). */
 export function dentroDeUmaRaiz(caminho: string): boolean {
-  const alvo = real(caminho)
+  // Arquivo apagado não tem caminho real. Em vez de recusar, resolve a pasta dele: a proteção contra link
+  // para fora continua valendo, e quem chamou pode dizer "arquivo não encontrado" — que é a verdade — em vez
+  // de "não está em pasta do quadro", que manda procurar o problema no lugar errado.
+  const pai = real(dirname(caminho))
+  const alvo = real(caminho) ?? (pai ? join(pai, basename(caminho)) : null)
   if (!alvo) return false
   return raizesDoQuadro().some((raiz) => {
     const r = real(raiz)

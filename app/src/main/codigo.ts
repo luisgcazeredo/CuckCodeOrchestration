@@ -71,7 +71,11 @@ function descarregar(vigia: Vigia): void {
       if (!info.isFile()) continue
       tamanho = info.size
     } catch {
-      continue // apagado ou com outro nome no meio da rajada
+      // apagado ou com outro nome: avisa mesmo assim, senão o cartão daquele arquivo fica mostrando
+      // conteúdo de algo que não existe mais
+      vigia.recentes = vigia.recentes.filter((m) => m.caminho !== caminho)
+      entregar(vigia, { pasta: vigia.pasta, caminho, em: Date.now(), sumiu: true })
+      continue
     }
     if (tamanho === 0) continue
     anotar(vigia, caminho)

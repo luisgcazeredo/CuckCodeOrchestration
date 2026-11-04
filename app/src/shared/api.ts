@@ -224,6 +224,8 @@ export interface MudancaArquivo {
   caminho: string
   /** Quando o app viu a gravação (Date.now()). */
   em: number
+  /** O arquivo sumiu (apagado ou renomeado): quem mostra ele relê, mas não nasce cartão por causa disso. */
+  sumiu?: boolean
 }
 
 export interface TextoArquivo {

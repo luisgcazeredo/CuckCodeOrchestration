@@ -1370,7 +1370,8 @@ function ajustarVigiasDeCodigo(): void {
   }
   for (const pasta of pastas) {
     if (vigiasDeCodigo.has(pasta)) continue
-    vigiasDeCodigo.set(pasta, window.mp.codigo.vigiar(pasta, (m) => void aoGravaremNaPasta(pasta, m.caminho)))
+    // arquivo que sumiu não abre cartão: só faz o cartão daquele arquivo reler (ver nos/Codigo.tsx)
+    vigiasDeCodigo.set(pasta, window.mp.codigo.vigiar(pasta, (m) => !m.sumiu && void aoGravaremNaPasta(pasta, m.caminho)))
   }
 }
 
@@ -1398,7 +1399,12 @@ async function aoGravaremNaPasta(pasta: string, caminho: string): Promise<void> 
   // cartão deste arquivo. Sem isto, um cartão desses trocaria de conteúdo para sempre e nenhum outro nasceria
   const semArquivo = cartoes.find((c) => !c.caminho)
   if (semArquivo) {
-    mudarPlano((p) => ({ ...p, nos: p.nos.map((n) => (n.id === semArquivo.id ? ({ ...n, caminho } as No) : n)) }), false)
+    // ao adotar, o app assume o cartão (automatico): senão ele fica de fora da coluna e nunca se recolhe
+    // quando o arquivo seguinte abre o próximo cartão
+    mudarPlano(
+      (p) => ({ ...p, nos: p.nos.map((n) => (n.id === semArquivo.id ? ({ ...n, caminho, automatico: true } as No) : n)) }),
+      false
+    )
     return
   }
   const candidatos = daPasta.filter((n) => n.codigoSozinho !== false)
