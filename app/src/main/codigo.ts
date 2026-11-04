@@ -6,10 +6,11 @@
 // qualquer agente. O preço: dois cartões na mesma pasta veem as mesmas mudanças — um andar separa as pastas.
 import { execFile } from 'node:child_process'
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync, watch, type Dirent, type FSWatcher } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { ipcMain, webContents } from 'electron'
 import { CANAIS_CODIGO, type DiffArquivo, type MudancaArquivo, type TextoArquivo } from '../shared/api'
-import { PASTAS_IGNORADAS, temCaraDeSegredo, valeSeguir } from '../shared/arquivos'
+import { PASTAS_IGNORADAS, pastaVigiavel, temCaraDeSegredo, valeSeguir } from '../shared/arquivos'
 import { dentroDeUmaRaiz, raizesDoQuadro } from './dados'
 
 /** Uma gravação costuma chegar em rajada (temporário, troca de nome, arquivo final): espera e junta. */
@@ -115,7 +116,9 @@ function soltarJanela(janela: number): void {
 }
 
 function vigiar(janela: number, pasta: string): void {
-  if (!pastaPermitida(pasta)) return
+  // a vigia é recursiva: na pasta do usuário, na raiz de um disco ou numa pasta de sistema ela observaria
+  // dezenas de milhares de arquivos e avisaria de coisa que outro programa gravou
+  if (!pastaPermitida(pasta) || !pastaVigiavel(pasta, homedir())) return
   const chave = chaveDa(pasta)
   let vigia = vigias.get(chave)
   if (!vigia) {
@@ -176,7 +179,9 @@ function varrer(pasta: string): MudancaArquivo[] {
 }
 
 function recentes(pasta: string): MudancaArquivo[] {
-  if (!pastaPermitida(pasta)) return []
+  // mesma regra da vigia: pasta grande demais não é varrida. Sem isto, pasta sem vigia cairia na varredura
+  // de 20 mil entradas a cada chamada, e ela é síncrona (trava o processo principal).
+  if (!pastaPermitida(pasta) || !pastaVigiavel(pasta, homedir())) return []
   const vigia = vigias.get(chaveDa(pasta))
   const gravados = vigia?.recentes ?? []
   const agora = Date.now()

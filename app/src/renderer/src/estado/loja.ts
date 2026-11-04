@@ -1382,6 +1382,9 @@ function ajustarVigiasDeCodigo(): void {
   const e = estado.espaco
   const pastas = new Set<string>()
   if (e) {
+    // pasta grande demais (a do usuário, a raiz de um disco) não é vigiada: quem recusa é o processo
+    // principal, que conhece a pasta do usuário (ver pastaVigiavel em shared/arquivos.ts). Aqui a assinatura
+    // é feita do mesmo jeito e simplesmente não chega aviso nenhum.
     for (const n of planoDe(e).nos) if (n.tipo === 'terminal') pastas.add(n.pasta || pastaDoPlano(e))
   }
   for (const [pasta, desligar] of [...vigiasDeCodigo]) {
@@ -1579,10 +1582,13 @@ export function assentarCodigos(ids: string[]): void {
   if (!meus.length) return
   // o agente foi junto no mesmo arrasto: as árvores inteiras andaram com ele, não há nada para assentar
   if (meus.every((n) => movidos.has(n.terminal!))) return
-  const pares = [...new Set(meus.map((n) => `${n.terminal} ${arvoreDoCodigo(n)}`))].map((chave) => {
-    const [terminalId, arvoreId] = chave.split(' ')
-    return { terminalId, arvoreId }
-  })
+  // os pares (agente, árvore) tocados pelo arrasto. Sem juntar os dois num texto só: já custou um byte
+  // zero no meio do arquivo, que faz ferramenta tratar o código como binário.
+  const pares: Array<{ terminalId: string; arvoreId: string }> = []
+  for (const n of meus) {
+    const par = { terminalId: n.terminal!, arvoreId: arvoreDoCodigo(n) }
+    if (!pares.some((p) => p.terminalId === par.terminalId && p.arvoreId === par.arvoreId)) pares.push(par)
+  }
   mudarPlano((p) => {
     let saida = p
     for (const { terminalId, arvoreId } of pares) {

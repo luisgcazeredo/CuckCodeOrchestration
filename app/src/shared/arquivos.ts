@@ -102,3 +102,40 @@ export function textoDosAnexos(caminhos: string[], pasta: string, agente: Agente
   const texto = caminhos.map((c) => textoDoAnexo(c, pasta, agente)).join(' ')
   return texto ? `${texto} ` : ''
 }
+
+/**
+ * Vale vigiar esta pasta à espera de código? A vigia é recursiva: apontada para a pasta do usuário, para a
+ * raiz de um disco ou para uma pasta de sistema, ela observa dezenas de milhares de arquivos e abre cartão
+ * para qualquer coisa que **outro programa** grave ali (navegador, OneDrive, o próprio Claude em ~/.claude).
+ *
+ * A comparação é pela pasta exata, não pelo que está dentro: um projeto dentro da pasta do usuário continua
+ * valendo, que é o caso normal.
+ */
+export function pastaVigiavel(pasta: string, casa: string): boolean {
+  const limpa = (p: string): string => p.replace(/[/\u005C]+$/, '').toLowerCase()
+  const alvo = limpa(pasta)
+  if (!alvo) return false
+  // raiz de disco (C:, C:\) ou do sistema de arquivos (/)
+  if (/^[a-z]:$/.test(alvo) || alvo === '/') return false
+  if (alvo === limpa(casa)) return false
+  const proibidas = [
+    'appdata',
+    'appdata/local',
+    'appdata/roaming',
+    'appdata/locallow',
+    'onedrive',
+    'documents',
+    'documentos',
+    'downloads',
+    'desktop',
+    'área de trabalho',
+    'area de trabalho'
+  ]
+  const dentroDaCasa = alvo.startsWith(limpa(casa) + '/') || alvo.startsWith(limpa(casa) + '\u005C')
+  if (dentroDaCasa) {
+    const resto = alvo.slice(limpa(casa).length + 1).split(/[/\u005C]/).join('/')
+    if (proibidas.includes(resto)) return false
+  }
+  const sistema = ['c:/windows', 'c:/program files', 'c:/program files (x86)', 'c:/programdata']
+  return !sistema.includes(alvo.split(/[/\u005C]/).join('/'))
+}

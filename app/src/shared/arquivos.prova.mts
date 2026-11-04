@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 // Node executa provas TypeScript diretamente e precisa da extensão; o bundler resolve a fonte normalmente.
 // @ts-expect-error TS ainda exige allowImportingTsExtensions para esse modo de execução do Node.
-import { caminhoRelativo, temCaraDeSegredo, textoDoAnexo, textoDosAnexos, valeSeguir } from './arquivos.ts'
+import { caminhoRelativo, pastaVigiavel, temCaraDeSegredo, textoDoAnexo, textoDosAnexos, valeSeguir } from './arquivos.ts'
 
 // Caminhos crus (String.raw) porque é assim que o Windows entrega, com barra invertida e espaço no meio.
 const PASTA = String.raw`C:\Users\luisg\ARQUIVOS GERAL\02 PROJETOS\Maestri Proprio\app`
@@ -54,4 +54,20 @@ test('seguir: código sim; build, binário, temporário e segredo não', () => {
   assert.equal(valeSeguir('package-lock.json'), false)
   assert.equal(valeSeguir('.env'), false)
   assert.equal(valeSeguir(''), false)
+})
+
+test('pastaVigiavel recusa casa, raiz e pastas de sistema, e aceita projeto', () => {
+  const casa = 'C:\u005CUsers\u005Cluis'
+  assert.equal(pastaVigiavel('C:\u005CUsers\u005Cluis\u005Cprojetos\u005Cmeuapp', casa), true)
+  assert.equal(pastaVigiavel(casa, casa), false)
+  assert.equal(pastaVigiavel(casa + '\u005C', casa), false)
+  assert.equal(pastaVigiavel('C:\u005C', casa), false)
+  assert.equal(pastaVigiavel('C:', casa), false)
+  assert.equal(pastaVigiavel('/', casa), false)
+  assert.equal(pastaVigiavel(casa + '\u005CDownloads', casa), false)
+  assert.equal(pastaVigiavel(casa + '\u005CAppData\u005CLocal', casa), false)
+  assert.equal(pastaVigiavel('C:\u005CWindows', casa), false)
+  // uma pasta dentro de uma recusada continua valendo: o projeto é que manda
+  assert.equal(pastaVigiavel(casa + '\u005CDownloads\u005Cprojeto', casa), true)
+  assert.equal(pastaVigiavel(casa + '\u005CAppData\u005CLocal\u005CTemp\u005Cteste-123', casa), true)
 })
