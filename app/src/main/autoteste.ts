@@ -1700,6 +1700,19 @@ export async function rodarAutoteste(
         await esperar(1500)
         const quantos = (await cartoes()).length
         conferir('fechar todos desliga o automático da pasta', desligou && quantos === 0, `desligou ${desligou} · cartões ${quantos}`)
+
+        // cartão aberto à mão antes de haver arquivo (e o que sobrou da versão que trocava de conteúdo):
+        // ele vira o cartão do primeiro arquivo gravado, em vez de trocar de conteúdo para sempre
+        await js(`(() => { const L = window.__teste.loja
+          return L.adicionarNo({ tipo: 'codigo', terminal: '${dono}' }, 3000, 300) })()`)
+        await gravar('quinto.ts', 'const cinco = 5', 'FIM-GRAVOU5')
+        await esperar(1500)
+        const depoisDoVazio = await cartoes()
+        conferir(
+          'cartão sem arquivo vira o cartão do primeiro arquivo gravado',
+          depoisDoVazio.length === 1 && depoisDoVazio[0].caminho.endsWith('quinto.ts'),
+          resumo(depoisDoVazio) || 'nenhum cartão'
+        )
       }
     },
   ]

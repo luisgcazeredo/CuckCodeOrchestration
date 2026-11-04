@@ -1393,8 +1393,14 @@ async function aoGravaremNaPasta(pasta: string, caminho: string): Promise<void> 
   if (!daPasta.length) return
   const ids = new Set(daPasta.map((n) => n.id))
   const cartoes = plano.nos.filter((n): n is NoCodigo => n.tipo === 'codigo' && !!n.terminal && ids.has(n.terminal))
-  // já há cartão mostrando este arquivo (preso nele, ou um que segue a pasta): ele mesmo relê
-  if (cartoes.some((c) => c.caminho === caminho || !c.caminho)) return
+  if (cartoes.some((c) => c.caminho === caminho)) return // já há cartão deste arquivo: ele mesmo relê
+  // cartão ainda sem arquivo (recém-aberto à mão, ou vindo da versão que trocava de conteúdo): ele vira o
+  // cartão deste arquivo. Sem isto, um cartão desses trocaria de conteúdo para sempre e nenhum outro nasceria
+  const semArquivo = cartoes.find((c) => !c.caminho)
+  if (semArquivo) {
+    mudarPlano((p) => ({ ...p, nos: p.nos.map((n) => (n.id === semArquivo.id ? ({ ...n, caminho } as No) : n)) }), false)
+    return
+  }
   const candidatos = daPasta.filter((n) => n.codigoSozinho !== false)
   if (!candidatos.length) return
   criandoCodigo = true

@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from 'react'
-import { ChevronsDownUp, ChevronsUpDown, FileCode, GitCompare, History, Pin, PinOff, RefreshCw } from 'lucide-react'
+import { ChevronsDownUp, ChevronsUpDown, FileCode, GitCompare, History, RefreshCw } from 'lucide-react'
 import type { MudancaArquivo } from '../../../shared/api'
 import { caminhoRelativo, nomeDoArquivo } from '../../../shared/arquivos'
 import { escaparHtml } from '../../../shared/realce'
@@ -86,35 +86,27 @@ export const Codigo = memo(function Codigo({ no, selecionado }: { no: NoCodigo; 
     return alvo?.tipo === 'terminal' ? alvo.nome : null
   })
   const [recentes, definirRecentes] = useState<MudancaArquivo[]>([])
-  const [seguido, definirSeguido] = useState<string | null>(null)
   const [carga, definirCarga] = useState<Carga>(VAZIO)
   const [rodada, definirRodada] = useState(0)
 
-  const alvo = no.caminho ?? seguido
-  const preso = !!no.caminho
+  const alvo = no.caminho ?? null
 
-  // o que a pasta já tem, para um cartão que segue não nascer vazio
+  // a lista do botão de histórico: os arquivos que a pasta já tem
   useEffect(() => {
-    if (!pasta || preso) return
+    if (!pasta) return
     let vivo = true
-    void window.mp.codigo.recentes(pasta).then((lista) => {
-      if (!vivo) return
-      definirRecentes(lista)
-      definirSeguido((atual) => atual ?? lista[0]?.caminho ?? null)
-    })
+    void window.mp.codigo.recentes(pasta).then((lista) => vivo && definirRecentes(lista))
     return () => {
       vivo = false
     }
-  }, [pasta, preso])
+  }, [pasta])
 
-  // vigia a pasta: preso, só relê quando o arquivo dele muda; seguindo, passa a mostrar o que mudou
+  // vigia a pasta só para reler quando o arquivo deste cartão muda (quem abre cartão novo é a loja)
   useEffect(() => {
     if (!pasta) return
     return window.mp.codigo.vigiar(pasta, (mudanca) => {
       definirRecentes((lista) => [mudanca, ...lista.filter((m) => m.caminho !== mudanca.caminho)].slice(0, 30))
-      if (no.caminho && mudanca.caminho !== no.caminho) return
-      if (!no.caminho) definirSeguido(mudanca.caminho)
-      definirRodada((r) => r + 1)
+      if (mudanca.caminho === no.caminho) definirRodada((r) => r + 1)
     })
   }, [pasta, no.caminho])
 
@@ -160,7 +152,7 @@ export const Codigo = memo(function Codigo({ no, selecionado }: { no: NoCodigo; 
     }
   }, [alvo, no.modo, no.recolhido, rodada])
 
-  const nome = alvo ? nomeDoArquivo(alvo) : 'nenhum arquivo ainda'
+  const nome = alvo ? nomeDoArquivo(alvo) : 'esperando o agente gravar'
   const relativo = alvo ? caminhoRelativo(pasta, alvo) ?? alvo : ''
   const semArrasto = { onPointerDown: (e: React.PointerEvent) => e.stopPropagation() }
 
@@ -210,15 +202,6 @@ export const Codigo = memo(function Codigo({ no, selecionado }: { no: NoCodigo; 
             <History size={12} />
           </button>
           <button
-            className={`botao-mini ${preso ? 'ativo' : ''}`}
-            title={preso ? 'Soltar: voltar a seguir o que o agente mexer' : 'Prender neste arquivo'}
-            disabled={!alvo}
-            {...semArrasto}
-            onClick={() => atualizarNo(no.id, { caminho: preso ? undefined : alvo ?? undefined }, false)}
-          >
-            {preso ? <PinOff size={12} /> : <Pin size={12} />}
-          </button>
-          <button
             className="botao-mini"
             title={no.modo === 'diff' ? 'Mostrando o que mudou — ver o arquivo inteiro' : 'Mostrando o arquivo — ver o que mudou'}
             {...semArrasto}
@@ -254,7 +237,7 @@ export const Codigo = memo(function Codigo({ no, selecionado }: { no: NoCodigo; 
         </div>
         <footer className="cartao-ferramenta-rodape" data-arrasta title={alvo ?? ''}>
           <span className="codigo-caminho">{relativo || pasta}</span>
-          <span className="codigo-fonte">{preso ? 'preso' : nomeDoTerminal ? `segue ${nomeDoTerminal}` : 'segue a pasta'}</span>
+          {nomeDoTerminal && <span className="codigo-fonte">{nomeDoTerminal}</span>}
         </footer>
       </div>
     </MolduraNo>

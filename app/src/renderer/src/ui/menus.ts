@@ -74,6 +74,7 @@ import {
   infoDaSelecao,
   irParaAndar,
   lerEstado,
+  pastaDoPlano,
   renomearAndar,
   renomearEspaco,
   selecionarTudo,
@@ -113,10 +114,16 @@ const NOMES_POSTIT: Record<NoPostIt['cor'], string> = {
 
 const separador: ItemMenu = { separador: true }
 
-/** Cartão de código do lado do terminal, acompanhando o que ele escreve. */
-export function verCodigoDoTerminal(no: NoTerminal): void {
+/**
+ * Cartão de código do lado do terminal, já no último arquivo que mexeram na pasta dele. Sem nenhum arquivo
+ * ainda, ele nasce vazio e pega o primeiro que o agente gravar.
+ */
+export async function verCodigoDoTerminal(no: NoTerminal): Promise<void> {
+  const espaco = lerEstado().espaco
+  const pasta = no.pasta || (espaco ? pastaDoPlano(espaco) : '')
+  const recentes = pasta ? await window.mp.codigo.recentes(pasta).catch(() => []) : []
   // adicionarNo centra no ponto; isto põe o cartão colado à direita do terminal, alinhado pelo topo
-  adicionarNo({ tipo: 'codigo', terminal: no.id }, no.x + no.largura + 40 + 310, no.y + 230)
+  adicionarNo({ tipo: 'codigo', terminal: no.id, caminho: recentes[0]?.caminho }, no.x + no.largura + 40 + 310, no.y + 230)
 }
 
 /**
@@ -133,7 +140,7 @@ export function itensDoCodigoDoTerminal(no: NoTerminal): ItemMenu[] {
       marcado: no.codigoSozinho !== false,
       acao: () => alternarCodigoSozinho(no.id)
     },
-    { rotulo: 'Abrir um cartão agora (segue o que ele mexer)', icone: FileCode, acao: () => verCodigoDoTerminal(no) },
+    { rotulo: 'Abrir um cartão com o último arquivo mexido', icone: FileCode, acao: () => void verCodigoDoTerminal(no) },
     separador,
     {
       rotulo: total ? `Recolher os ${total} em bloquinhos` : 'Recolher todos',
@@ -422,7 +429,6 @@ export function itensDoNo(no: No): ItemMenu[] {
         { rotulo: no.recolhido ? 'Abrir' : 'Recolher', icone: FileCode, acao: () => alternarRecolhido(no) },
         ...(no.caminho
           ? [
-              { rotulo: 'Soltar (voltar a seguir o agente)', icone: Unlink, acao: () => atualizarNo(no.id, { caminho: undefined }, false) },
               { rotulo: 'Abrir no programa do sistema', icone: FileText, acao: () => void window.mp.dados.abrirArquivo(no.caminho!) },
               { rotulo: 'Mostrar no Explorer', icone: FolderOpen, acao: () => void window.mp.dados.mostrarNoExplorer(no.caminho!) }
             ]

@@ -81,7 +81,10 @@ export interface NoCodigo extends NoBase {
   tipo: 'codigo'
   /** Terminal acompanhado; sem ele (ou se o cartão saiu do quadro), segue a pasta do espaço ou do andar. */
   terminal?: string
-  /** Arquivo preso pelo usuário; sem ele, segue o mais recente da pasta. */
+  /**
+   * O arquivo que o cartão mostra. Fica vazio só no instante entre abrir o cartão e o agente gravar algo:
+   * na primeira gravação ele passa a ser o cartão daquele arquivo, e o próximo arquivo abre outro cartão.
+   */
   caminho?: string
   /** O que mudou desde o último commit, ou o arquivo inteiro. */
   modo: 'diff' | 'conteudo'
