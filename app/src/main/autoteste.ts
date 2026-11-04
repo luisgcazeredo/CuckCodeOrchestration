@@ -1536,7 +1536,7 @@ export async function rodarAutoteste(
       nome: 'codigo-explorador',
       depende: 'mpro',
       rodar: async (d) => {
-        const { esperar, js, conferir, comando, comandoAte, aguardar, telaNoApp, clicarEm, print, teclar, ultimas } = d
+        const { esperar, js, conferir, comandoAte, aguardar, clicarEm, print, teclar, ultimas } = d
         // o cenário anterior pode ter deixado outro espaço à mostra; o shell "chefe" mora neste
         await js(`window.__teste.loja.abrirEspaco(${JSON.stringify(espacoTerminais)}, null)`)
         await esperar(700)
@@ -1545,11 +1545,11 @@ export async function rodarAutoteste(
             if (n) L.definirCamera({ x: -n.x + 60, y: -n.y + 60, zoom: 1 }) })()`)
           await esperar(500)
         }
-        // a marca é procurada no começo da linha: a própria linha digitada aparece na tela com o texto dela
-        // dentro, e sem a âncora a espera terminava no eco, antes de o comando ter rodado
+        // Duas armadilhas do autoteste de uma vez: a marca é procurada no começo da linha (sem a âncora, a
+        // espera casa com o eco da própria linha digitada, antes de o comando rodar) e o comando repete,
+        // porque tecla sintética se perde — principalmente logo depois de clicar na interface.
         const gravar = async (nome: string, texto: string, marca: string): Promise<void> => {
-          await comando(chefe, `Set-Content -Encoding utf8 ${nome} '${texto}'; echo ${marca}`)
-          await aguardar(() => telaNoApp(chefe), new RegExp(`^${marca}`, 'm'), 15_000)
+          await comandoAte(chefe, `Set-Content -Encoding utf8 ${nome} '${texto}'; echo ${marca}`, new RegExp(`^${marca}`, 'm'), 15_000)
           await esperar(600) // a vigia junta a rajada de gravação antes de avisar
         }
 
@@ -1727,11 +1727,30 @@ export async function rodarAutoteste(
           resumo(depoisDoSexto)
         )
 
-        // arquivo apagado: o cartão diz "não encontrado", não "não está em pasta do quadro"
-        await comandoAte(chefe, 'Remove-Item sexto.ts; if (Test-Path sexto.ts) { echo AINDA } else { echo SUMIU }', /^SUMIU/m, 15_000)
-        const doSexto = (await cartoes()).find((c) => c.caminho.endsWith('sexto.ts'))?.id ?? ''
+        // abrir um bloquinho para ler não é arrumar o quadro: o cartão continua na coluna, e o arquivo
+        // seguinte recolhe só o que era o atual — não o que você abriu para ler
+        const idQuinto = (await cartoes()).find((c) => c.caminho.endsWith('quinto.ts'))?.id ?? ''
+        await irPara(idQuinto)
+        const abriuBloquinho = await clicarEm(`[data-no-id="${idQuinto}"] button[title^="Abrir"]`)
+        await esperar(400)
+        await gravar('setimo.ts', 'const sete = 7', 'FIM-GRAVOU7')
+        await esperar(1500)
+        const tres = await cartoes()
+        const quinto = tres.find((c) => c.caminho.endsWith('quinto.ts'))
+        const sexto = tres.find((c) => c.caminho.endsWith('sexto.ts'))
+        const setimo = tres.find((c) => c.caminho.endsWith('setimo.ts'))
+        conferir(
+          'bloquinho aberto para ler continua aberto; o próximo arquivo recolhe só o anterior',
+          abriuBloquinho && !!quinto && !quinto.recolhido && !!sexto?.recolhido && !!setimo && !setimo.recolhido,
+          resumo(tres)
+        )
+
+        // arquivo apagado: o cartão diz "não encontrado", não "não está em pasta do quadro". O alvo é o
+        // cartão aberto (bloquinho não desenha corpo, então não teria aviso nenhum para ler)
+        await comandoAte(chefe, 'Remove-Item setimo.ts; if (Test-Path setimo.ts) { echo AINDA } else { echo SUMIU }', /^SUMIU/m, 15_000)
+        const doSetimo = (await cartoes()).find((c) => c.caminho.endsWith('setimo.ts'))?.id ?? ''
         const recado = await aguardar(
-          () => js<string>(`document.querySelector('[data-no-id="${doSexto}"] .codigo-aviso')?.innerText ?? ''`),
+          () => js<string>(`document.querySelector('[data-no-id="${doSetimo}"] .codigo-aviso')?.innerText ?? ''`),
           /não encontrado|não está em pasta/,
           8000
         )

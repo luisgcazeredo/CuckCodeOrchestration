@@ -5,7 +5,7 @@ import { caminhoRelativo, nomeDoArquivo } from '../../../shared/arquivos'
 import { escaparHtml } from '../../../shared/realce'
 import type { NoCodigo } from '../../../shared/modelo'
 import { realcarLinhas } from '../arquivos/realce'
-import { atualizarNo, pastaDoPlano, planoDe, usarLoja } from '../estado/loja'
+import { alternarRecolhidoDoCodigo, atualizarNo, pastaDoPlano, planoDe, usarLoja } from '../estado/loja'
 import { MolduraNo, type Marca } from '../quadro/MolduraNo'
 import { abrirMenu } from '../ui/MenuContexto'
 
@@ -29,18 +29,12 @@ const VAZIO: Carga = { linhas: [], erro: null, aviso: null, truncado: false, pat
 /** O que aparece na canaleta da esquerda no modo diff. */
 const SINAL: Record<Tipo, string> = { mais: '+', menos: '−', trecho: '', igual: '' }
 
-/** Tamanho do bloquinho quando o cartão está recolhido: só o nome do arquivo. */
-const RECOLHIDO = { largura: 300, altura: 30 }
-
 /**
  * Recolher encolhe o cartão de verdade (não só esconde o conteúdo): era o pedido de não espalhar o quadro.
- * O tamanho de antes fica guardado para ele voltar ao que era.
+ * Quem faz é a loja, porque ela também arruma a coluna em volta.
  */
 export function alternarRecolhido(no: NoCodigo): void {
-  const mudanca = no.recolhido
-    ? { recolhido: false, largura: no.larguraAberta ?? 620, altura: no.alturaAberta ?? 460 }
-    : { recolhido: true, larguraAberta: no.largura, alturaAberta: no.altura, ...RECOLHIDO }
-  atualizarNo(no.id, mudanca, false)
+  alternarRecolhidoDoCodigo(no.id)
 }
 
 /** Separa o patch do git em linhas com tipo. O cabeçalho do arquivo não interessa: o cartão já diz o nome. */

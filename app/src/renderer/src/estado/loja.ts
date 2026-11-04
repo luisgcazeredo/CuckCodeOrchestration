@@ -1458,23 +1458,33 @@ function criarCodigoDoArquivo(terminal: NoTerminal, caminho: string): void {
  * para o mais velho. Só mexe nos cartões que o app criou e o usuário não tocou (campo automatico) — depois que
  * você mexe num cartão, ele é seu e fica onde está.
  */
-function arrumarColuna(plano: Plano, terminalId: string, abertoId: string): Plano {
+/**
+ * Arruma a coluna de um agente, do arquivo mais novo para o mais velho. Só mexe nos cartões que o app criou
+ * e o usuário não tirou dele (ver automatico).
+ *
+ * `chegou` é o cartão do arquivo que acabou de ser gravado: ele abre e **o arquivo anterior** vira
+ * bloquinho. Os outros ficam como estão — um bloquinho que você abriu para ler continua aberto, porque
+ * abrir para ler não é arrumar o quadro; a coluna só desloca os de baixo para caber.
+ */
+function arrumarColuna(plano: Plano, terminalId: string, chegou?: string): Plano {
   const terminal = plano.nos.find((n) => n.id === terminalId)
   if (terminal?.tipo !== 'terminal') return plano
   const meus = plano.nos
     .filter((n): n is NoCodigo => n.tipo === 'codigo' && n.automatico === true && n.terminal === terminalId)
-    .sort((a, b) => (a.id === abertoId ? -1 : b.id === abertoId ? 1 : b.criadoEm.localeCompare(a.criadoEm)))
+    .sort((a, b) => (a.id === chegou ? -1 : b.id === chegou ? 1 : b.criadoEm.localeCompare(a.criadoEm)))
   const sobrando = new Set(meus.slice(MAX_NA_COLUNA).map((n) => n.id))
+  // o que era o arquivo da vez até agora é o que se recolhe quando chega um novo
+  const anterior = chegou ? meus[1]?.id : undefined
   const x = terminal.x + terminal.largura + 40
   let y = terminal.y
   const ajustes = new Map<string, Partial<NoCodigo>>()
   for (const cartao of meus.slice(0, MAX_NA_COLUNA)) {
-    const aberto = cartao.id === abertoId
+    const recolhido = cartao.id === chegou ? false : cartao.id === anterior ? true : !!cartao.recolhido
     const larguraAberta = cartao.larguraAberta ?? (cartao.recolhido ? ABERTO.largura : cartao.largura)
     const alturaAberta = cartao.alturaAberta ?? (cartao.recolhido ? ABERTO.altura : cartao.altura)
-    const largura = aberto ? larguraAberta : BLOQUINHO.largura
-    const altura = aberto ? alturaAberta : BLOQUINHO.altura
-    ajustes.set(cartao.id, { x, y, largura, altura, recolhido: !aberto, larguraAberta, alturaAberta })
+    const largura = recolhido ? BLOQUINHO.largura : larguraAberta
+    const altura = recolhido ? BLOQUINHO.altura : alturaAberta
+    ajustes.set(cartao.id, { x, y, largura, altura, recolhido, larguraAberta, alturaAberta })
     y += altura + 12
   }
   return {
@@ -1483,6 +1493,31 @@ function arrumarColuna(plano: Plano, terminalId: string, abertoId: string): Plan
       .filter((n) => !sobrando.has(n.id))
       .map((n) => (ajustes.has(n.id) ? ({ ...n, ...ajustes.get(n.id) } as No) : n))
   }
+}
+
+/**
+ * Abre ou recolhe um cartão de código. Abrir para ler não tira o cartão das mãos do app (ao contrário de
+ * mover ou redimensionar): a coluna é arrumada de novo, para o que está embaixo descer e nada se sobrepor.
+ */
+export function alternarRecolhidoDoCodigo(id: string): void {
+  const plano = planoAtual()
+  const cartao = plano?.nos.find((n) => n.id === id)
+  if (!plano || cartao?.tipo !== 'codigo') return
+  const larguraAberta = cartao.larguraAberta ?? (cartao.recolhido ? ABERTO.largura : cartao.largura)
+  const alturaAberta = cartao.alturaAberta ?? (cartao.recolhido ? ABERTO.altura : cartao.altura)
+  const recolhido = !cartao.recolhido
+  const mudanca: Partial<NoCodigo> = {
+    recolhido,
+    larguraAberta,
+    alturaAberta,
+    largura: recolhido ? BLOQUINHO.largura : larguraAberta,
+    altura: recolhido ? BLOQUINHO.altura : alturaAberta
+  }
+  registrarHistorico()
+  mudarPlano((p) => {
+    const com = { ...p, nos: p.nos.map((n) => (n.id === id ? ({ ...n, ...mudanca } as No) : n)) }
+    return cartao.automatico && cartao.terminal ? arrumarColuna(com, cartao.terminal) : com
+  }, false)
 }
 
 /** Cartões de código de um agente, do mais novo para o mais velho. */
@@ -1519,10 +1554,10 @@ export function recolherCodigosDoTerminal(terminalId: string, recolher: boolean)
       altura: recolher ? BLOQUINHO.altura : alturaAberta
     })
   }
-  mudarPlano(
-    (p) => ({ ...p, nos: p.nos.map((n) => (ajustes.has(n.id) ? ({ ...n, ...ajustes.get(n.id) } as No) : n)) }),
-    false
-  )
+  mudarPlano((p) => {
+    const com = { ...p, nos: p.nos.map((n) => (ajustes.has(n.id) ? ({ ...n, ...ajustes.get(n.id) } as No) : n)) }
+    return arrumarColuna(com, terminalId)
+  }, false)
 }
 
 /**
