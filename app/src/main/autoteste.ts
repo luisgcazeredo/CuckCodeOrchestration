@@ -1536,7 +1536,7 @@ export async function rodarAutoteste(
       nome: 'codigo-explorador',
       depende: 'mpro',
       rodar: async (d) => {
-        const { esperar, js, conferir, comandoAte, aguardar, clicarEm, print, teclar, ultimas } = d
+        const { esperar, js, conferir, comandoAte, aguardar, clicarEm, print, teclar, ultimas, arrastar, centroDe } = d
         // o cenário anterior pode ter deixado outro espaço à mostra; o shell "chefe" mora neste
         await js(`window.__teste.loja.abrirEspaco(${JSON.stringify(espacoTerminais)}, null)`)
         await esperar(700)
@@ -1623,6 +1623,7 @@ export async function rodarAutoteste(
         const todosBloquinho = (await cartoes()).every((c) => c.recolhido)
         await js(`window.__teste.loja.recolherCodigosDoTerminal('${dono}', false)`)
         await esperar(400)
+
         const todosAbertos = (await cartoes()).every((c) => !c.recolhido)
         conferir('recolher todos e abrir todos, pelo agente', todosBloquinho && todosAbertos, `recolheu ${todosBloquinho} · abriu ${todosAbertos}`)
 
@@ -1659,6 +1660,45 @@ export async function rodarAutoteste(
         await print('codigo-mapa-mental')
         await js(`window.__teste.loja.recolherCodigosDoTerminal('${dono}', false)`)
         await esperar(400)
+
+        // arrastar pela bolinha leva a coluna inteira, e ela continua sendo arrumada pelo app
+        const posicoes = (): Promise<Array<{ id: string; x: number; y: number; automatico: boolean }>> =>
+          js(`window.__teste.loja.planoAtual().nos.filter((n) => n.tipo === 'codigo')
+            .map((n) => ({ id: n.id, x: n.x, y: n.y, automatico: !!n.automatico }))`)
+        const antesDoArrasto = await posicoes()
+        const bolinha = await centroDe('.vinculo-toque')
+        if (bolinha) await arrastar(bolinha, { x: bolinha.x, y: bolinha.y + 120 })
+        await esperar(400)
+        const depoisDoArrasto = await posicoes()
+        const desceu = depoisDoArrasto.every((c) => {
+          const antes = antesDoArrasto.find((a) => a.id === c.id)
+          // folga no x também: o ímã de alinhamento pode encostar a coluna na borda de um vizinho
+          return !!antes && Math.abs(c.y - antes.y - 120) <= 12 && Math.abs(c.x - antes.x) <= 12 && c.automatico
+        })
+        const desloc = await js<{ x: number; y: number } | null>(
+          `window.__teste.loja.acharNo('${dono}')?.codigoDesloc ?? null`
+        )
+        conferir(
+          'arrastar pela bolinha leva a coluna junto, sem tirá-la das mãos do app',
+          !!bolinha && desceu && Math.abs((desloc?.y ?? 0) - 120) <= 12,
+          `desceu ${desceu} · deslocamento ${JSON.stringify(desloc)}`
+        )
+
+        // e arrastar o agente leva os arquivos dele junto, como o ramo vai com o nó que o segura
+        const cabecalhoDoDono = await centroDe(`[data-no-id="${dono}"] .terminal-cabecalho, [data-no-id="${dono}"] [data-arrasta]`)
+        const antesDoAgente = await posicoes()
+        if (cabecalhoDoDono) await arrastar(cabecalhoDoDono, { x: cabecalhoDoDono.x + 90, y: cabecalhoDoDono.y })
+        await esperar(400)
+        const depoisDoAgente = await posicoes()
+        const foiJunto = depoisDoAgente.every((c) => {
+          const antes = antesDoAgente.find((a) => a.id === c.id)
+          return !!antes && Math.abs(c.x - antes.x - 90) <= 12 && c.automatico
+        })
+        conferir(
+          'arrastar o agente leva os arquivos dele junto',
+          !!cabecalhoDoDono && foiJunto,
+          depoisDoAgente.map((c) => `${c.x},${c.y}${c.automatico ? '' : ' (solto)'}`).join(' | ')
+        )
 
         // com git, o cartão mostra o diff de verdade — é o caso principal, e sem repositório ele nunca roda
         // comandoAte repete: tecla sintética se perde de vez em quando, e esta linha vem depois de muito

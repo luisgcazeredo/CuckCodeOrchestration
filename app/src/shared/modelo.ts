@@ -40,6 +40,12 @@ export interface NoTerminal extends NoBase {
   criadoPor?: string
   /** false: o usuário fechou o cartão de código deste agente, então ele não nasce mais sozinho. */
   codigoSozinho?: boolean
+  /**
+   * Para onde o usuário arrastou a coluna de arquivos deste agente (pela bolinha das ligações), em relação
+   * ao lugar padrão — à direita dele, alinhada pelo topo. Guardado aqui, e não em cada cartão, porque é a
+   * coluna que anda: o arquivo que chegar depois nasce no lugar novo.
+   */
+  codigoDesloc?: { x: number; y: number }
 }
 
 export type CorPostIt = 'amarelo' | 'rosa' | 'azul' | 'verde' | 'roxo'

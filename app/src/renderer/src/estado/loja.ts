@@ -1045,9 +1045,26 @@ export function posicoesDaSelecao(): Posicoes {
   const plano = planoAtual()
   const s = estado.selecao
   if (!plano) return { nos: [], desenhos: [] }
+  // o agente leva os arquivos dele junto, como os ramos de um mapa mental vão com o nó que os segura
+  const escolhidos = new Set(s.nos)
+  for (const n of plano.nos) {
+    if (n.tipo === 'codigo' && n.automatico && n.terminal && escolhidos.has(n.terminal)) escolhidos.add(n.id)
+  }
   return {
-    nos: plano.nos.filter((n) => s.nos.includes(n.id) && !n.travado).map(({ id, x, y }) => ({ id, x, y })),
+    nos: plano.nos.filter((n) => escolhidos.has(n.id) && !n.travado).map(({ id, x, y }) => ({ id, x, y })),
     desenhos: plano.desenhos.filter((d) => s.desenhos.includes(d.id)).map(({ id, pontos }) => ({ id, pontos }))
+  }
+}
+
+/** Os cartões de código que o app arruma para um agente — o que anda junto quando você pega a bolinha. */
+export function posicoesDaColuna(terminalId: string): Posicoes {
+  const plano = planoAtual()
+  if (!plano) return { nos: [], desenhos: [] }
+  return {
+    nos: plano.nos
+      .filter((n) => n.tipo === 'codigo' && n.automatico && n.terminal === terminalId && !n.travado)
+      .map(({ id, x, y }) => ({ id, x, y })),
+    desenhos: []
   }
 }
 
@@ -1075,8 +1092,10 @@ export function moverItens(originais: Posicoes, dx: number, dy: number, chave: s
       nos: p.nos.map((n) => {
         const o = nos.get(n.id)
         if (!o) return n
-        // arrastar um cartão de código também o tira do automático (ver atualizarNo)
-        return { ...n, x: o.x + dx, y: o.y + dy, ...(n.tipo === 'codigo' ? { automatico: false } : {}) } as No
+        // arrastar um cartão de código sozinho o tira do automático (ver atualizarNo); indo junto com o
+        // agente dele, não — é a coluna inteira andando, e ela continua nas mãos do app
+        const solta = n.tipo === 'codigo' && !(n.terminal && nos.has(n.terminal))
+        return { ...n, x: o.x + dx, y: o.y + dy, ...(solta ? { automatico: false } : {}) } as No
       }),
       desenhos: p.desenhos.map((d) => {
         const o = desenhos.get(d.id)
@@ -1440,10 +1459,11 @@ async function aoGravaremNaPasta(pasta: string, caminho: string): Promise<void> 
 function criarCodigoDoArquivo(terminal: NoTerminal, caminho: string): void {
   const plano = planoAtual()
   if (!plano) return
+  const inicio = inicioDaColuna(terminal)
   const no: NoCodigo = {
     id: novoId(),
-    x: terminal.x + terminal.largura + DISTANCIA,
-    y: terminal.y,
+    x: inicio.x,
+    y: inicio.y,
     ...ABERTO,
     z: proximoZ(plano),
     criadoEm: agora(),
@@ -1461,6 +1481,47 @@ function criarCodigoDoArquivo(terminal: NoTerminal, caminho: string): void {
  * para o mais velho. Só mexe nos cartões que o app criou e o usuário não tocou (campo automatico) — depois que
  * você mexe num cartão, ele é seu e fica onde está.
  */
+/** Onde a coluna de um agente começa: ao lado dele, mais o quanto o usuário a arrastou pela bolinha. */
+function inicioDaColuna(terminal: NoTerminal): { x: number; y: number } {
+  const desloc = terminal.codigoDesloc ?? { x: 0, y: 0 }
+  return { x: terminal.x + terminal.largura + DISTANCIA + desloc.x, y: terminal.y + desloc.y }
+}
+
+/**
+ * Arrasto pela bolinha: a coluna inteira anda e **continua sendo do app** — quem guarda o deslocamento é o
+ * agente, então o próximo arquivo que ele gravar nasce onde você pôs a coluna, e não de volta ao lado dele.
+ */
+export function moverColuna(terminalId: string, originais: Posicoes, dx: number, dy: number, chave: string): void {
+  const plano = planoAtual()
+  const terminal = plano?.nos.find((n) => n.id === terminalId)
+  if (!plano || terminal?.tipo !== 'terminal' || !originais.nos.length) return
+  dx = Math.round(dx)
+  dy = Math.round(dy)
+  // o cartão mais alto marca onde a coluna começa; o deslocamento é a distância dele até o lugar padrão
+  const topo = originais.nos.reduce((a, b) => (b.y < a.y ? b : a))
+  const desloc = {
+    x: topo.x + dx - (terminal.x + terminal.largura + DISTANCIA),
+    y: topo.y + dy - terminal.y
+  }
+  const por = new Map(originais.nos.map((o) => [o.id, o]))
+  mudarPlano(
+    (p) => ({
+      ...p,
+      nos: p.nos.map((n) => {
+        if (n.id === terminalId) return { ...n, codigoDesloc: desloc } as No
+        const o = por.get(n.id)
+        return o ? ({ ...n, x: o.x + dx, y: o.y + dy } as No) : n
+      })
+    }),
+    chave
+  )
+}
+
+/** Fim do arrasto pela bolinha: a coluna se realinha e empurra o que tiver ficado embaixo dela. */
+export function assentarColuna(terminalId: string): void {
+  mudarPlano((p) => arrumarColuna(p, terminalId), false)
+}
+
 /**
  * Arruma a coluna de um agente, do arquivo mais novo para o mais velho. Só mexe nos cartões que o app criou
  * e o usuário não tirou dele (ver automatico).
@@ -1478,8 +1539,9 @@ function arrumarColuna(plano: Plano, terminalId: string, chegou?: string): Plano
   const sobrando = new Set(meus.slice(MAX_NA_COLUNA).map((n) => n.id))
   // o que era o arquivo da vez até agora é o que se recolhe quando chega um novo
   const anterior = chegou ? meus[1]?.id : undefined
-  const x = terminal.x + terminal.largura + DISTANCIA
-  let y = terminal.y
+  const inicio = inicioDaColuna(terminal)
+  const x = inicio.x
+  let y = inicio.y
   const ajustes = new Map<string, Partial<NoCodigo>>()
   for (const cartao of meus.slice(0, MAX_NA_COLUNA)) {
     const recolhido = cartao.id === chegou ? false : cartao.id === anterior ? true : !!cartao.recolhido

@@ -1,6 +1,16 @@
 import { useSyncExternalStore } from 'react'
 import type { Camera, No } from '../../../shared/modelo'
-import { atualizarNo, definirCamera, moverItens, planoAtual, posicoesDaSelecao, type Posicoes } from '../estado/loja'
+import {
+  assentarColuna,
+  atualizarNo,
+  definirCamera,
+  moverColuna,
+  moverItens,
+  planoAtual,
+  posicoesDaColuna,
+  posicoesDaSelecao,
+  type Posicoes
+} from '../estado/loja'
 import { caixaDoDesenho, caixaDoNo, imantar, uniao, type Caixa, type Guia } from './geometria'
 
 // Arrastar o que está selecionado (cartões e traços juntos) e redimensionar um cartão. Um clique parado
@@ -75,7 +85,9 @@ function velocidadeNaBorda(distancia: number): number {
   return VELOCIDADE_MAXIMA * t * t
 }
 
-type Modo = { tipo: 'mover' } | { tipo: 'redimensionar'; no: No }
+// 'coluna': arrastar a coluna de arquivos de um agente pela bolinha das ligações. Anda como 'mover', mas
+// os cartões continuam nas mãos do app — quem guarda o lugar novo é o agente (ver moverColuna).
+type Modo = { tipo: 'mover' } | { tipo: 'redimensionar'; no: No } | { tipo: 'coluna'; terminal: string }
 
 interface Gesto {
   modo: Modo
@@ -130,14 +142,15 @@ function aplicar(rolar: boolean): void {
   const agora = pontoNoQuadro(mouse.x, mouse.y, area, camera)
   let dx = agora.x - g.inicioQuadro.x
   let dy = agora.y - g.inicioQuadro.y
-  if (g.modo.tipo === 'mover') {
+  if (g.modo.tipo !== 'redimensionar') {
     if (g.caixa && !g.semIma) {
       const ima = imantar({ ...g.caixa, x: g.caixa.x + dx, y: g.caixa.y + dy }, g.vizinhos, IMA / camera.zoom)
       dx += ima.dx
       dy += ima.dy
       mostrarGuias(ima.guias)
     } else mostrarGuias([])
-    moverItens(g.originais, dx, dy, g.chave)
+    if (g.modo.tipo === 'coluna') moverColuna(g.modo.terminal, g.originais, dx, dy, g.chave)
+    else moverItens(g.originais, dx, dy, g.chave)
   } else {
     const no = g.modo.no
     const minimo = MINIMO[no.tipo]
@@ -167,8 +180,8 @@ function virarArrasto(g: Gesto): void {
     // o elemento saiu da tela no meio do clique: segue sem captura
   }
   marcarGesto(true)
-  if (g.modo.tipo === 'mover') {
-    g.originais = posicoesDaSelecao()
+  if (g.modo.tipo !== 'redimensionar') {
+    g.originais = g.modo.tipo === 'coluna' ? posicoesDaColuna(g.modo.terminal) : posicoesDaSelecao()
     g.caixa = caixaDasPosicoes(g.originais)
     const movendo = new Set(g.originais.nos.map((n) => n.id))
     // ímã só nos cartões (traços soltos não puxam), e só nos que não estão sendo arrastados
@@ -215,7 +228,8 @@ export function comecarArrasto(
     if (!g) return
     atual = null
     if (cancelar && g.arrastando) {
-      if (g.modo.tipo === 'mover') moverItens(g.originais, 0, 0, g.chave)
+      if (g.modo.tipo === 'coluna') moverColuna(g.modo.terminal, g.originais, 0, 0, g.chave)
+      else if (g.modo.tipo === 'mover') moverItens(g.originais, 0, 0, g.chave)
       else atualizarNo(g.modo.no.id, { largura: g.modo.no.largura, altura: g.modo.no.altura }, g.chave)
     }
     window.removeEventListener('pointermove', mover, true)
@@ -234,6 +248,9 @@ export function comecarArrasto(
       atual = g
       aplicar(false)
       atual = null
+      // a coluna só se realinha (e empurra o que ficou embaixo) quando o arrasto acaba: fazer isso a cada
+      // quadro mexeria no quadro inteiro enquanto o mouse anda
+      if (g.modo.tipo === 'coluna') assentarColuna(g.modo.terminal)
     }
     cancelAnimationFrame(g.quadro)
     mostrarGuias([])

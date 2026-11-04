@@ -2195,7 +2195,7 @@ kbd {
 .vinculo-toque {
   fill: transparent;
   pointer-events: auto;
-  cursor: pointer;
+  cursor: grab;
 }
 
 .vinculo:hover .vinculo-linha {

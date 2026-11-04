@@ -193,12 +193,17 @@ export const CamadaVinculos = memo(function CamadaVinculos({ nos }: { nos: No[] 
               r={12}
               className="vinculo-toque"
               onPointerDown={(e) => {
+                if (e.button !== 0) return
                 e.stopPropagation()
-                recolherCodigosDoTerminal(idAgente, !todosRecolhidos)
+                // arrastar leva a coluna inteira; soltar sem andar recolhe ou abre todos
+                comecarArrasto(e, e.currentTarget, { tipo: 'coluna', terminal: idAgente }, {
+                  aoClicar: () => recolherCodigosDoTerminal(idAgente, !todosRecolhidos)
+                })
               }}
             >
               <title>
-                {todosRecolhidos ? 'Abrir' : 'Recolher'} os {cartoes.length} arquivos deste agente
+                {todosRecolhidos ? 'Abrir' : 'Recolher'} os {cartoes.length} arquivos deste agente — arraste para
+                levar a coluna junto
               </title>
             </circle>
           </g>
