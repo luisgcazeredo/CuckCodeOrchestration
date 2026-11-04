@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { Camera, No } from '../../../shared/modelo'
 import {
+  assentarCodigos,
   assentarColuna,
   atualizarNo,
   definirCamera,
@@ -250,7 +251,17 @@ export function comecarArrasto(
       atual = null
       // a coluna só se realinha (e empurra o que ficou embaixo) quando o arrasto acaba: fazer isso a cada
       // quadro mexeria no quadro inteiro enquanto o mouse anda
-      if (g.modo.tipo === 'coluna') assentarColuna(g.modo.terminal)
+      const modo = g.modo
+      if (modo.tipo === 'coluna') assentarColuna(modo.terminal)
+      else if (modo.tipo === 'mover') assentarCodigos(g.originais.nos.map((n) => n.id))
+      else {
+        // redimensionar um cartão da coluna vale como tamanho novo dele aberto, e a coluna se ajusta
+        const agora = planoAtual()?.nos.find((n) => n.id === modo.no.id)
+        if (agora?.tipo === 'codigo' && !agora.recolhido) {
+          atualizarNo(agora.id, { larguraAberta: agora.largura, alturaAberta: agora.altura }, g.chave)
+        }
+        assentarCodigos([modo.no.id])
+      }
     }
     cancelAnimationFrame(g.quadro)
     mostrarGuias([])

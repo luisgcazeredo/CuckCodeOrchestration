@@ -868,9 +868,9 @@ export function adicionarNo(novo: NovoNo, x: number, y: number): string {
 
 /** `chave`: mudanças seguidas com a mesma chave viram um passo de desfazer; `false`: fora do histórico. */
 export function atualizarNo(id: string, parcial: Partial<No>, chave?: string | false): void {
-  // mexer num cartão de código (recolher, prender, redimensionar) tira ele do automático: daí em diante a
-  // posição e o tamanho são do usuário, e o app não arruma mais a coluna por cima dele
-  const meu = (n: No): No => ({ ...n, ...parcial, ...(n.tipo === 'codigo' ? { automatico: false } : {}) }) as No
+  // mexer no conteúdo de um cartão de código (modo, arquivo, tamanho) não o tira da coluna do agente:
+  // quem tira é arrastar para longe dela, ou o menu (ver assentarCodigos)
+  const meu = (n: No): No => ({ ...n, ...parcial }) as No
   mudarPlano((p) => ({ ...p, nos: p.nos.map((n) => (n.id === id ? meu(n) : n)) }), chave)
 }
 
@@ -1092,10 +1092,7 @@ export function moverItens(originais: Posicoes, dx: number, dy: number, chave: s
       nos: p.nos.map((n) => {
         const o = nos.get(n.id)
         if (!o) return n
-        // arrastar um cartão de código sozinho o tira do automático (ver atualizarNo); indo junto com o
-        // agente dele, não — é a coluna inteira andando, e ela continua nas mãos do app
-        const solta = n.tipo === 'codigo' && !(n.terminal && nos.has(n.terminal))
-        return { ...n, x: o.x + dx, y: o.y + dy, ...(solta ? { automatico: false } : {}) } as No
+        return { ...n, x: o.x + dx, y: o.y + dy } as No
       }),
       desenhos: p.desenhos.map((d) => {
         const o = desenhos.get(d.id)
@@ -1517,6 +1514,103 @@ export function moverColuna(terminalId: string, originais: Posicoes, dx: number,
   )
 }
 
+/** A partir de quanto, longe do lugar da coluna, largar um cartão quer dizer "tire este daqui". */
+const LONGE = 260
+
+/**
+ * Fim de um arrasto (ou de um redimensionamento) que pegou cartões da coluna de um agente. Largado **perto**
+ * da coluna, o cartão volta para ela, na altura em que você o soltou — é assim que se reordena a coluna, e
+ * foi o que resolveu o cartão que se perdia lá embaixo ao ser movido. Largado **longe**, aí sim ele sai da
+ * coluna de propósito e fica onde você o deixou.
+ */
+export function assentarCodigos(ids: string[]): void {
+  const plano = planoAtual()
+  if (!plano) return
+  const movidos = new Set(ids)
+  const meus = plano.nos.filter(
+    (n): n is NoCodigo => n.tipo === 'codigo' && !!n.automatico && !!n.terminal && movidos.has(n.id)
+  )
+  // o agente foi junto no mesmo arrasto: a coluna inteira andou com ele, não há nada para assentar
+  const terminais = [...new Set(meus.map((n) => n.terminal!))].filter((id) => !movidos.has(id))
+  if (!terminais.length) return
+  mudarPlano((p) => {
+    let saida = p
+    for (const terminalId of terminais) {
+      const terminal = saida.nos.find((n) => n.id === terminalId)
+      if (terminal?.tipo !== 'terminal') continue
+      const coluna = inicioDaColuna(terminal)
+      const daColuna = saida.nos.filter(
+        (n): n is NoCodigo => n.tipo === 'codigo' && !!n.automatico && n.terminal === terminalId
+      )
+      const foraAgora = new Set(
+        daColuna.filter((n) => movidos.has(n.id) && Math.abs(n.x - coluna.x) > LONGE).map((n) => n.id)
+      )
+      // a ordem nova é a ordem em que os cartões ficaram na tela depois do arrasto
+      const ordem = new Map(
+        daColuna
+          .filter((n) => !foraAgora.has(n.id))
+          .sort((a, b) => a.y - b.y)
+          .map((n, i) => [n.id, i])
+      )
+      saida = {
+        ...saida,
+        nos: saida.nos.map((n) =>
+          foraAgora.has(n.id)
+            ? ({ ...n, automatico: false, ordem: undefined } as No)
+            : ordem.has(n.id)
+              ? ({ ...n, ordem: ordem.get(n.id) } as No)
+              : n
+        )
+      }
+      saida = arrumarColuna(saida, terminalId)
+    }
+    return saida
+  }, false)
+}
+
+/** Traz de volta para a coluna do agente os cartões de código que saíram dela. */
+export function juntarCodigosDoTerminal(terminalId: string): void {
+  const plano = planoAtual()
+  if (!plano) return
+  const fora = plano.nos.filter((n) => n.tipo === 'codigo' && n.terminal === terminalId && !n.automatico)
+  if (!fora.length) return
+  const ids = new Set(fora.map((n) => n.id))
+  registrarHistorico()
+  mudarPlano((p) => {
+    // os que voltam entram embaixo dos que já estavam na coluna, na ordem em que estão no quadro
+    const maior = Math.max(
+      -1,
+      ...p.nos
+        .filter((n): n is NoCodigo => n.tipo === 'codigo' && n.terminal === terminalId && !!n.automatico)
+        .map((n) => n.ordem ?? -1)
+    )
+    const voltando = p.nos.filter((n) => ids.has(n.id)).sort((a, b) => a.y - b.y)
+    const nova = new Map(voltando.map((n, i) => [n.id, maior + 1 + i]))
+    const com = {
+      ...p,
+      nos: p.nos.map((n) => (ids.has(n.id) ? ({ ...n, automatico: true, ordem: nova.get(n.id) } as No) : n))
+    }
+    return arrumarColuna(com, terminalId)
+  }, false)
+}
+
+/** Tira um cartão da coluna do agente: daí em diante ele fica onde o usuário o deixar. */
+export function soltarCodigoDaColuna(id: string): void {
+  const no = acharNo(id)
+  if (no?.tipo !== 'codigo' || !no.automatico) return
+  registrarHistorico()
+  mudarPlano(
+    (p) => ({ ...p, nos: p.nos.map((n) => (n.id === id ? ({ ...n, automatico: false, ordem: undefined } as No) : n)) }),
+    false
+  )
+}
+
+/** Quantos cartões de código de um agente estão fora da coluna (para o menu oferecer trazer de volta). */
+export function contarCodigosSoltos(terminalId: string): number {
+  const plano = planoAtual()
+  return plano ? plano.nos.filter((n) => n.tipo === 'codigo' && n.terminal === terminalId && !n.automatico).length : 0
+}
+
 /** Fim do arrasto pela bolinha: a coluna se realinha e empurra o que tiver ficado embaixo dela. */
 export function assentarColuna(terminalId: string): void {
   mudarPlano((p) => arrumarColuna(p, terminalId), false)
@@ -1535,7 +1629,13 @@ function arrumarColuna(plano: Plano, terminalId: string, chegou?: string): Plano
   if (terminal?.tipo !== 'terminal') return plano
   const meus = plano.nos
     .filter((n): n is NoCodigo => n.tipo === 'codigo' && n.automatico === true && n.terminal === terminalId)
-    .sort((a, b) => (a.id === chegou ? -1 : b.id === chegou ? 1 : b.criadoEm.localeCompare(a.criadoEm)))
+    // a ordem é a que o usuário deixou (campo ordem); sem ela, o mais novo primeiro. O que acabou de
+    // chegar vai para o topo.
+    .sort((a, b) => {
+      const pa = a.id === chegou ? -1 : a.ordem ?? Number.MAX_SAFE_INTEGER
+      const pb = b.id === chegou ? -1 : b.ordem ?? Number.MAX_SAFE_INTEGER
+      return pa - pb || b.criadoEm.localeCompare(a.criadoEm)
+    })
   const sobrando = new Set(meus.slice(MAX_NA_COLUNA).map((n) => n.id))
   // o que era o arquivo da vez até agora é o que se recolhe quando chega um novo
   const anterior = chegou ? meus[1]?.id : undefined
@@ -1549,7 +1649,7 @@ function arrumarColuna(plano: Plano, terminalId: string, chegou?: string): Plano
     const alturaAberta = cartao.alturaAberta ?? (cartao.recolhido ? ABERTO.altura : cartao.altura)
     const largura = recolhido ? BLOQUINHO.largura : larguraAberta
     const altura = recolhido ? BLOQUINHO.altura : alturaAberta
-    ajustes.set(cartao.id, { x, y, largura, altura, recolhido, larguraAberta, alturaAberta })
+    ajustes.set(cartao.id, { x, y, largura, altura, recolhido, larguraAberta, alturaAberta, ordem: ajustes.size })
     y += altura + 12
   }
   const arrumado = {

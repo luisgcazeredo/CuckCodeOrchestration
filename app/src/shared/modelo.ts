@@ -100,10 +100,13 @@ export interface NoCodigo extends NoBase {
   alturaAberta?: number
   larguraAberta?: number
   /**
-   * Criado pelo app, e o usuário ainda não tocou. Só nesses o app mexe sozinho (arruma a coluna, recolhe o
-   * anterior): depois que você mexe num cartão, ele é seu e fica onde está.
+   * O cartão está na coluna do agente, arrumada pelo app. Ler, recolher, redimensionar e mesmo arrastar
+   * dentro da coluna não tiram ele daqui — só arrastar para longe dela, ou o menu. Fora da coluna, o cartão
+   * fica onde o usuário o deixou.
    */
   automatico?: boolean
+  /** Lugar na coluna, de cima para baixo. É o que guarda a ordem quando você arrasta um cartão para outra. */
+  ordem?: number
 }
 
 /** Navegador dentro do quadro. */

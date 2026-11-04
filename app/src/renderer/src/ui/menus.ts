@@ -52,6 +52,9 @@ import {
   alternarCodigoSozinho,
   alternarLinhasDoCodigo,
   contarCodigos,
+  contarCodigosSoltos,
+  juntarCodigosDoTerminal,
+  soltarCodigoDaColuna,
   fecharCodigosDoTerminal,
   recolherCodigosDoTerminal,
   alternarMiniMapa,
@@ -132,6 +135,7 @@ export async function verCodigoDoTerminal(no: NoTerminal): Promise<void> {
  */
 export function itensDoCodigoDoTerminal(no: NoTerminal): ItemMenu[] {
   const { total, recolhidos } = contarCodigos(no.id)
+  const soltos = contarCodigosSoltos(no.id)
   const comLinhas = lerEstado().preferencias.linhasDoCodigo !== false
   return [
     {
@@ -153,6 +157,12 @@ export function itensDoCodigoDoTerminal(no: NoTerminal): ItemMenu[] {
       icone: ChevronsUpDown,
       desligado: !recolhidos,
       acao: () => recolherCodigosDoTerminal(no.id, false)
+    },
+    {
+      rotulo: soltos ? `Trazer ${soltos === 1 ? 'o arquivo solto' : `os ${soltos} arquivos soltos`} de volta` : 'Juntar na coluna',
+      icone: FileCode,
+      desligado: !soltos,
+      acao: () => juntarCodigosDoTerminal(no.id)
     },
     {
       rotulo: total ? `Fechar os ${total} e parar de abrir` : 'Fechar todos e parar de abrir',
@@ -427,6 +437,13 @@ export function itensDoNo(no: No): ItemMenu[] {
           acao: () => atualizarNo(no.id, { modo: no.modo === 'diff' ? 'conteudo' : 'diff' }, false)
         },
         { rotulo: no.recolhido ? 'Abrir' : 'Recolher', icone: FileCode, acao: () => alternarRecolhido(no) },
+        ...(no.terminal
+          ? [
+              no.automatico
+                ? { rotulo: 'Tirar da coluna do agente', icone: Unlink, acao: () => soltarCodigoDaColuna(no.id) }
+                : { rotulo: 'Devolver à coluna do agente', icone: FileCode, acao: () => juntarCodigosDoTerminal(no.terminal!) }
+            ]
+          : []),
         ...(no.caminho
           ? [
               { rotulo: 'Abrir no programa do sistema', icone: FileText, acao: () => void window.mp.dados.abrirArquivo(no.caminho!) },

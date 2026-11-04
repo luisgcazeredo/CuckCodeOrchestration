@@ -1700,6 +1700,39 @@ export async function rodarAutoteste(
           depoisDoAgente.map((c) => `${c.x},${c.y}${c.automatico ? '' : ' (solto)'}`).join(' | ')
         )
 
+        // arrastar um cartão dentro da coluna reordena a coluna: ele não sai mais do grupo nem fica perdido
+        const antesDaOrdem = await posicoes()
+        const topoAntes = [...antesDaOrdem].sort((a, b) => a.y - b.y)[0]
+        // o cartão precisa estar à vista: arrasto é mouse de verdade, e fora da tela não acerta nada
+        await irPara(topoAntes.id)
+        const pegada = await centroDe(`[data-no-id="${topoAntes.id}"] .cartao-ferramenta-cabecalho`)
+        // mais que a altura de um cartão aberto, senão ele continua sendo o primeiro da fila
+        if (pegada) await arrastar(pegada, { x: pegada.x, y: pegada.y + 520 })
+        await esperar(600)
+        const depoisDaOrdem = await posicoes()
+        const alinhados = depoisDaOrdem.every((c) => c.automatico && c.x === depoisDaOrdem[0].x)
+        const mudouDeLugar = [...depoisDaOrdem].sort((a, b) => a.y - b.y)[0]?.id !== topoAntes.id
+        conferir(
+          'arrastar um cartão dentro da coluna reordena, em vez de soltá-lo no quadro',
+          !!pegada && alinhados && mudouDeLugar,
+          `alinhados ${alinhados} · mudou de lugar ${mudouDeLugar}`
+        )
+
+        // longe da coluna é saída de propósito; e o menu do agente traz os soltos de volta
+        await irPara(topoAntes.id)
+        const pegadaLonge = await centroDe(`[data-no-id="${topoAntes.id}"] .cartao-ferramenta-cabecalho`)
+        if (pegadaLonge) await arrastar(pegadaLonge, { x: pegadaLonge.x + 420, y: pegadaLonge.y + 40 })
+        await esperar(600)
+        const solto = (await posicoes()).find((c) => c.id === topoAntes.id)
+        await js(`window.__teste.loja.juntarCodigosDoTerminal('${dono}')`)
+        await esperar(600)
+        const devolvido = (await posicoes()).find((c) => c.id === topoAntes.id)
+        conferir(
+          'arrastar para longe tira da coluna, e o menu do agente traz de volta',
+          solto?.automatico === false && devolvido?.automatico === true,
+          `solto ${solto?.automatico === false} · devolvido ${devolvido?.automatico === true}`
+        )
+
         // com git, o cartão mostra o diff de verdade — é o caso principal, e sem repositório ele nunca roda
         // comandoAte repete: tecla sintética se perde de vez em quando, e esta linha vem depois de muito
         // clique na interface (é a armadilha conhecida do autoteste)
