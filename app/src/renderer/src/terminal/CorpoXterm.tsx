@@ -3,18 +3,19 @@ import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import type { Tema } from '../../../shared/modelo'
-import { planoDe, usarLoja } from '../estado/loja'
+import { usarLoja } from '../estado/loja'
 
 // O corpo de um cartão de terminal: um xterm ligado ao processo, que mora no processo principal. Montar liga
 // (o processo manda o retrato da tela e passa a mandar a saída); desmontar só desliga, o processo continua.
 //
-// Texto nítido com zoom: o quadro amplia com CSS, e o xterm desenha num canvas, que borraria. Quando o zoom para,
-// o xterm é redesenhado no tamanho real (fonte × zoom) dentro de uma caixa que desfaz a escala do quadro; durante
-// o gesto, fica a imagem ampliada. As colunas e linhas não mudam com o zoom (o agente não redesenha a tela).
+// Texto nítido com zoom: o quadro amplia com CSS, e o xterm desenha num canvas, que borraria. Em vez de
+// redesenhar a cada zoom (o texto dançava na tela toda vez que você mexia na roda), o xterm desenha **sempre**
+// com o dobro da resolução, dentro de uma caixa que desfaz essa escala: fica nítido em qualquer zoom até 200%,
+// e abaixo de 100% a imagem só diminui, que é quando canvas fica melhor. Quem redesenha é o tamanho do cartão.
 
 const FONTE = 13
-const ESCALA_MIN = 0.5
-const ESCALA_MAX = 2
+/** O xterm desenha com este tanto de resolução a mais. 2 = nítido até 200% de zoom, sem redesenhar nunca. */
+const QUALIDADE = 2
 
 const TEMAS: Record<Tema, ITheme> = {
   escuro: { background: '#1A1A1E', foreground: '#E6E6E6', cursor: '#E6E6E6', cursorAccent: '#1A1A1E', selectionBackground: '#264F78' },
@@ -32,8 +33,6 @@ const TEMAS: Record<Tema, ITheme> = {
   }
 }
 
-const escalaPara = (zoom: number): number => Math.round(Math.min(ESCALA_MAX, Math.max(ESCALA_MIN, zoom)) * 100) / 100
-
 interface Props {
   id: string
   /** Selecionado sozinho: recebe o foco do teclado. */
@@ -44,24 +43,15 @@ export function CorpoXterm({ id, ativo }: Props) {
   const caixaRef = useRef<HTMLDivElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<{ terminal: Terminal; ajuste: FitAddon; ajustar: (refazerColunas: boolean) => void } | null>(null)
-  const zoom = usarLoja((e) => (e.espaco ? planoDe(e.espaco).camera.zoom : 1))
   const tema = usarLoja((e) => e.preferencias.tema)
-  const [escala, setEscala] = useState(() => escalaPara(zoom))
-  const escalaRef = useRef(escala)
   const [saiu, setSaiu] = useState<number | null>(null)
-
-  // o zoom parou: redesenha no tamanho real
-  useEffect(() => {
-    const t = setTimeout(() => setEscala(escalaPara(zoom)), 180)
-    return () => clearTimeout(t)
-  }, [zoom])
 
   useEffect(() => {
     const caixa = caixaRef.current!
     const area = areaRef.current!
     const terminal = new Terminal({
       fontFamily: "'Cascadia Mono', Consolas, 'DejaVu Sans Mono', monospace",
-      fontSize: FONTE * escalaRef.current,
+      fontSize: FONTE * QUALIDADE,
       cursorBlink: true,
       allowProposedApi: true,
       scrollback: 5000,
@@ -101,30 +91,16 @@ export function CorpoXterm({ id, ativo }: Props) {
     const redimensionado = terminal.onResize(({ cols, rows }) => window.mp.terminal.redimensionar(id, cols, rows))
 
     /**
-     * Caixa do tamanho do cartão × escala, desfeita por um scale(1/escala): na tela, 1 pixel do canvas = 1 pixel.
-     * `refazerColunas`: o cartão mudou de tamanho (colunas e linhas novas); senão (só o zoom), mantém as que tem.
+     * Caixa do tamanho do cartão × QUALIDADE, desfeita por um scale(1/QUALIDADE). O zoom do quadro não entra
+     * nesta conta: mexer na roda não mexe no xterm, só amplia o que já está desenhado.
      */
     const ajustar = (refazerColunas: boolean): void => {
-      const e = escalaRef.current
-      area.style.width = `${caixa.clientWidth * e}px`
-      area.style.height = `${caixa.clientHeight * e}px`
-      area.style.transform = `scale(${1 / e})`
-      if (terminal.options.fontSize !== FONTE * e) terminal.options.fontSize = FONTE * e
+      area.style.width = `${caixa.clientWidth * QUALIDADE}px`
+      area.style.height = `${caixa.clientHeight * QUALIDADE}px`
+      area.style.transform = `scale(${1 / QUALIDADE})`
       const proposta = ajuste.proposeDimensions()
-      if (!proposta || !ligado) return
-      if (refazerColunas) {
-        if (proposta.cols !== terminal.cols || proposta.rows !== terminal.rows) terminal.resize(proposta.cols, proposta.rows)
-        return
-      }
-      // só o zoom: o arredondamento da fonte pode não caber; diminui um fio antes de mudar colunas e linhas
-      for (let fonte = FONTE * e, i = 0; i < 6; i++) {
-        const p = ajuste.proposeDimensions()
-        if (!p || (p.cols >= terminal.cols && p.rows >= terminal.rows)) return
-        fonte *= 0.98
-        terminal.options.fontSize = fonte
-      }
-      const p = ajuste.proposeDimensions()
-      if (p) terminal.resize(p.cols, p.rows)
+      if (!proposta || !ligado || !refazerColunas) return
+      if (proposta.cols !== terminal.cols || proposta.rows !== terminal.rows) terminal.resize(proposta.cols, proposta.rows)
     }
     termRef.current = { terminal, ajuste, ajustar }
     ajustar(false)
@@ -161,14 +137,9 @@ export function CorpoXterm({ id, ativo }: Props) {
       if (doTeste?.[id] === terminal) delete doTeste[id]
       terminal.dispose()
     }
-    // o tema e a escala iniciais entram pelas refs; mudanças depois têm efeitos próprios
+    // o tema inicial entra pela ref; mudanças depois têm efeito próprio
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
-
-  useEffect(() => {
-    escalaRef.current = escala
-    termRef.current?.ajustar(false)
-  }, [escala])
 
   useEffect(() => {
     if (termRef.current) termRef.current.terminal.options.theme = TEMAS[tema]
@@ -192,7 +163,7 @@ export function CorpoXterm({ id, ativo }: Props) {
     <div
       className="terminal-caixa"
       ref={caixaRef}
-      data-escala={escala}
+      data-escala={QUALIDADE}
       // clique na folga em volta do desenho do xterm: o teclado continua sendo do terminal
       onPointerDown={(e) => {
         if (!ativo || e.target !== e.currentTarget) return

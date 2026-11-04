@@ -1052,8 +1052,12 @@ export async function rodarAutoteste(
       `foco no terminal: ${focoNoTerminal} · ferramenta ${ferramentaAntes} → ${ferramentaDepois} · ${ultimas(umClique)}`
     )
 
-    // zoom: depois de parar, o xterm é redesenhado com a fonte × zoom, e as colunas do processo ficam as mesmas
+    // zoom: o xterm desenha sempre no dobro da resolução, então mexer na roda não redesenha nada — nem a
+    // fonte, nem as colunas. Quem redesenha é o tamanho do cartão.
     const colunas = sessaoPorId(chefe)?.espelho.cols
+    const anteDoZoom = await js<{ escala: string; fonte: number }>(`(() => ({
+      escala: document.querySelector('[data-no-id="${chefe}"] .terminal-caixa')?.dataset.escala ?? '',
+      fonte: window.__terminais?.['${chefe}']?.options.fontSize ?? 0 }))()`)
     await js('window.__teste.loja.definirCamera({ x: -300, y: -150, zoom: 1.6 })')
     await esperar(900)
     const nitido = await js<{ escala: string; fonte: number }>(`(() => ({
@@ -1061,10 +1065,23 @@ export async function rodarAutoteste(
       fonte: window.__terminais?.['${chefe}']?.options.fontSize ?? 0 }))()`)
     await print('terminal-zoom')
     conferir(
-      'zoom redesenha o texto no tamanho real, sem mudar as colunas',
-      nitido.escala === '1.6' && nitido.fonte > 19 && sessaoPorId(chefe)?.espelho.cols === colunas,
-      `escala ${nitido.escala} · fonte ${nitido.fonte.toFixed(1)} · colunas ${colunas} → ${sessaoPorId(chefe)?.espelho.cols}`
+      'o zoom não redesenha o terminal: a qualidade é fixa e o texto continua nítido',
+      nitido.escala === '2' && nitido.fonte === anteDoZoom.fonte && sessaoPorId(chefe)?.espelho.cols === colunas,
+      `escala ${nitido.escala} · fonte ${anteDoZoom.fonte} → ${nitido.fonte} · colunas ${colunas} → ${sessaoPorId(chefe)?.espelho.cols}`
     )
+
+    // quem muda as colunas é o tamanho do cartão: alargar o cartão e o processo recebe colunas novas
+    const larguraAntes = await js<number>(`window.__teste.loja.acharNo('${chefe}').largura`)
+    await js(`window.__teste.loja.atualizarNo('${chefe}', { largura: ${larguraAntes} + 220 }, false)`)
+    await esperar(900)
+    const colunasDepois = sessaoPorId(chefe)?.espelho.cols ?? 0
+    conferir(
+      'redimensionar o cartão muda as colunas do processo',
+      colunasDepois > (colunas ?? 0),
+      `${colunas} → ${colunasDepois} colunas`
+    )
+    await js(`window.__teste.loja.atualizarNo('${chefe}', { largura: ${larguraAntes} }, false)`)
+    await esperar(600)
     await js('window.__teste.loja.definirCamera({ x: 0, y: 0, zoom: 1 })')
 
     // trocar de espaço não encerra o processo; ao voltar, o cartão se liga de novo e a tela volta
