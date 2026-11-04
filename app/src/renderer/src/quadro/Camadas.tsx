@@ -1,6 +1,13 @@
 import { memo } from 'react'
 import type { Corda, Desenho, No, Plano } from '../../../shared/modelo'
-import { estaSelecionado, focarItem, selecionar, selecionarPeloClique, type Selecao } from '../estado/loja'
+import {
+  estaSelecionado,
+  focarItem,
+  recolherCodigosDoTerminal,
+  selecionar,
+  selecionarPeloClique,
+  type Selecao
+} from '../estado/loja'
 import { comecarArrasto, usarGuias } from './arrasto'
 import { caixaDoDesenho, caixaDoNo, curvaEntre, pontasDaCorda, uniao, type Caixa, type Ponto } from './geometria'
 
@@ -139,22 +146,64 @@ export const CamadaCordas = memo(function CamadaCordas({
 })
 
 /**
- * Linha pontilhada do cartão de código até o agente que ele acompanha. Não é corda: corda é permissão de um
- * agente falar com outro; isto é só "estes dois se olham juntos".
+ * Ligação do agente com os arquivos que ele mexeu, no estilo de um mapa mental: um tronco sai do agente,
+ * termina numa bolinha e de lá um ramo vai até cada cartão. Não é corda: corda é permissão de um agente
+ * falar com outro; isto é só "estes aqui são os arquivos daquele agente".
+ *
+ * A bolinha é clicável: recolhe todos os cartões num clique, e abre de volta no clique seguinte.
  */
 export const CamadaVinculos = memo(function CamadaVinculos({ nos }: { nos: No[] }) {
   const porId = new Map(nos.map((n) => [n.id, n]))
-  const pares = nos.flatMap((n) => {
-    if (n.tipo !== 'codigo' || !n.terminal) return []
-    const agente = porId.get(n.terminal)
-    return agente ? [{ id: n.id, agente, cartao: n }] : []
-  })
-  if (!pares.length) return null
+  const ramos = new Map<string, No[]>()
+  for (const n of nos) {
+    if (n.tipo !== 'codigo' || !n.terminal || !porId.has(n.terminal)) continue
+    ramos.set(n.terminal, [...(ramos.get(n.terminal) ?? []), n])
+  }
+  if (!ramos.size) return null
   return (
     <svg className="camada-svg camada-vinculos">
-      {pares.map(({ id, agente, cartao }) => (
-        <path key={id} d={curvaEntre(agente, cartao)} className="vinculo-linha" />
-      ))}
+      {[...ramos].map(([idAgente, cartoes]) => {
+        const agente = porId.get(idAgente)!
+        // o ramo entra pela esquerda do cartão, na altura do título (e não no meio, que num cartão aberto
+        // ficaria longe do nome do arquivo)
+        const pontas = cartoes.map((c) => ({ id: c.id, x: c.x, y: c.y + Math.min(c.altura / 2, 15) }))
+        const tx = agente.x + agente.largura
+        const ty = agente.y + agente.altura / 2
+        const hx = tx + Math.max(24, (Math.min(...pontas.map((p) => p.x)) - tx) / 2)
+        const hy = (Math.min(...pontas.map((p) => p.y)) + Math.max(...pontas.map((p) => p.y))) / 2
+        const meio = (hx - tx) / 2
+        const todosRecolhidos = cartoes.every((c) => c.tipo === 'codigo' && c.recolhido)
+        return (
+          <g key={idAgente} className="vinculo">
+            <path d={`M ${tx} ${ty} C ${tx + meio} ${ty}, ${hx - meio} ${hy}, ${hx} ${hy}`} className="vinculo-linha" />
+            {pontas.map((p) => {
+              const alca = Math.max(20, (p.x - hx) / 2)
+              return (
+                <path
+                  key={p.id}
+                  d={`M ${hx} ${hy} C ${hx + alca} ${hy}, ${p.x - alca} ${p.y}, ${p.x} ${p.y}`}
+                  className="vinculo-linha"
+                />
+              )
+            })}
+            <circle cx={hx} cy={hy} r={5.5} className="vinculo-bolinha" />
+            <circle
+              cx={hx}
+              cy={hy}
+              r={12}
+              className="vinculo-toque"
+              onPointerDown={(e) => {
+                e.stopPropagation()
+                recolherCodigosDoTerminal(idAgente, !todosRecolhidos)
+              }}
+            >
+              <title>
+                {todosRecolhidos ? 'Abrir' : 'Recolher'} os {cartoes.length} arquivos deste agente
+              </title>
+            </circle>
+          </g>
+        )
+      })}
     </svg>
   )
 })

@@ -1626,6 +1626,40 @@ export async function rodarAutoteste(
         const todosAbertos = (await cartoes()).every((c) => !c.recolhido)
         conferir('recolher todos e abrir todos, pelo agente', todosBloquinho && todosAbertos, `recolheu ${todosBloquinho} · abriu ${todosAbertos}`)
 
+        // mapa mental: com os arquivos todos abertos, a coluna empurra o que estiver embaixo dela em vez de
+        // passar por cima — nenhum cartão de código pode cobrir outra peça do quadro
+        const sobrepostos = await js<string[]>(`(() => {
+          const nos = window.__teste.loja.planoAtual().nos
+          const cruza = (a, b) => a.x < b.x + b.largura && b.x < a.x + a.largura && a.y < b.y + b.altura && b.y < a.y + a.altura
+          const pares = []
+          for (let i = 0; i < nos.length; i++) {
+            for (let j = i + 1; j < nos.length; j++) {
+              const a = nos[i], b = nos[j]
+              if ((a.tipo === 'codigo' || b.tipo === 'codigo') && cruza(a, b)) pares.push(a.tipo + ' x ' + b.tipo)
+            }
+          }
+          return pares
+        })()`)
+        conferir(
+          'com tudo aberto, nenhum cartão de código cobre outra peça do quadro',
+          sobrepostos.length === 0,
+          sobrepostos.join(' | ') || 'nada se cobre'
+        )
+
+        // a bolinha onde as ligações se separam: um clique nela recolhe os arquivos daquele agente
+        await irPara(dono)
+        const clicouBolinha = await clicarEm('.vinculo-toque')
+        await esperar(500)
+        const pelaBolinha = (await cartoes()).every((c) => c.recolhido)
+        conferir(
+          'a bolinha das ligações recolhe os arquivos do agente',
+          clicouBolinha && pelaBolinha,
+          `clicou ${clicouBolinha} · recolhidos ${pelaBolinha}`
+        )
+        await print('codigo-mapa-mental')
+        await js(`window.__teste.loja.recolherCodigosDoTerminal('${dono}', false)`)
+        await esperar(400)
+
         // com git, o cartão mostra o diff de verdade — é o caso principal, e sem repositório ele nunca roda
         // comandoAte repete: tecla sintética se perde de vez em quando, e esta linha vem depois de muito
         // clique na interface (é a armadilha conhecida do autoteste)

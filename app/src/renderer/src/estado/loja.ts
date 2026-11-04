@@ -21,6 +21,7 @@ import {
 } from '../../../shared/modelo'
 import { MAX_SESSOES_POR_AGENTE, type AvisoJanelas, type EspecTerminal, type PedidoDoAgente, type RespostaAoAgente } from '../../../shared/api'
 import { proximoZ } from '../../../shared/quadro/geometria'
+import { empurrarParaBaixo } from '../../../shared/quadro/empurrar'
 import { abrir, fechar, passar } from '../../../shared/quadro/transformacoes'
 import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, enquadrar, lerViewport, uniao, type Caixa } from '../quadro/geometria'
 
@@ -1378,6 +1379,8 @@ function ajustarVigiasDeCodigo(): void {
 /** Tamanho de um cartão de código aberto, e do bloquinho quando ele está recolhido. */
 const ABERTO = { largura: 620, altura: 460 }
 const BLOQUINHO = { largura: 300, altura: 30 }
+/** Espaço entre o agente e a coluna dele. A bolinha das ligações (ver CamadaVinculos) mora no meio dele. */
+const DISTANCIA = 96
 /** Quantos arquivos de um agente ficam na coluna. Passando disso, os mais velhos saem. */
 const MAX_NA_COLUNA = 12
 
@@ -1439,7 +1442,7 @@ function criarCodigoDoArquivo(terminal: NoTerminal, caminho: string): void {
   if (!plano) return
   const no: NoCodigo = {
     id: novoId(),
-    x: terminal.x + terminal.largura + 40,
+    x: terminal.x + terminal.largura + DISTANCIA,
     y: terminal.y,
     ...ABERTO,
     z: proximoZ(plano),
@@ -1475,7 +1478,7 @@ function arrumarColuna(plano: Plano, terminalId: string, chegou?: string): Plano
   const sobrando = new Set(meus.slice(MAX_NA_COLUNA).map((n) => n.id))
   // o que era o arquivo da vez até agora é o que se recolhe quando chega um novo
   const anterior = chegou ? meus[1]?.id : undefined
-  const x = terminal.x + terminal.largura + 40
+  const x = terminal.x + terminal.largura + DISTANCIA
   let y = terminal.y
   const ajustes = new Map<string, Partial<NoCodigo>>()
   for (const cartao of meus.slice(0, MAX_NA_COLUNA)) {
@@ -1487,12 +1490,29 @@ function arrumarColuna(plano: Plano, terminalId: string, chegou?: string): Plano
     ajustes.set(cartao.id, { x, y, largura, altura, recolhido, larguraAberta, alturaAberta })
     y += altura + 12
   }
-  return {
+  const arrumado = {
     ...plano,
     nos: plano.nos
       .filter((n) => !sobrando.has(n.id))
       .map((n) => (ajustes.has(n.id) ? ({ ...n, ...ajustes.get(n.id) } as No) : n))
   }
+  return afastarDaColuna(arrumado, terminalId, new Set(ajustes.keys()))
+}
+
+/**
+ * A coluna cresceu: o que ela cobriria desce o mínimo para sair de baixo dela, em cascata. É o que um mapa
+ * mental faz — abrir um ramo empurra os vizinhos em vez de passar por cima deles.
+ *
+ * O agente dono fica parado (a coluna sai dele) e nada sobe, para o quadro continuar reconhecível.
+ */
+function afastarDaColuna(plano: Plano, terminalId: string, daColuna: Set<string>): Plano {
+  const fixos = plano.nos.filter((n) => daColuna.has(n.id)).map(caixaDoNo)
+  const moveis = plano.nos
+    .filter((n) => !daColuna.has(n.id) && n.id !== terminalId)
+    .map((n) => ({ id: n.id, ...caixaDoNo(n) }))
+  const mudou = empurrarParaBaixo(fixos, moveis)
+  if (!mudou.size) return plano
+  return { ...plano, nos: plano.nos.map((n) => (mudou.has(n.id) ? ({ ...n, y: mudou.get(n.id)! } as No) : n)) }
 }
 
 /**
