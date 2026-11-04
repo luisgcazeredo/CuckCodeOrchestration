@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import {
   PRESETS_PADRAO,
   type Andar,
+  type ArvoreDeCodigo,
   type Camera,
   type CorPostIt,
   type Corda,
@@ -1057,12 +1058,15 @@ export function posicoesDaSelecao(): Posicoes {
 }
 
 /** Os cartões de código que o app arruma para um agente — o que anda junto quando você pega a bolinha. */
-export function posicoesDaColuna(terminalId: string): Posicoes {
+export function posicoesDaColuna(terminalId: string, arvoreId: string): Posicoes {
   const plano = planoAtual()
   if (!plano) return { nos: [], desenhos: [] }
   return {
     nos: plano.nos
-      .filter((n) => n.tipo === 'codigo' && n.automatico && n.terminal === terminalId && !n.travado)
+      .filter(
+        (n) =>
+          n.tipo === 'codigo' && n.automatico && n.terminal === terminalId && arvoreDoCodigo(n) === arvoreId && !n.travado
+      )
       .map(({ id, x, y }) => ({ id, x, y })),
     desenhos: []
   }
@@ -1397,8 +1401,21 @@ const ABERTO = { largura: 620, altura: 460 }
 const BLOQUINHO = { largura: 300, altura: 30 }
 /** Espaço entre o agente e a coluna dele. A bolinha das ligações (ver CamadaVinculos) mora no meio dele. */
 const DISTANCIA = 96
-/** Quantos arquivos de um agente ficam na coluna. Passando disso, os mais velhos saem. */
+/** Quantos arquivos de um agente ficam em cada árvore. Passando disso, os mais velhos saem. */
 const MAX_NA_COLUNA = 12
+/** A árvore que todo agente tem desde sempre; as outras ele cria. */
+export const ARVORE_PRINCIPAL = 'principal'
+/** Espaço entre o fim de uma árvore e o começo da próxima. */
+const ENTRE_ARVORES = 60
+
+/** As árvores de um agente, sempre começando pela principal. */
+export function arvoresDoTerminal(terminal: NoTerminal): ArvoreDeCodigo[] {
+  const outras = (terminal.arvores ?? []).filter((a) => a.id !== ARVORE_PRINCIPAL)
+  return [{ id: ARVORE_PRINCIPAL, nome: '', desloc: terminal.codigoDesloc }, ...outras]
+}
+
+/** A árvore de um cartão. Cartão sem árvore é da principal — é assim que os quadros antigos continuam certos. */
+export const arvoreDoCodigo = (no: NoCodigo): string => no.arvore ?? ARVORE_PRINCIPAL
 
 /**
  * Gravaram um arquivo na pasta de um agente: nasce um cartão **para aquele arquivo** ao lado dele, e o do
@@ -1453,10 +1470,13 @@ async function aoGravaremNaPasta(pasta: string, caminho: string): Promise<void> 
  * Cartão para um arquivo, ao lado do agente. Não rouba a seleção nem entra no desfazer: o usuário não pediu
  * agora, e tirar o teclado dele no meio de uma frase seria pior do que não mostrar o código.
  */
-function criarCodigoDoArquivo(terminal: NoTerminal, caminho: string): void {
+function criarCodigoDoArquivo(terminal: NoTerminal, caminho: string, arvoreId?: string): string | null {
   const plano = planoAtual()
-  if (!plano) return
-  const inicio = inicioDaColuna(terminal)
+  if (!plano) return null
+  const arvores = arvoresDoTerminal(terminal)
+  const arvore = (arvoreId ?? terminal.arvoreAtiva ?? ARVORE_PRINCIPAL) as string
+  const minha = arvores.some((a) => a.id === arvore) ? arvore : ARVORE_PRINCIPAL
+  const inicio = inicioDaColuna(terminal, minha)
   const no: NoCodigo = {
     id: novoId(),
     x: inicio.x,
@@ -1468,9 +1488,11 @@ function criarCodigoDoArquivo(terminal: NoTerminal, caminho: string): void {
     terminal: terminal.id,
     caminho,
     modo: 'diff',
-    automatico: true
+    automatico: true,
+    arvore: minha === ARVORE_PRINCIPAL ? undefined : minha
   }
-  mudarPlano((p) => arrumarColuna({ ...p, nos: [...p.nos, no] }, terminal.id, no.id), false)
+  mudarPlano((p) => arrumarColuna({ ...p, nos: [...p.nos, no] }, terminal.id, minha, no.id), false)
+  return no.id
 }
 
 /**
@@ -1478,9 +1500,17 @@ function criarCodigoDoArquivo(terminal: NoTerminal, caminho: string): void {
  * para o mais velho. Só mexe nos cartões que o app criou e o usuário não tocou (campo automatico) — depois que
  * você mexe num cartão, ele é seu e fica onde está.
  */
-/** Onde a coluna de um agente começa: ao lado dele, mais o quanto o usuário a arrastou pela bolinha. */
-function inicioDaColuna(terminal: NoTerminal): { x: number; y: number } {
-  const desloc = terminal.codigoDesloc ?? { x: 0, y: 0 }
+/**
+ * Onde uma árvore de um agente começa: ao lado dele, uma abaixo da outra, mais o quanto o usuário arrastou
+ * aquela árvore pela bolinha.
+ */
+function inicioDaColuna(terminal: NoTerminal, arvoreId: string): { x: number; y: number } {
+  const arvores = arvoresDoTerminal(terminal)
+  const minha = arvores.find((a) => a.id === arvoreId) ?? arvores[0]
+  // cada árvore guarda onde foi posta (ao nascer, abaixo do que o agente já tinha; depois, onde você a
+  // arrastou). Sem isso — árvore de quadro antigo — vale uma escadinha, só para não ficarem uma sobre a outra.
+  const quantas = Math.max(0, arvores.findIndex((a) => a.id === minha.id))
+  const desloc = minha.desloc ?? { x: 0, y: quantas * ENTRE_ARVORES }
   return { x: terminal.x + terminal.largura + DISTANCIA + desloc.x, y: terminal.y + desloc.y }
 }
 
@@ -1488,30 +1518,46 @@ function inicioDaColuna(terminal: NoTerminal): { x: number; y: number } {
  * Arrasto pela bolinha: a coluna inteira anda e **continua sendo do app** — quem guarda o deslocamento é o
  * agente, então o próximo arquivo que ele gravar nasce onde você pôs a coluna, e não de volta ao lado dele.
  */
-export function moverColuna(terminalId: string, originais: Posicoes, dx: number, dy: number, chave: string): void {
+export function moverColuna(
+  terminalId: string,
+  arvoreId: string,
+  originais: Posicoes,
+  dx: number,
+  dy: number,
+  chave: string
+): void {
   const plano = planoAtual()
   const terminal = plano?.nos.find((n) => n.id === terminalId)
   if (!plano || terminal?.tipo !== 'terminal' || !originais.nos.length) return
   dx = Math.round(dx)
   dy = Math.round(dy)
-  // o cartão mais alto marca onde a coluna começa; o deslocamento é a distância dele até o lugar padrão
+  // o cartão mais alto marca onde a árvore começa; o deslocamento é a distância dele até o lugar padrão
   const topo = originais.nos.reduce((a, b) => (b.y < a.y ? b : a))
-  const desloc = {
-    x: topo.x + dx - (terminal.x + terminal.largura + DISTANCIA),
-    y: topo.y + dy - terminal.y
-  }
+  const parado = inicioDaColuna({ ...terminal, codigoDesloc: undefined, arvores: semDesloc(terminal) }, arvoreId)
+  const desloc = { x: topo.x + dx - parado.x, y: topo.y + dy - parado.y }
   const por = new Map(originais.nos.map((o) => [o.id, o]))
   mudarPlano(
     (p) => ({
       ...p,
       nos: p.nos.map((n) => {
-        if (n.id === terminalId) return { ...n, codigoDesloc: desloc } as No
+        if (n.id === terminalId) return guardarDesloc(n as NoTerminal, arvoreId, desloc)
         const o = por.get(n.id)
         return o ? ({ ...n, x: o.x + dx, y: o.y + dy } as No) : n
       })
     }),
     chave
   )
+}
+
+/** As árvores do agente sem nenhum deslocamento: serve para saber onde uma delas ficaria parada. */
+const semDesloc = (terminal: NoTerminal): ArvoreDeCodigo[] =>
+  (terminal.arvores ?? []).map((a) => ({ ...a, desloc: undefined }))
+
+/** Grava o deslocamento na árvore certa: a principal guarda no próprio agente, as outras na lista. */
+function guardarDesloc(terminal: NoTerminal, arvoreId: string, desloc: { x: number; y: number }): No {
+  if (arvoreId === ARVORE_PRINCIPAL) return { ...terminal, codigoDesloc: desloc } as No
+  const arvores = (terminal.arvores ?? []).map((a) => (a.id === arvoreId ? { ...a, desloc } : a))
+  return { ...terminal, arvores } as No
 }
 
 /** A partir de quanto, longe do lugar da coluna, largar um cartão quer dizer "tire este daqui". */
@@ -1528,19 +1574,24 @@ export function assentarCodigos(ids: string[]): void {
   if (!plano) return
   const movidos = new Set(ids)
   const meus = plano.nos.filter(
-    (n): n is NoCodigo => n.tipo === 'codigo' && !!n.automatico && !!n.terminal && movidos.has(n.id)
+    (n): n is NoCodigo => n.tipo === 'codigo' && !!n.automatico && !!n.terminal && movidos.has(n.id) && !movidos.has(n.terminal)
   )
-  // o agente foi junto no mesmo arrasto: a coluna inteira andou com ele, não há nada para assentar
-  const terminais = [...new Set(meus.map((n) => n.terminal!))].filter((id) => !movidos.has(id))
-  if (!terminais.length) return
+  if (!meus.length) return
+  // o agente foi junto no mesmo arrasto: as árvores inteiras andaram com ele, não há nada para assentar
+  if (meus.every((n) => movidos.has(n.terminal!))) return
+  const pares = [...new Set(meus.map((n) => `${n.terminal} ${arvoreDoCodigo(n)}`))].map((chave) => {
+    const [terminalId, arvoreId] = chave.split(' ')
+    return { terminalId, arvoreId }
+  })
   mudarPlano((p) => {
     let saida = p
-    for (const terminalId of terminais) {
+    for (const { terminalId, arvoreId } of pares) {
       const terminal = saida.nos.find((n) => n.id === terminalId)
       if (terminal?.tipo !== 'terminal') continue
-      const coluna = inicioDaColuna(terminal)
+      const coluna = inicioDaColuna(terminal, arvoreId)
       const daColuna = saida.nos.filter(
-        (n): n is NoCodigo => n.tipo === 'codigo' && !!n.automatico && n.terminal === terminalId
+        (n): n is NoCodigo =>
+          n.tipo === 'codigo' && !!n.automatico && n.terminal === terminalId && arvoreDoCodigo(n) === arvoreId
       )
       const foraAgora = new Set(
         daColuna.filter((n) => movidos.has(n.id) && Math.abs(n.x - coluna.x) > LONGE).map((n) => n.id)
@@ -1562,7 +1613,7 @@ export function assentarCodigos(ids: string[]): void {
               : n
         )
       }
-      saida = arrumarColuna(saida, terminalId)
+      saida = arrumarColuna(saida, terminalId, arvoreId)
     }
     return saida
   }, false)
@@ -1586,12 +1637,113 @@ export function juntarCodigosDoTerminal(terminalId: string): void {
     )
     const voltando = p.nos.filter((n) => ids.has(n.id)).sort((a, b) => a.y - b.y)
     const nova = new Map(voltando.map((n, i) => [n.id, maior + 1 + i]))
+    // cada um volta para a árvore em que estava
     const com = {
       ...p,
       nos: p.nos.map((n) => (ids.has(n.id) ? ({ ...n, automatico: true, ordem: nova.get(n.id) } as No) : n))
     }
-    return arrumarColuna(com, terminalId)
+    return arrumarArvores(com, terminalId)
   }, false)
+}
+
+// ---------- árvores de código de um agente ----------
+
+/**
+ * Cria uma árvore de código no agente e passa a usá-la para os próximos arquivos. O nome é o que aparece na
+ * bolinha e é por ele que o agente fala dela ("leia os arquivos da árvore Backend").
+ */
+export function criarArvore(terminalId: string, nome: string): ArvoreDeCodigo | null {
+  const terminal = acharNo(terminalId)
+  if (terminal?.tipo !== 'terminal') return null
+  const limpo = nome.trim().slice(0, 40)
+  if (!limpo) return null
+  const jaTem = arvoresDoTerminal(terminal).find((a) => a.nome.toLowerCase() === limpo.toLowerCase())
+  if (jaTem) {
+    usarArvore(terminalId, jaTem.id)
+    return jaTem
+  }
+  // nasce abaixo de tudo o que o agente já tem à direita, para nenhuma árvore cobrir a outra
+  const plano = planoAtual()
+  const fundo = Math.max(
+    terminal.y,
+    ...(plano?.nos ?? [])
+      .filter((n) => n.tipo === 'codigo' && n.terminal === terminalId && n.automatico)
+      .map((n) => n.y + n.altura)
+  )
+  const nova: ArvoreDeCodigo = { id: novoId(), nome: limpo, desloc: { x: 0, y: fundo + ENTRE_ARVORES - terminal.y } }
+  mudarTerminal(terminalId, (n) => ({ ...n, arvores: [...(n.arvores ?? []), nova], arvoreAtiva: nova.id }))
+  return nova
+}
+
+/** Em qual árvore nascem os próximos arquivos deste agente. */
+export function usarArvore(terminalId: string, arvoreId: string): void {
+  mudarTerminal(terminalId, (n) => ({ ...n, arvoreAtiva: arvoreId === ARVORE_PRINCIPAL ? undefined : arvoreId }))
+}
+
+export function renomearArvore(terminalId: string, arvoreId: string, nome: string): void {
+  const limpo = nome.trim().slice(0, 40)
+  if (!limpo || arvoreId === ARVORE_PRINCIPAL) return
+  mudarTerminal(terminalId, (n) => ({
+    ...n,
+    arvores: (n.arvores ?? []).map((a) => (a.id === arvoreId ? { ...a, nome: limpo } : a))
+  }))
+}
+
+/** Tira a árvore do agente; os cartões dela voltam para a principal, para nada sumir sem você mandar. */
+export function desfazerArvore(terminalId: string, arvoreId: string): void {
+  if (arvoreId === ARVORE_PRINCIPAL) return
+  const terminal = acharNo(terminalId)
+  if (terminal?.tipo !== 'terminal') return
+  registrarHistorico()
+  mudarPlano((p) => {
+    const com = {
+      ...p,
+      nos: p.nos.map((n) => {
+        if (n.id === terminalId && n.tipo === 'terminal') {
+          return {
+            ...n,
+            arvores: (n.arvores ?? []).filter((a) => a.id !== arvoreId),
+            arvoreAtiva: n.arvoreAtiva === arvoreId ? undefined : n.arvoreAtiva
+          } as No
+        }
+        return n.tipo === 'codigo' && n.terminal === terminalId && n.arvore === arvoreId
+          ? ({ ...n, arvore: undefined, ordem: undefined } as No)
+          : n
+      })
+    }
+    return arrumarArvores(com, terminalId)
+  }, false)
+}
+
+/**
+ * Abre (ou traz para a árvore pedida) o cartão de um arquivo. É o que o agente usa para montar a árvore que
+ * outro agente vai ler.
+ */
+export function mostrarArquivoNaArvore(terminalId: string, caminho: string, arvoreId?: string): boolean {
+  const terminal = acharNo(terminalId)
+  const plano = planoAtual()
+  if (!plano || terminal?.tipo !== 'terminal') return false
+  const arvores = arvoresDoTerminal(terminal)
+  const alvo = arvores.some((a) => a.id === arvoreId) ? arvoreId! : terminal.arvoreAtiva ?? ARVORE_PRINCIPAL
+  const jaTem = plano.nos.find(
+    (n): n is NoCodigo => n.tipo === 'codigo' && n.terminal === terminalId && n.caminho === caminho
+  )
+  if (jaTem) {
+    // o cartão já existe: ele muda de árvore em vez de nascer repetido
+    mudarPlano((pl) => {
+      const com = {
+        ...pl,
+        nos: pl.nos.map((n) =>
+          n.id === jaTem.id
+            ? ({ ...n, arvore: alvo === ARVORE_PRINCIPAL ? undefined : alvo, automatico: true, ordem: undefined } as No)
+            : n
+        )
+      }
+      return arrumarArvores(com, terminalId)
+    }, false)
+    return true
+  }
+  return !!criarCodigoDoArquivo(terminal, caminho, alvo)
 }
 
 /** Tira um cartão da coluna do agente: daí em diante ele fica onde o usuário o deixar. */
@@ -1611,9 +1763,16 @@ export function contarCodigosSoltos(terminalId: string): number {
   return plano ? plano.nos.filter((n) => n.tipo === 'codigo' && n.terminal === terminalId && !n.automatico).length : 0
 }
 
-/** Fim do arrasto pela bolinha: a coluna se realinha e empurra o que tiver ficado embaixo dela. */
-export function assentarColuna(terminalId: string): void {
-  mudarPlano((p) => arrumarColuna(p, terminalId), false)
+/** Arruma todas as árvores de um agente (quando a ação não é de uma só). */
+function arrumarArvores(plano: Plano, terminalId: string): Plano {
+  const terminal = plano.nos.find((n) => n.id === terminalId)
+  if (terminal?.tipo !== 'terminal') return plano
+  return arvoresDoTerminal(terminal).reduce((p, a) => arrumarColuna(p, terminalId, a.id), plano)
+}
+
+/** Fim do arrasto pela bolinha: a árvore se realinha e empurra o que tiver ficado embaixo dela. */
+export function assentarColuna(terminalId: string, arvoreId: string): void {
+  mudarPlano((p) => arrumarColuna(p, terminalId, arvoreId), false)
 }
 
 /**
@@ -1624,11 +1783,14 @@ export function assentarColuna(terminalId: string): void {
  * bloquinho. Os outros ficam como estão — um bloquinho que você abriu para ler continua aberto, porque
  * abrir para ler não é arrumar o quadro; a coluna só desloca os de baixo para caber.
  */
-function arrumarColuna(plano: Plano, terminalId: string, chegou?: string): Plano {
+function arrumarColuna(plano: Plano, terminalId: string, arvoreId: string, chegou?: string): Plano {
   const terminal = plano.nos.find((n) => n.id === terminalId)
   if (terminal?.tipo !== 'terminal') return plano
   const meus = plano.nos
-    .filter((n): n is NoCodigo => n.tipo === 'codigo' && n.automatico === true && n.terminal === terminalId)
+    .filter(
+      (n): n is NoCodigo =>
+        n.tipo === 'codigo' && n.automatico === true && n.terminal === terminalId && arvoreDoCodigo(n) === arvoreId
+    )
     // a ordem é a que o usuário deixou (campo ordem); sem ela, o mais novo primeiro. O que acabou de
     // chegar vai para o topo.
     .sort((a, b) => {
@@ -1639,7 +1801,7 @@ function arrumarColuna(plano: Plano, terminalId: string, chegou?: string): Plano
   const sobrando = new Set(meus.slice(MAX_NA_COLUNA).map((n) => n.id))
   // o que era o arquivo da vez até agora é o que se recolhe quando chega um novo
   const anterior = chegou ? meus[1]?.id : undefined
-  const inicio = inicioDaColuna(terminal)
+  const inicio = inicioDaColuna(terminal, arvoreId)
   const x = inicio.x
   let y = inicio.y
   const ajustes = new Map<string, Partial<NoCodigo>>()
@@ -1666,11 +1828,15 @@ function arrumarColuna(plano: Plano, terminalId: string, chegou?: string): Plano
  * mental faz — abrir um ramo empurra os vizinhos em vez de passar por cima deles.
  *
  * O agente dono fica parado (a coluna sai dele) e nada sobe, para o quadro continuar reconhecível.
+ *
+ * Os cartões de código que saíram desta coluna também ficam parados: eles são do usuário, que os pôs ali, e
+ * empurrá-los os fazia descer um pouco a cada arquivo novo, até sumirem lá embaixo.
  */
 function afastarDaColuna(plano: Plano, terminalId: string, daColuna: Set<string>): Plano {
   const fixos = plano.nos.filter((n) => daColuna.has(n.id)).map(caixaDoNo)
+  const meuCodigo = (n: No): boolean => n.tipo === 'codigo' && n.terminal === terminalId
   const moveis = plano.nos
-    .filter((n) => !daColuna.has(n.id) && n.id !== terminalId)
+    .filter((n) => !daColuna.has(n.id) && n.id !== terminalId && !meuCodigo(n))
     .map((n) => ({ id: n.id, ...caixaDoNo(n) }))
   const mudou = empurrarParaBaixo(fixos, moveis)
   if (!mudou.size) return plano
@@ -1698,29 +1864,32 @@ export function alternarRecolhidoDoCodigo(id: string): void {
   registrarHistorico()
   mudarPlano((p) => {
     const com = { ...p, nos: p.nos.map((n) => (n.id === id ? ({ ...n, ...mudanca } as No) : n)) }
-    return cartao.automatico && cartao.terminal ? arrumarColuna(com, cartao.terminal) : com
+    return cartao.automatico && cartao.terminal ? arrumarColuna(com, cartao.terminal, arvoreDoCodigo(cartao)) : com
   }, false)
 }
 
-/** Cartões de código de um agente, do mais novo para o mais velho. */
-function codigosDoTerminal(plano: Plano, terminalId: string): NoCodigo[] {
+/** Cartões de código de um agente (de uma árvore só, se você disser qual), do mais novo para o mais velho. */
+function codigosDoTerminal(plano: Plano, terminalId: string, arvoreId?: string): NoCodigo[] {
   return plano.nos
-    .filter((n): n is NoCodigo => n.tipo === 'codigo' && n.terminal === terminalId)
+    .filter(
+      (n): n is NoCodigo =>
+        n.tipo === 'codigo' && n.terminal === terminalId && (!arvoreId || arvoreDoCodigo(n) === arvoreId)
+    )
     .sort((a, b) => b.criadoEm.localeCompare(a.criadoEm))
 }
 
 /** Quantos cartões de código um agente tem, e quantos estão recolhidos (para o menu do cartão dele). */
-export function contarCodigos(terminalId: string): { total: number; recolhidos: number } {
+export function contarCodigos(terminalId: string, arvoreId?: string): { total: number; recolhidos: number } {
   const plano = planoAtual()
   if (!plano) return { total: 0, recolhidos: 0 }
-  const meus = codigosDoTerminal(plano, terminalId)
+  const meus = codigosDoTerminal(plano, terminalId, arvoreId)
   return { total: meus.length, recolhidos: meus.filter((n) => n.recolhido).length }
 }
 
-export function recolherCodigosDoTerminal(terminalId: string, recolher: boolean): void {
+export function recolherCodigosDoTerminal(terminalId: string, recolher: boolean, arvoreId?: string): void {
   const plano = planoAtual()
   if (!plano) return
-  const meus = codigosDoTerminal(plano, terminalId)
+  const meus = codigosDoTerminal(plano, terminalId, arvoreId)
   if (!meus.length) return
   registrarHistorico()
   const ajustes = new Map<string, Partial<NoCodigo>>()
@@ -1738,7 +1907,7 @@ export function recolherCodigosDoTerminal(terminalId: string, recolher: boolean)
   }
   mudarPlano((p) => {
     const com = { ...p, nos: p.nos.map((n) => (ajustes.has(n.id) ? ({ ...n, ...ajustes.get(n.id) } as No) : n)) }
-    return arrumarColuna(com, terminalId)
+    return arrumarArvores(com, terminalId)
   }, false)
 }
 
@@ -1784,11 +1953,56 @@ function anotarSessoes(descobertas: Record<string, string>): void {
   for (const [id, sessao] of Object.entries(descobertas)) mudarTerminal(id, (n) => (n.sessao === sessao ? n : { ...n, sessao }))
 }
 
+/** O agente mexendo nas próprias árvores de código pelo `mpro arvore`. */
+function atenderArvore(pedido: Extract<PedidoDoAgente, { tipo: 'arvore' }>): RespostaAoAgente {
+  const terminal = acharNo(pedido.id)
+  if (terminal?.tipo !== 'terminal') return { ok: false, erro: 'o seu cartão não está no andar à mostra desta janela' }
+  const nome = (pedido.nome ?? '').trim()
+  const porNome = (): ArvoreDeCodigo | undefined =>
+    arvoresDoTerminal(terminal).find((a) => (a.nome || 'principal').toLowerCase() === nome.toLowerCase())
+  const emUso = (): string =>
+    arvoresDoTerminal(terminal).find((a) => a.id === (terminal.arvoreAtiva ?? ARVORE_PRINCIPAL))?.nome || 'principal'
+  if (pedido.acao === 'lista') {
+    const linhas = arvoresDoTerminal(terminal).map((a) => {
+      const minha = a.id === (terminal.arvoreAtiva ?? ARVORE_PRINCIPAL)
+      const { total } = contarCodigos(terminal.id, a.id)
+      return `${minha ? '*' : ' '} "${a.nome || 'principal'}" · ${total} arquivo(s)${minha ? ' · em uso' : ''}`
+    })
+    return { ok: true, texto: ['Suas árvores de código:', ...linhas].join('\n') }
+  }
+  if (pedido.acao === 'nova') {
+    const nova = criarArvore(terminal.id, nome)
+    return nova
+      ? { ok: true, texto: `Árvore "${nova.nome}" pronta; os próximos arquivos nascem nela.` }
+      : { ok: false, erro: 'diga o nome da árvore' }
+  }
+  if (pedido.acao === 'usar') {
+    const achada = porNome()
+    if (!achada) return { ok: false, erro: `você não tem a árvore "${nome}"; crie com: mpro arvore nova "${nome}"` }
+    usarArvore(terminal.id, achada.id)
+    return { ok: true, texto: `Os próximos arquivos vão para a árvore "${achada.nome || 'principal'}".` }
+  }
+  if (pedido.acao === 'desfazer') {
+    const achada = porNome()
+    if (!achada || achada.id === ARVORE_PRINCIPAL) return { ok: false, erro: 'a principal não se desfaz; diga o nome de outra' }
+    desfazerArvore(terminal.id, achada.id)
+    return { ok: true, texto: `Desfiz a árvore "${achada.nome}"; os arquivos dela voltaram para a principal.` }
+  }
+  const alvo = nome ? porNome() : undefined
+  if (nome && !alvo) return { ok: false, erro: `você não tem a árvore "${nome}"` }
+  const onde = alvo?.nome || emUso()
+  const feitos = (pedido.arquivos ?? []).filter((caminho) => mostrarArquivoNaArvore(terminal.id, caminho, alvo?.id))
+  if (!feitos.length) return { ok: false, erro: 'nenhum arquivo foi mostrado; eles precisam estar numa pasta do quadro' }
+  return { ok: true, texto: `Mostrei ${feitos.length} arquivo(s) na árvore "${onde}".` }
+}
+
 /** Um agente pediu pelo `mpro`: abrir, fechar ou passar a responsabilidade de cartões. */
 function atenderAgente(pedido: PedidoDoAgente): RespostaAoAgente {
   // Este atendimento precisa continuar síncrono: o resultado puro abaixo parte do espaço lido agora.
   const e = estado.espaco
   if (!e || e.id !== pedido.espacoId) return { ok: false, erro: 'o espaço deste terminal não está aberto nesta janela' }
+  // as árvores de código não mexem na topologia dos terminais: a loja desta janela resolve sozinha
+  if (pedido.tipo === 'arvore') return atenderArvore(pedido)
   const ambiente = { presets: estado.preferencias.presets, presetsPadrao: PRESETS_PADRAO, limiteSessoesPorAgente: MAX_SESSOES_POR_AGENTE, novoId, agora }
   const resultado = pedido.tipo === 'abrir' ? abrir(e, pedido, ambiente) : pedido.tipo === 'fechar' ? fechar(e, pedido) : passar(e, pedido, ambiente)
   if (!resultado.resposta.ok) return resultado.resposta

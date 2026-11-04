@@ -54,6 +54,12 @@ export const VERBOS = [
   { nome: 'esperar', aliases: [], posicionais: [obrigatorio('nome')], opcoes: [numero('tempo', 1, 3600)], descricao: 'espera terminar o que está fazendo', ajuda: '  mpro esperar <nome> [--tempo S]     espera terminar o que está fazendo' },
   { nome: 'ver', aliases: [], posicionais: [obrigatorio('nome')], opcoes: [numero('linhas', 1, 2000)], descricao: 'lê a tela sem mandar nada', ajuda: '  mpro ver <nome> [--linhas N]        lê a tela sem mandar nada' },
   { nome: 'teclas', aliases: [], posicionais: [obrigatorio('nome'), { nome: 'tecla', obrigatorio: true, resto: true }], opcoes: [], descricao: 'envia teclas nomeadas ao cartão', ajuda: '  mpro teclas <nome> <tecla>...       enter, esc, tab, shift-tab, cima, baixo, esquerda, direita, ctrl-c, espaco, 1, 2, y, n…' },
+  {
+    nome: 'arvore', aliases: ['arvores'], posicionais: [{ nome: 'nova|usar|mostrar|desfazer' }, { nome: 'nome ou arquivos', resto: true }],
+    opcoes: [texto('arvore')],
+    descricao: 'as árvores de código do seu cartão: separe os arquivos por assunto',
+    ajuda: '  mpro arvore                         lista as árvores de código do seu cartão (e qual está em uso)\n  mpro arvore nova "Nome"             cria uma árvore e passa a usá-la para os próximos arquivos\n  mpro arvore usar "Nome"             passa a usar uma árvore que já existe\n  mpro arvore mostrar <arquivo>... [--arvore "Nome"]\n                                      abre esses arquivos como cartões na árvore\n  mpro arvore desfazer "Nome"         desfaz a árvore; os arquivos dela voltam para a principal'
+  },
   { nome: 'limpar', aliases: [], posicionais: [obrigatorio('nome')], opcoes: [], descricao: 'zera o contexto da sessão', ajuda: '  mpro limpar <nome>                  zera o contexto da sessão (/clear no Claude, /new no Codex)' },
   { nome: 'fechar', aliases: [], posicionais: [obrigatorio('nome')], opcoes: [], descricao: 'fecha uma sessão que você abriu', ajuda: '  mpro fechar <nome>                  fecha uma sessão que você abriu; o que ela abriu passa para você' },
   { nome: 'passar', aliases: [], posicionais: [obrigatorio('nome')], opcoes: [], descricao: 'passa ao sucessor vivo as sessões que você abriu', ajuda: '  mpro passar <nome>                  passa ao sucessor vivo (aberto por você ou ligado) as outras sessões que abriu' },

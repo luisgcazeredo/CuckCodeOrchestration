@@ -2192,6 +2192,14 @@ kbd {
   opacity: 0.9;
 }
 
+.vinculo-nome {
+  fill: var(--corda);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+}
+
 .vinculo-toque {
   fill: transparent;
   pointer-events: auto;

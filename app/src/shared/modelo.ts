@@ -41,11 +41,26 @@ export interface NoTerminal extends NoBase {
   /** false: o usuário fechou o cartão de código deste agente, então ele não nasce mais sozinho. */
   codigoSozinho?: boolean
   /**
-   * Para onde o usuário arrastou a coluna de arquivos deste agente (pela bolinha das ligações), em relação
-   * ao lugar padrão — à direita dele, alinhada pelo topo. Guardado aqui, e não em cada cartão, porque é a
-   * coluna que anda: o arquivo que chegar depois nasce no lugar novo.
+   * Para onde o usuário arrastou a árvore principal de arquivos deste agente (pela bolinha das ligações), em
+   * relação ao lugar padrão — à direita dele, alinhada pelo topo. Guardado aqui, e não em cada cartão, porque
+   * é a árvore que anda: o arquivo que chegar depois nasce no lugar novo.
    */
   codigoDesloc?: { x: number; y: number }
+  /**
+   * Árvores de código além da principal. Servem para separar os arquivos por assunto — o agente cria uma por
+   * frente de trabalho e diz "leia os arquivos da árvore X". A principal não fica nesta lista.
+   */
+  arvores?: ArvoreDeCodigo[]
+  /** Em qual árvore nascem os próximos arquivos deste agente. Vazio: a principal. */
+  arvoreAtiva?: string
+}
+
+/** Um ramo de arquivos de um agente, com nome, do jeito de um mapa mental. */
+export interface ArvoreDeCodigo {
+  id: string
+  nome: string
+  /** Para onde o usuário arrastou esta árvore, em relação ao lugar padrão dela. */
+  desloc?: { x: number; y: number }
 }
 
 export type CorPostIt = 'amarelo' | 'rosa' | 'azul' | 'verde' | 'roxo'
@@ -107,6 +122,8 @@ export interface NoCodigo extends NoBase {
   automatico?: boolean
   /** Lugar na coluna, de cima para baixo. É o que guarda a ordem quando você arrasta um cartão para outra. */
   ordem?: number
+  /** Árvore do agente a que este cartão pertence. Vazio: a árvore principal. */
+  arvore?: string
 }
 
 /** Navegador dentro do quadro. */

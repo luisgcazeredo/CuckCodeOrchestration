@@ -72,6 +72,24 @@ ${'```'}
   \`pergunta\` no \`mpro quem\`, e o \`mpro\` não digita pedido nenhum em cima dela: devolve a tela. Responda com
   \`mpro teclas\` só se for seguro (veja onde está o cursor antes do \`enter\`); na dúvida, pergunte ao usuário.
 
+## Mostrar o código que você está mexendo
+
+O quadro abre sozinho um cartão para cada arquivo que você grava na sua pasta, ligado ao seu cartão por um ramo
+que sai de uma bolinha — é a sua **árvore de código**. Você pode ter várias, cada uma com um nome, para separar
+frentes de trabalho e depois falar delas pelo nome com o usuário ou com outro agente ("leia os arquivos da
+árvore Backend"):
+
+\`\`\`
+mpro arvore                          # as suas árvores e qual está em uso
+mpro arvore nova "Backend"           # cria e passa a usar: os próximos arquivos nascem nela
+mpro arvore usar "principal"         # volta a usar outra
+mpro arvore mostrar src/api.ts src/db.ts --arvore "Backend"
+mpro arvore desfazer "Backend"       # os arquivos dela voltam para a principal
+\`\`\`
+
+Use antes de começar uma frente nova, para o usuário enxergar o trabalho separado. Arquivo com cara de segredo
+(\`.env\`, chave, credencial) nunca vira cartão, e o \`mostrar\` só aceita arquivo de uma pasta que está no quadro.
+
 ## Regras de convívio
 
 - Só fala com quem está ligado a você por uma corda (o usuário desenha as cordas no quadro), ou com quem você mesmo

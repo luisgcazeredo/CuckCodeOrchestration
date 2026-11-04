@@ -51,10 +51,16 @@ import {
   alinhar,
   alternarCodigoSozinho,
   alternarLinhasDoCodigo,
+  ARVORE_PRINCIPAL,
+  arvoresDoTerminal,
   contarCodigos,
   contarCodigosSoltos,
+  criarArvore,
+  desfazerArvore,
   juntarCodigosDoTerminal,
+  renomearArvore,
   soltarCodigoDaColuna,
+  usarArvore,
   fecharCodigosDoTerminal,
   recolherCodigosDoTerminal,
   alternarMiniMapa,
@@ -133,6 +139,68 @@ export async function verCodigoDoTerminal(no: NoTerminal): Promise<void> {
  * O "node" do mapa mental: tudo sobre os cartões de código de um agente num lugar só. Serve ao menu do
  * cartão e ao botão no rodapé dele.
  */
+/**
+ * As árvores de código do agente: cada uma é um ramo com nome, e os próximos arquivos nascem na que estiver
+ * em uso. É assim que ele separa frentes de trabalho ("leia os arquivos da árvore Backend").
+ */
+function itensDasArvores(no: NoTerminal): ItemMenu[] {
+  const ativa = no.arvoreAtiva ?? ARVORE_PRINCIPAL
+  const arvores = arvoresDoTerminal(no).map((arvore) => {
+    const conta = contarCodigos(no.id, arvore.id)
+    const principal = arvore.id === ARVORE_PRINCIPAL
+    return {
+      rotulo: `${arvore.nome || 'principal'} · ${conta.total}`,
+      icone: FileCode,
+      marcado: arvore.id === ativa,
+      submenu: [
+        { rotulo: 'Os próximos arquivos vêm para cá', icone: FileCode, acao: () => usarArvore(no.id, arvore.id) },
+        {
+          rotulo: 'Recolher os desta árvore',
+          icone: ChevronsDownUp,
+          desligado: !conta.total || conta.recolhidos === conta.total,
+          acao: () => recolherCodigosDoTerminal(no.id, true, arvore.id)
+        },
+        {
+          rotulo: 'Abrir os desta árvore',
+          icone: ChevronsUpDown,
+          desligado: !conta.recolhidos,
+          acao: () => recolherCodigosDoTerminal(no.id, false, arvore.id)
+        },
+        ...(principal
+          ? []
+          : [
+              separador,
+              {
+                rotulo: 'Renomear a árvore…',
+                icone: Pencil,
+                acao: async () => {
+                  const nome = await perguntarTexto('Renomear árvore', 'Nome', arvore.nome, 'Renomear')
+                  if (nome) renomearArvore(no.id, arvore.id, nome)
+                }
+              },
+              {
+                rotulo: 'Desfazer a árvore (os arquivos voltam para a principal)',
+                icone: Unlink,
+                acao: () => desfazerArvore(no.id, arvore.id)
+              }
+            ])
+      ]
+    }
+  })
+  return [
+    ...arvores,
+    separador,
+    {
+      rotulo: 'Nova árvore…',
+      icone: FileCode,
+      acao: async () => {
+        const nome = await perguntarTexto('Nova árvore de código', 'Nome', '', 'Criar')
+        if (nome) criarArvore(no.id, nome)
+      }
+    }
+  ]
+}
+
 export function itensDoCodigoDoTerminal(no: NoTerminal): ItemMenu[] {
   const { total, recolhidos } = contarCodigos(no.id)
   const soltos = contarCodigosSoltos(no.id)
@@ -145,6 +213,7 @@ export function itensDoCodigoDoTerminal(no: NoTerminal): ItemMenu[] {
       acao: () => alternarCodigoSozinho(no.id)
     },
     { rotulo: 'Abrir um cartão com o último arquivo mexido', icone: FileCode, acao: () => void verCodigoDoTerminal(no) },
+    { rotulo: 'Árvores', icone: FileCode, submenu: itensDasArvores(no) },
     separador,
     {
       rotulo: total ? `Recolher os ${total} em bloquinhos` : 'Recolher todos',

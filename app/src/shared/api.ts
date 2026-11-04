@@ -76,6 +76,15 @@ export const MAX_SESSOES_POR_AGENTE = 8
 export type PedidoDoAgente =
   | { tipo: 'abrir'; espacoId: string; criador: string; agente: Agente; nome?: string; pasta?: string }
   | { tipo: 'fechar'; espacoId: string; id: string }
+  /** Árvores de código do cartão do próprio agente: listar, criar, usar, mostrar arquivos e desfazer. */
+  | {
+      tipo: 'arvore'
+      espacoId: string
+      id: string
+      acao: 'lista' | 'nova' | 'usar' | 'mostrar' | 'desfazer'
+      nome?: string
+      arquivos?: string[]
+    }
   | {
       tipo: 'passar'
       espacoId: string
@@ -88,7 +97,7 @@ export type PedidoDoAgente =
       donoDoSucessor?: string | null
     }
 
-export type RespostaAoAgente = { ok: true; id?: string; nome?: string } | { ok: false; erro: string }
+export type RespostaAoAgente = { ok: true; id?: string; nome?: string; texto?: string } | { ok: false; erro: string }
 
 export interface ApiAgentes {
   /** A janela atende os pedidos dos agentes para o espaço que ela mostra. */

@@ -1727,6 +1727,23 @@ export async function rodarAutoteste(
         await js(`window.__teste.loja.juntarCodigosDoTerminal('${dono}')`)
         await esperar(600)
         const devolvido = (await posicoes()).find((c) => c.id === topoAntes.id)
+        // e, enquanto estiver fora, a coluna não o empurra: antes ele descia um pouco a cada rearranjo
+        await js(`window.__teste.loja.soltarCodigoDaColuna('${topoAntes.id}')`)
+        await esperar(300)
+        const ondeSolto = (await posicoes()).find((c) => c.id === topoAntes.id)?.y ?? 0
+        await js(`window.__teste.loja.recolherCodigosDoTerminal('${dono}', true)`)
+        await esperar(300)
+        await js(`window.__teste.loja.recolherCodigosDoTerminal('${dono}', false)`)
+        await esperar(500)
+        const depoisDeRearranjar = (await posicoes()).find((c) => c.id === topoAntes.id)
+        conferir(
+          'cartão fora da coluna não leva empurrão a cada rearranjo',
+          depoisDeRearranjar?.y === ondeSolto,
+          `${ondeSolto} → ${depoisDeRearranjar?.y}`
+        )
+        await js(`window.__teste.loja.juntarCodigosDoTerminal('${dono}')`)
+        await esperar(400)
+
         conferir(
           'arrastar para longe tira da coluna, e o menu do agente traz de volta',
           solto?.automatico === false && devolvido?.automatico === true,
@@ -1862,6 +1879,61 @@ export async function rodarAutoteste(
           8000
         )
         conferir('arquivo apagado: o cartão diz que não encontrou, e não que está fora do quadro', recado.includes('não encontrado'), recado)
+        // árvores de código: o agente separa os arquivos por frente de trabalho e fala delas pelo nome
+        const listou = await comandoAte(chefe, 'mpro arvore', /principal/m, 15_000)
+        conferir('mpro arvore lista as árvores do cartão', /"principal"/.test(listou), ultimas(listou, 3))
+
+        await comandoAte(chefe, 'mpro arvore nova "Backend"', /^Árvore "Backend" pronta/m, 15_000)
+        await gravar('oitavo.ts', 'const oito = 8', 'FIM-GRAVOU8')
+        await esperar(1500)
+        const comArvore = await js<Array<{ caminho: string; arvore: string }>>(
+          `window.__teste.loja.planoAtual().nos.filter((n) => n.tipo === 'codigo')
+            .map((n) => ({ caminho: n.caminho ?? '', arvore: n.arvore ?? '' }))`
+        )
+        const oitavo = comArvore.find((c) => c.caminho.endsWith('oitavo.ts'))
+        conferir(
+          'arquivo novo nasce na árvore em uso',
+          !!oitavo?.arvore && comArvore.some((c) => c.caminho.endsWith('sexto.ts') && !c.arvore),
+          comArvore.map((c) => `${c.caminho.split(/[\/]/).pop()}${c.arvore ? ' (outra árvore)' : ''}`).join(' | ')
+        )
+        const bolinhas = await js<number>(`document.querySelectorAll('.vinculo-bolinha').length`)
+        const nomeNaTela = await js<string>(
+          `[...document.querySelectorAll('.vinculo-nome')].map((n) => n.textContent).join(' | ')`
+        )
+        conferir(
+          'cada árvore tem a sua bolinha, e a nova mostra o nome',
+          bolinhas >= 2 && nomeNaTela.includes('Backend'),
+          `${bolinhas} bolinha(s) · nomes: ${nomeNaTela || 'nenhum'}`
+        )
+        // de longe, para o print mostrar as duas árvores inteiras, com as bolinhas e os nomes
+        await js(`(() => { const L = window.__teste.loja; const n = L.acharNo(${JSON.stringify(dono)})
+          L.definirCamera({ x: -n.x * 0.45 + 340, y: -n.y * 0.45 + 60, zoom: 0.45 }) })()`)
+        await esperar(500)
+        await print('codigo-arvores')
+        // uma árvore não cobre a outra: a nova nasce abaixo do que o agente já tinha
+        const seCobrem = await js<number>(`(() => {
+          const nos = window.__teste.loja.planoAtual().nos.filter((n) => n.tipo === 'codigo')
+          const cruza = (a, b) => a.x < b.x + b.largura && b.x < a.x + a.largura && a.y < b.y + b.altura && b.y < a.y + a.altura
+          let pares = 0
+          for (let i = 0; i < nos.length; i++) for (let j = i + 1; j < nos.length; j++) if (cruza(nos[i], nos[j])) pares++
+          return pares
+        })()`)
+        conferir('com duas árvores, nenhum cartão cobre outro', seCobrem === 0, )
+
+        // mostrar traz um arquivo que já tinha cartão para a árvore pedida, sem abrir cartão repetido
+        await comandoAte(chefe, 'mpro arvore mostrar sexto.ts --arvore "Backend"', /^Mostrei 1 arquivo/m, 15_000)
+        await esperar(800)
+        const depoisDeMostrar = await js<Array<{ caminho: string; arvore: string }>>(
+          `window.__teste.loja.planoAtual().nos.filter((n) => n.tipo === 'codigo')
+            .map((n) => ({ caminho: n.caminho ?? '', arvore: n.arvore ?? '' }))`
+        )
+        const doSexto = depoisDeMostrar.filter((c) => c.caminho.endsWith('sexto.ts'))
+        conferir(
+          'mpro arvore mostrar leva o arquivo para a árvore, sem cartão repetido',
+          doSexto.length === 1 && !!doSexto[0].arvore,
+          doSexto.map((c) => `${c.caminho} (${c.arvore || 'principal'})`).join(' | ') || 'nenhum cartão'
+        )
+
       }
     },
   ]

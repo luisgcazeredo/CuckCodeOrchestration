@@ -1,6 +1,8 @@
 import { memo } from 'react'
-import type { Corda, Desenho, No, Plano } from '../../../shared/modelo'
+import type { Corda, Desenho, No, NoCodigo, NoTerminal, Plano } from '../../../shared/modelo'
 import {
+  arvoreDoCodigo,
+  arvoresDoTerminal,
   estaSelecionado,
   focarItem,
   recolherCodigosDoTerminal,
@@ -154,16 +156,23 @@ export const CamadaCordas = memo(function CamadaCordas({
  */
 export const CamadaVinculos = memo(function CamadaVinculos({ nos }: { nos: No[] }) {
   const porId = new Map(nos.map((n) => [n.id, n]))
-  const ramos = new Map<string, No[]>()
+  // um ramo por (agente, árvore): o agente separa os arquivos por assunto e cada árvore tem a sua bolinha
+  const ramos = new Map<string, { agente: NoTerminal; arvore: string; nome: string; cartoes: NoCodigo[] }>()
   for (const n of nos) {
-    if (n.tipo !== 'codigo' || !n.terminal || !porId.has(n.terminal)) continue
-    ramos.set(n.terminal, [...(ramos.get(n.terminal) ?? []), n])
+    if (n.tipo !== 'codigo' || !n.terminal) continue
+    const agente = porId.get(n.terminal)
+    if (agente?.tipo !== 'terminal') continue
+    const arvore = arvoreDoCodigo(n)
+    const chave = `${agente.id}:${arvore}`
+    const nome = arvoresDoTerminal(agente).find((a) => a.id === arvore)?.nome ?? ''
+    const antes = ramos.get(chave)
+    ramos.set(chave, { agente, arvore, nome, cartoes: [...(antes?.cartoes ?? []), n] })
   }
   if (!ramos.size) return null
   return (
     <svg className="camada-svg camada-vinculos">
-      {[...ramos].map(([idAgente, cartoes]) => {
-        const agente = porId.get(idAgente)!
+      {[...ramos].map(([chave, { agente, arvore, nome, cartoes }]) => {
+        const idAgente = agente.id
         // o ramo entra pela esquerda do cartão, na altura do título (e não no meio, que num cartão aberto
         // ficaria longe do nome do arquivo)
         const pontas = cartoes.map((c) => ({ id: c.id, x: c.x, y: c.y + Math.min(c.altura / 2, 15) }))
@@ -174,7 +183,7 @@ export const CamadaVinculos = memo(function CamadaVinculos({ nos }: { nos: No[] 
         const meio = (hx - tx) / 2
         const todosRecolhidos = cartoes.every((c) => c.tipo === 'codigo' && c.recolhido)
         return (
-          <g key={idAgente} className="vinculo">
+          <g key={chave} className="vinculo">
             <path d={`M ${tx} ${ty} C ${tx + meio} ${ty}, ${hx - meio} ${hy}, ${hx} ${hy}`} className="vinculo-linha" />
             {pontas.map((p) => {
               const alca = Math.max(20, (p.x - hx) / 2)
@@ -187,6 +196,12 @@ export const CamadaVinculos = memo(function CamadaVinculos({ nos }: { nos: No[] 
               )
             })}
             <circle cx={hx} cy={hy} r={5.5} className="vinculo-bolinha" />
+            {/* o nome da árvore fica junto da bolinha: é por ele que o agente e você falam dela */}
+            {nome && (
+              <text x={hx} y={hy - 12} className="vinculo-nome" textAnchor="middle">
+                {nome}
+              </text>
+            )}
             <circle
               cx={hx}
               cy={hy}
@@ -195,15 +210,15 @@ export const CamadaVinculos = memo(function CamadaVinculos({ nos }: { nos: No[] 
               onPointerDown={(e) => {
                 if (e.button !== 0) return
                 e.stopPropagation()
-                // arrastar leva a coluna inteira; soltar sem andar recolhe ou abre todos
-                comecarArrasto(e, e.currentTarget, { tipo: 'coluna', terminal: idAgente }, {
-                  aoClicar: () => recolherCodigosDoTerminal(idAgente, !todosRecolhidos)
+                // arrastar leva a árvore inteira; soltar sem andar recolhe ou abre todos os arquivos dela
+                comecarArrasto(e, e.currentTarget, { tipo: 'coluna', terminal: idAgente, arvore }, {
+                  aoClicar: () => recolherCodigosDoTerminal(idAgente, !todosRecolhidos, arvore)
                 })
               }}
             >
               <title>
-                {todosRecolhidos ? 'Abrir' : 'Recolher'} os {cartoes.length} arquivos deste agente — arraste para
-                levar a coluna junto
+                {nome ? `${nome}: ` : ''}
+                {todosRecolhidos ? 'abrir' : 'recolher'} os {cartoes.length} arquivos — arraste para levar a árvore junto
               </title>
             </circle>
           </g>

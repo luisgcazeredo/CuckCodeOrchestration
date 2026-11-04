@@ -88,7 +88,7 @@ function velocidadeNaBorda(distancia: number): number {
 
 // 'coluna': arrastar a coluna de arquivos de um agente pela bolinha das ligações. Anda como 'mover', mas
 // os cartões continuam nas mãos do app — quem guarda o lugar novo é o agente (ver moverColuna).
-type Modo = { tipo: 'mover' } | { tipo: 'redimensionar'; no: No } | { tipo: 'coluna'; terminal: string }
+type Modo = { tipo: 'mover' } | { tipo: 'redimensionar'; no: No } | { tipo: 'coluna'; terminal: string; arvore: string }
 
 interface Gesto {
   modo: Modo
@@ -150,7 +150,7 @@ function aplicar(rolar: boolean): void {
       dy += ima.dy
       mostrarGuias(ima.guias)
     } else mostrarGuias([])
-    if (g.modo.tipo === 'coluna') moverColuna(g.modo.terminal, g.originais, dx, dy, g.chave)
+    if (g.modo.tipo === 'coluna') moverColuna(g.modo.terminal, g.modo.arvore, g.originais, dx, dy, g.chave)
     else moverItens(g.originais, dx, dy, g.chave)
   } else {
     const no = g.modo.no
@@ -182,7 +182,7 @@ function virarArrasto(g: Gesto): void {
   }
   marcarGesto(true)
   if (g.modo.tipo !== 'redimensionar') {
-    g.originais = g.modo.tipo === 'coluna' ? posicoesDaColuna(g.modo.terminal) : posicoesDaSelecao()
+    g.originais = g.modo.tipo === 'coluna' ? posicoesDaColuna(g.modo.terminal, g.modo.arvore) : posicoesDaSelecao()
     g.caixa = caixaDasPosicoes(g.originais)
     const movendo = new Set(g.originais.nos.map((n) => n.id))
     // ímã só nos cartões (traços soltos não puxam), e só nos que não estão sendo arrastados
@@ -229,7 +229,7 @@ export function comecarArrasto(
     if (!g) return
     atual = null
     if (cancelar && g.arrastando) {
-      if (g.modo.tipo === 'coluna') moverColuna(g.modo.terminal, g.originais, 0, 0, g.chave)
+      if (g.modo.tipo === 'coluna') moverColuna(g.modo.terminal, g.modo.arvore, g.originais, 0, 0, g.chave)
       else if (g.modo.tipo === 'mover') moverItens(g.originais, 0, 0, g.chave)
       else atualizarNo(g.modo.no.id, { largura: g.modo.no.largura, altura: g.modo.no.altura }, g.chave)
     }
@@ -252,7 +252,7 @@ export function comecarArrasto(
       // a coluna só se realinha (e empurra o que ficou embaixo) quando o arrasto acaba: fazer isso a cada
       // quadro mexeria no quadro inteiro enquanto o mouse anda
       const modo = g.modo
-      if (modo.tipo === 'coluna') assentarColuna(modo.terminal)
+      if (modo.tipo === 'coluna') assentarColuna(modo.terminal, modo.arvore)
       else if (modo.tipo === 'mover') assentarCodigos(g.originais.nos.map((n) => n.id))
       else {
         // redimensionar um cartão da coluna vale como tamanho novo dele aberto, e a coluna se ajusta

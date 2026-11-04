@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type Socket } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
-import { join, sep } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { CANAIS, CANAIS_AGENTES, MAX_SESSOES_POR_AGENTE, type PedidoDoAgente, type RespostaAoAgente, type ResumoContextoTerminal } from '../shared/api'
 import type { Agente } from '../shared/modelo'
 import { criarEspacoDoAgente, PASTA_DADOS, resumosDosEspacos } from './dados'
@@ -697,6 +697,34 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
     escreverNoProcesso(alvo, '\r')
     await aguardarFim(alvo, 15_000, cancelado)
     return { saida: `Contexto de "${alvo.espec.nome}" zerado.` }
+  },
+
+  /**
+   * As árvores de código do próprio cartão. Servem para o agente separar os arquivos por frente de trabalho
+   * e depois falar delas pelo nome ("leia os arquivos da árvore Backend").
+   */
+  arvore: async ({ eu, pos, opcoes }) => {
+    const acoes = ['lista', 'nova', 'usar', 'mostrar', 'desfazer'] as const
+    const pedida = (pos[0] ?? 'lista').toLowerCase()
+    const acao = acoes.find((a) => a === pedida)
+    if (!acao) throw new Error(`não conheço \`mpro arvore ${pos[0]}\`. Use: ${acoes.join(', ')}.`)
+    const resto = pos.slice(1).filter(Boolean)
+    const daOpcao = typeof opcoes.arvore === 'string' ? opcoes.arvore.trim() : ''
+    const nome = acao === 'mostrar' ? daOpcao : resto.join(' ').trim() || daOpcao
+    if ((acao === 'nova' || acao === 'usar' || acao === 'desfazer') && !nome) {
+      throw new Error(`diga o nome: mpro arvore ${acao} "Nome"`)
+    }
+    // os arquivos vão em caminho absoluto: a janela só mostra o que está numa pasta do quadro
+    const arquivos = acao === 'mostrar' ? resto.map((a) => resolve(eu.espec.pasta, a)) : []
+    if (acao === 'mostrar') {
+      if (!arquivos.length) throw new Error('diga os arquivos: mpro arvore mostrar <arquivo>... [--arvore "Nome"]')
+      const sumido = arquivos.find((a) => !existsSync(a))
+      if (sumido) throw new Error(`esse arquivo não existe: ${sumido}`)
+    }
+    await abrirJanelaPronta(eu.espacoId)
+    const r = await pedirAJanela({ tipo: 'arvore', espacoId: eu.espacoId, id: eu.id, acao, nome, arquivos })
+    if (!r.ok) throw new Error(r.erro)
+    return { saida: r.texto ?? 'Pronto.' }
   },
 
   fechar: async ({ eu, pos }) => {
