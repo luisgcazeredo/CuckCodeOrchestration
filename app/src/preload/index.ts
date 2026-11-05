@@ -85,6 +85,7 @@ const codigo: ApiCodigo = {
       ipcRenderer.send(CANAIS_CODIGO.pararDeVigiar, pasta)
     }
   },
+  vigiavel: (pasta) => ipcRenderer.invoke(CANAIS_CODIGO.vigiavel, pasta),
   recentes: (pasta) => ipcRenderer.invoke(CANAIS_CODIGO.recentes, pasta),
   ler: (caminho) => ipcRenderer.invoke(CANAIS_CODIGO.ler, caminho),
   diff: (caminho) => ipcRenderer.invoke(CANAIS_CODIGO.diff, caminho)

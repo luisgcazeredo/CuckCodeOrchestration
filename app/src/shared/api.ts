@@ -264,6 +264,8 @@ export interface DiffArquivo {
 export interface ApiCodigo {
   /** Começa a vigiar a pasta e avisa a cada gravação. A função devolvida desliga o aviso e a vigia. */
   vigiar(pasta: string, ouvinte: (mudanca: MudancaArquivo) => void): () => void
+  /** Vale vigiar esta pasta? Falso na pasta do usuário, na raiz de um disco e nas de sistema. */
+  vigiavel(pasta: string): Promise<boolean>
   /** Os últimos arquivos gravados nessa pasta, do mais novo para o mais velho. */
   recentes(pasta: string): Promise<MudancaArquivo[]>
   ler(caminho: string): Promise<TextoArquivo>
@@ -377,6 +379,7 @@ export const CANAIS_PORTAL = {
 
 export const CANAIS_CODIGO = {
   vigiar: 'codigo:vigiar',
+  vigiavel: 'codigo:vigiavel',
   pararDeVigiar: 'codigo:parar-de-vigiar',
   recentes: 'codigo:recentes',
   ler: 'codigo:ler',

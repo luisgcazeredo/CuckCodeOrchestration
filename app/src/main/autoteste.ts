@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, 
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extrairContextoRestante } from './comandos'
 import { PASTA_DADOS } from './dados'
@@ -432,11 +432,16 @@ export async function rodarAutoteste(
       tela.sendInputEvent({ type: 'mouseMove', x, y: naBorda.y, button: 'left', modifiers: ['leftbuttondown'] })
       await esperar(16)
     }
-    await esperar(700)
+    // a rolagem anda um tanto por quadro de tela: com a máquina carregada vêm menos quadros, então o teste
+    // espera até passar do limite em vez de medir num tempo fixo
+    let andou = 0
+    for (let i = 0; i < 40 && andou <= 80; i++) {
+      await esperar(100)
+      const agora = await js<{ x: number }>('window.__teste.loja.lerEstado().espaco.camera')
+      andou = Math.round(camAntes.x - agora.x)
+    }
     tela.sendInputEvent({ type: 'mouseUp', x: naBorda.x, y: naBorda.y, button: 'left', clickCount: 1 })
     await esperar(200)
-    const camDepois = await js<{ x: number }>('window.__teste.loja.lerEstado().espaco.camera')
-    const andou = Math.round(camAntes.x - camDepois.x)
     conferir('tela anda junto na borda', andou > 80, `a tela andou ${andou} px para a direita`)
     await print('uso-real')
 
@@ -1319,12 +1324,11 @@ export async function rodarAutoteste(
       await comando(aposentadoria.antigo, 'mpro sair')
       recusouSair = await aguardar(() => telaNoApp(aposentadoria.antigo), 'mpro passar', 8000)
     }
-    await comando(aposentadoria.antigo, 'mpro passar Sucessor')
-    const passouSessao = await aguardar(() => telaNoApp(aposentadoria.antigo), 'Passei 1 sessão para "Sucessor"')
-    await comando(aposentadoria.antigo, 'mpro fechar Herdado')
-    const antigoNaoFecha = await aguardar(() => telaNoApp(aposentadoria.antigo), 'ninguém ligado a você se chama "Herdado"')
-    await comando(aposentadoria.sucessor, 'mpro fechar Herdado')
-    const sucessorFecha = await aguardar(() => telaNoApp(aposentadoria.sucessor), 'Fechei "Herdado"')
+    // comandoAte repete o comando: tecla sintética se perde, e com a máquina carregada (o app de verdade
+    // aberto ao lado, por exemplo) essas três linhas eram as primeiras a falhar
+    const passouSessao = await comandoAte(aposentadoria.antigo, 'mpro passar Sucessor', 'Passei 1 sessão para "Sucessor"', 15_000)
+    const antigoNaoFecha = await comandoAte(aposentadoria.antigo, 'mpro fechar Herdado', 'ninguém ligado a você se chama "Herdado"', 15_000)
+    const sucessorFecha = await comandoAte(aposentadoria.sucessor, 'mpro fechar Herdado', 'Fechei "Herdado"', 15_000)
     conferir(
       'mpro passar move a propriedade; antigo não fecha e sucessor fecha',
       !!herdado && recusouSair.includes('mpro passar') && passouSessao.includes('Passei 1') && antigoNaoFecha.includes('ninguém ligado') && sucessorFecha.includes('Fechei'),
@@ -1333,7 +1337,7 @@ export async function rodarAutoteste(
     )
     const respostaSair = join(tmpdir(), `maestri-proprio-sair-${randomUUID()}.txt`)
     await comando(aposentadoria.antigo, `mpro sair --motivo "fim do contexto" | Out-File -Encoding utf8 '${respostaSair}'`)
-    for (let i = 0; i < 30 && sessaoPorId(aposentadoria.antigo); i++) await esperar(100)
+    for (let i = 0; i < 120 && sessaoPorId(aposentadoria.antigo); i++) await esperar(100)
     const antigoSaiu = !sessaoPorId(aposentadoria.antigo)
     const respostaAntesDeSair = existsSync(respostaSair) ? readFileSync(respostaSair, 'utf8') : ''
     rmSync(respostaSair, { force: true })
@@ -1950,6 +1954,51 @@ export async function rodarAutoteste(
           doSexto.length === 1 && !!doSexto[0].arvore,
           doSexto.map((c) => `${c.caminho} (${c.arvore || 'principal'})`).join(' | ') || 'nenhum cartão'
         )
+        // a pasta do usuário não é vigiada (senão vira cartão de tudo que o PC grava); a do projeto é
+        const podeProjeto = await js<boolean>(`window.mp.codigo.vigiavel(${JSON.stringify(pastaTerminais)})`)
+        const podeCasa = await js<boolean>(
+          `window.mp.codigo.vigiavel(${JSON.stringify(process.env.USERPROFILE ?? homedir())})`
+        )
+        conferir(
+          'a pasta do usuário não é vigiada; a do projeto é',
+          podeProjeto === true && podeCasa === false,
+          `projeto ${podeProjeto} · casa ${podeCasa}`
+        )
+
+        // arrastar um cartão para a coluna da outra árvore muda ele de árvore
+        await js(`(() => { const L = window.__teste.loja; const n = L.acharNo(${JSON.stringify(dono)})
+          L.definirCamera({ x: -n.x * 0.45 + 340, y: -n.y * 0.45 + 60, zoom: 0.45 }) })()`)
+        await esperar(500)
+        const comIds = (): Promise<Array<{ id: string; caminho: string; arvore: string }>> =>
+          js(`window.__teste.loja.planoAtual().nos.filter((n) => n.tipo === 'codigo')
+            .map((n) => ({ id: n.id, caminho: n.caminho ?? '', arvore: n.arvore ?? '' }))`)
+        const antesDaTroca = await comIds()
+        const oitavoCartao = antesDaTroca.find((c) => c.caminho.endsWith('oitavo.ts'))
+        const daPrincipal = antesDaTroca.find((c) => !c.arvore)
+        const pegaOitavo = oitavoCartao ? await centroDe(`[data-no-id="${oitavoCartao.id}"] .cartao-ferramenta-cabecalho`) : null
+        const alvoPrincipal = daPrincipal ? await centroDe(`[data-no-id="${daPrincipal.id}"] .cartao-ferramenta-cabecalho`) : null
+        if (pegaOitavo && alvoPrincipal) await arrastar(pegaOitavo, { x: alvoPrincipal.x, y: alvoPrincipal.y + 12 })
+        await esperar(700)
+        const trocou = (await comIds()).find((c) => c.caminho.endsWith('oitavo.ts'))
+        conferir(
+          'arrastar um cartão para a coluna da outra árvore muda ele de árvore',
+          !!trocou && trocou.arvore === '',
+          `${oitavoCartao?.arvore ? 'Backend' : 'principal'} → ${trocou?.arvore ? 'outra' : 'principal'}`
+        )
+
+        // fechar os soltos tira só o que saiu das árvores
+        const quantosAntes = (await comIds()).length
+        if (trocou) await js(`window.__teste.loja.soltarCodigoDaColuna('${trocou.id}')`)
+        await esperar(300)
+        await js(`window.__teste.loja.fecharCodigosSoltos('${dono}')`)
+        await esperar(400)
+        const depoisDeFechar = await comIds()
+        conferir(
+          'fechar os soltos tira só o cartão que saiu das árvores',
+          depoisDeFechar.length === quantosAntes - 1 && !depoisDeFechar.some((c) => c.caminho.endsWith('oitavo.ts')),
+          `${quantosAntes} → ${depoisDeFechar.length} cartões`
+        )
+
 
       }
     },

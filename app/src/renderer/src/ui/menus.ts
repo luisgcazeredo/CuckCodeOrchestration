@@ -56,6 +56,8 @@ import {
   contarCodigos,
   contarCodigosSoltos,
   criarArvore,
+  fecharCodigosSoltos,
+  pastaEhVigiavel,
   desfazerArvore,
   juntarCodigosDoTerminal,
   renomearArvore,
@@ -166,18 +168,18 @@ function itensDasArvores(no: NoTerminal): ItemMenu[] {
           desligado: !conta.recolhidos,
           acao: () => recolherCodigosDoTerminal(no.id, false, arvore.id)
         },
+        separador,
+        {
+          rotulo: 'Renomear a árvore…',
+          icone: Pencil,
+          acao: async () => {
+            const nome = await perguntarTexto('Renomear árvore', 'Nome', arvore.nome, 'Renomear')
+            if (nome) renomearArvore(no.id, arvore.id, nome)
+          }
+        },
         ...(principal
           ? []
           : [
-              separador,
-              {
-                rotulo: 'Renomear a árvore…',
-                icone: Pencil,
-                acao: async () => {
-                  const nome = await perguntarTexto('Renomear árvore', 'Nome', arvore.nome, 'Renomear')
-                  if (nome) renomearArvore(no.id, arvore.id, nome)
-                }
-              },
               {
                 rotulo: 'Desfazer a árvore (os arquivos voltam para a principal)',
                 icone: Unlink,
@@ -205,13 +207,24 @@ export function itensDoCodigoDoTerminal(no: NoTerminal): ItemMenu[] {
   const { total, recolhidos } = contarCodigos(no.id)
   const soltos = contarCodigosSoltos(no.id)
   const comLinhas = lerEstado().preferencias.linhasDoCodigo !== false
+  // pasta que o app não vigia (a do usuário, a raiz de um disco): dizer o motivo, senão o cartão
+  // simplesmente não nasce e parece defeito
+  const espacoAtual = lerEstado().espaco
+  const vigiavel = pastaEhVigiavel(no.pasta || (espacoAtual ? pastaDoPlano(espacoAtual) : ''))
   return [
-    {
-      rotulo: 'Abrir o código sozinho quando ele gravar',
-      icone: FileCode,
-      marcado: no.codigoSozinho !== false,
-      acao: () => alternarCodigoSozinho(no.id)
-    },
+    vigiavel === false
+      ? {
+          rotulo: 'Pasta grande demais para vigiar: aponte o agente para a pasta do projeto',
+          icone: FileCode,
+          desligado: true,
+          acao: () => {}
+        }
+      : {
+          rotulo: 'Abrir o código sozinho quando ele gravar',
+          icone: FileCode,
+          marcado: no.codigoSozinho !== false,
+          acao: () => alternarCodigoSozinho(no.id)
+        },
     { rotulo: 'Abrir um cartão com o último arquivo mexido', icone: FileCode, acao: () => void verCodigoDoTerminal(no) },
     { rotulo: 'Árvores', icone: FileCode, submenu: itensDasArvores(no) },
     separador,
@@ -232,6 +245,12 @@ export function itensDoCodigoDoTerminal(no: NoTerminal): ItemMenu[] {
       icone: FileCode,
       desligado: !soltos,
       acao: () => juntarCodigosDoTerminal(no.id)
+    },
+    {
+      rotulo: soltos ? `Fechar ${soltos === 1 ? 'o arquivo solto' : `os ${soltos} arquivos soltos`}` : 'Fechar os soltos',
+      icone: Trash2,
+      desligado: !soltos,
+      acao: () => fecharCodigosSoltos(no.id)
     },
     {
       rotulo: total ? `Fechar os ${total} e parar de abrir` : 'Fechar todos e parar de abrir',

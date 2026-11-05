@@ -255,6 +255,9 @@ async function diff(caminho: string): Promise<DiffArquivo> {
 export function registrarCodigo(): void {
   ipcMain.on(CANAIS_CODIGO.vigiar, (evento, pasta: string) => vigiar(evento.sender.id, pasta))
   ipcMain.on(CANAIS_CODIGO.pararDeVigiar, (evento, pasta: string) => pararDeVigiar(evento.sender.id, pasta))
+  ipcMain.handle(CANAIS_CODIGO.vigiavel, (_e, pasta: string): boolean =>
+    typeof pasta === 'string' && !!pasta && pastaVigiavel(pasta, homedir())
+  )
   ipcMain.handle(CANAIS_CODIGO.recentes, (_e, pasta: string): MudancaArquivo[] => recentes(pasta))
   ipcMain.handle(CANAIS_CODIGO.ler, (_e, caminho: string): TextoArquivo => ler(caminho))
   ipcMain.handle(CANAIS_CODIGO.diff, (_e, caminho: string): Promise<DiffArquivo> => diff(caminho))

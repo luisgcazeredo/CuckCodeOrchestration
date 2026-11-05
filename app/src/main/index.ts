@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, Menu, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, Menu, screen, session, shell } from 'electron'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CANAIS_APP } from '../shared/api'
 import { registrarAndares } from './andares'
@@ -14,6 +15,9 @@ import { rodarAutoteste } from './autoteste'
 const autoteste = process.argv.includes('--autoteste')
 // No autoteste a janela pode ficar atrás de outras; sem isto o Windows para de desenhá-la e o print sai velho.
 if (autoteste) app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+// E o autoteste usa um perfil do Chromium só dele: com o app instalado aberto, os dois disputavam o mesmo
+// perfil e a rodada morria sem dizer nada — ficava um log vazio, que já custou rodadas para entender.
+if (autoteste) app.setPath('userData', join(tmpdir(), 'maestri-proprio-autoteste-chromium'))
 const ehWeb = (endereco: string): boolean => {
   try {
     return ['https:', 'http:'].includes(new URL(endereco).protocol)
@@ -45,11 +49,28 @@ function pedirSalvamento(janela: BrowserWindow): Promise<boolean> {
 
 let autotesteRodando = false
 
+/** No autoteste a janela abre no segundo monitor (se houver), para não cobrir o que se está vendo no principal. */
+function posicaoAutoteste(largura: number, altura: number): { x?: number; y?: number } {
+  const principal = screen.getPrimaryDisplay()
+  const outra = screen.getAllDisplays().find((tela) => tela.id !== principal.id)
+  if (!outra) return {}
+  const area = outra.workArea
+  return {
+    x: area.x + Math.max(0, Math.round((area.width - largura) / 2)),
+    y: area.y + Math.max(0, Math.round((area.height - altura) / 2))
+  }
+}
+
 /** Uma janela do app. `espacoInicial`: o espaço que ela mostra ao abrir (null = o último usado). */
 function criarJanela(espacoInicial: string | null = null): BrowserWindow {
   // janela nova aparece um pouco deslocada da que está na frente, para não esconder uma atrás da outra
   const frente = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
-  const posicao = frente && !frente.isDestroyed() && !frente.isMaximized() ? { x: frente.getBounds().x + 36, y: frente.getBounds().y + 36 } : {}
+  const posicao =
+    frente && !frente.isDestroyed() && !frente.isMaximized()
+      ? { x: frente.getBounds().x + 36, y: frente.getBounds().y + 36 }
+      : autoteste
+        ? posicaoAutoteste(1280, 820)
+        : {}
   const janela = new BrowserWindow({
     width: 1280,
     height: 820,

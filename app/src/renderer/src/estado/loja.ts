@@ -1375,6 +1375,25 @@ const vigiasDeCodigo = new Map<string, () => void>()
 let criandoCodigo = false
 
 /**
+ * Pastas que o processo principal recusou vigiar (a do usuário, raiz de disco, pasta de sistema). Guardado
+ * aqui para o menu do agente poder dizer por que o cartão de código não nasce sozinho ali — sem isto, a
+ * funcionalidade some em silêncio e parece defeito.
+ */
+const vigiavelPorPasta = new Map<string, boolean>()
+
+/** `undefined` enquanto a resposta não chegou. */
+export const pastaEhVigiavel = (pasta: string): boolean | undefined => vigiavelPorPasta.get(pasta)
+
+function conferirSeVigiavel(pasta: string): void {
+  if (vigiavelPorPasta.has(pasta)) return
+  void window.mp.codigo.vigiavel(pasta).then((pode) => {
+    if (vigiavelPorPasta.get(pasta) === pode) return
+    vigiavelPorPasta.set(pasta, pode)
+    ouvintes.forEach((o) => o()) // o menu do agente mostra o motivo; nada no quadro mudou
+  })
+}
+
+/**
  * Vigia a pasta de cada agente do plano à mostra. É o que faz o cartão de código aparecer sozinho — sem
  * isso, só havia vigia quando já existia um cartão, e o primeiro nunca nascia.
  */
@@ -1382,11 +1401,12 @@ function ajustarVigiasDeCodigo(): void {
   const e = estado.espaco
   const pastas = new Set<string>()
   if (e) {
-    // pasta grande demais (a do usuário, a raiz de um disco) não é vigiada: quem recusa é o processo
-    // principal, que conhece a pasta do usuário (ver pastaVigiavel em shared/arquivos.ts). Aqui a assinatura
-    // é feita do mesmo jeito e simplesmente não chega aviso nenhum.
     for (const n of planoDe(e).nos) if (n.tipo === 'terminal') pastas.add(n.pasta || pastaDoPlano(e))
   }
+  // pasta grande demais (a do usuário, a raiz de um disco) não é vigiada: quem recusa é o processo principal,
+  // que conhece a pasta do usuário (ver pastaVigiavel em shared/arquivos.ts). A assinatura é feita do mesmo
+  // jeito e não chega aviso nenhum; a resposta do conferir é só para o menu poder dizer o motivo.
+  for (const pasta of pastas) conferirSeVigiavel(pasta)
   for (const [pasta, desligar] of [...vigiasDeCodigo]) {
     if (pastas.has(pasta)) continue
     desligar()
@@ -1413,8 +1433,10 @@ const ENTRE_ARVORES = 60
 
 /** As árvores de um agente, sempre começando pela principal. */
 export function arvoresDoTerminal(terminal: NoTerminal): ArvoreDeCodigo[] {
-  const outras = (terminal.arvores ?? []).filter((a) => a.id !== ARVORE_PRINCIPAL)
-  return [{ id: ARVORE_PRINCIPAL, nome: '', desloc: terminal.codigoDesloc }, ...outras]
+  const lista = terminal.arvores ?? []
+  // a principal não mora na lista (ela existe desde sempre); só o nome dela, quando o usuário dá um
+  const principal = { id: ARVORE_PRINCIPAL, nome: lista.find((a) => a.id === ARVORE_PRINCIPAL)?.nome ?? '', desloc: terminal.codigoDesloc }
+  return [principal, ...lista.filter((a) => a.id !== ARVORE_PRINCIPAL)]
 }
 
 /** A árvore de um cartão. Cartão sem árvore é da principal — é assim que os quadros antigos continuam certos. */
@@ -1567,59 +1589,85 @@ function guardarDesloc(terminal: NoTerminal, arvoreId: string, desloc: { x: numb
 const LONGE = 260
 
 /**
- * Fim de um arrasto (ou de um redimensionamento) que pegou cartões da coluna de um agente. Largado **perto**
- * da coluna, o cartão volta para ela, na altura em que você o soltou — é assim que se reordena a coluna, e
- * foi o que resolveu o cartão que se perdia lá embaixo ao ser movido. Largado **longe**, aí sim ele sai da
- * coluna de propósito e fica onde você o deixou.
+ * Fim de um arrasto (ou de um redimensionamento) que pegou cartões de árvore de agente. Onde o cartão foi
+ * largado decide tudo:
+ *
+ * - na coluna da **própria** árvore: volta para a fila, na altura em que você soltou (é assim que se reordena);
+ * - na coluna de **outra** árvore do mesmo agente: muda de árvore, também na altura em que você soltou;
+ * - **longe** de todas (mais de LONGE na horizontal): sai das árvores e fica onde você deixou.
  */
 export function assentarCodigos(ids: string[]): void {
   const plano = planoAtual()
   if (!plano) return
   const movidos = new Set(ids)
+  // cartão que andou junto com o agente dele não se assenta: a árvore inteira andou, nada mudou de lugar
   const meus = plano.nos.filter(
     (n): n is NoCodigo => n.tipo === 'codigo' && !!n.automatico && !!n.terminal && movidos.has(n.id) && !movidos.has(n.terminal)
   )
   if (!meus.length) return
-  // o agente foi junto no mesmo arrasto: as árvores inteiras andaram com ele, não há nada para assentar
-  if (meus.every((n) => movidos.has(n.terminal!))) return
-  // os pares (agente, árvore) tocados pelo arrasto. Sem juntar os dois num texto só: já custou um byte
-  // zero no meio do arquivo, que faz ferramenta tratar o código como binário.
-  const pares: Array<{ terminalId: string; arvoreId: string }> = []
-  for (const n of meus) {
-    const par = { terminalId: n.terminal!, arvoreId: arvoreDoCodigo(n) }
-    if (!pares.some((p) => p.terminalId === par.terminalId && p.arvoreId === par.arvoreId)) pares.push(par)
-  }
+  const terminais = [...new Set(meus.map((n) => n.terminal!))]
   mudarPlano((p) => {
     let saida = p
-    for (const { terminalId, arvoreId } of pares) {
+    for (const terminalId of terminais) {
       const terminal = saida.nos.find((n) => n.id === terminalId)
       if (terminal?.tipo !== 'terminal') continue
-      const coluna = inicioDaColuna(terminal, arvoreId)
-      const daColuna = saida.nos.filter(
-        (n): n is NoCodigo =>
-          n.tipo === 'codigo' && !!n.automatico && n.terminal === terminalId && arvoreDoCodigo(n) === arvoreId
-      )
-      const foraAgora = new Set(
-        daColuna.filter((n) => movidos.has(n.id) && Math.abs(n.x - coluna.x) > LONGE).map((n) => n.id)
-      )
-      // a ordem nova é a ordem em que os cartões ficaram na tela depois do arrasto
-      const ordem = new Map(
-        daColuna
-          .filter((n) => !foraAgora.has(n.id))
-          .sort((a, b) => a.y - b.y)
-          .map((n, i) => [n.id, i])
-      )
+      const arvores = arvoresDoTerminal(terminal)
+      const largados = new Set(meus.filter((n) => n.terminal === terminalId).map((n) => n.id))
+      const codigos = (arvoreId: string, semOsLargados: boolean): NoCodigo[] =>
+        saida.nos.filter(
+          (n): n is NoCodigo =>
+            n.tipo === 'codigo' &&
+            !!n.automatico &&
+            n.terminal === terminalId &&
+            arvoreDoCodigo(n) === arvoreId &&
+            (!semOsLargados || !largados.has(n.id))
+        )
+      // onde cada árvore está agora, sem contar o que acabou de ser largado
+      const caixas = arvores.map((a) => {
+        const inicio = inicioDaColuna(terminal, a.id)
+        const outros = codigos(a.id, true)
+        return {
+          id: a.id,
+          x: inicio.x,
+          topo: Math.min(inicio.y, ...outros.map((n) => n.y)),
+          baixo: Math.max(inicio.y + BLOQUINHO.altura, ...outros.map((n) => n.y + n.altura))
+        }
+      })
+      const destino = new Map<string, string | null>()
+      for (const id of largados) {
+        const cartao = saida.nos.find((n) => n.id === id)
+        if (cartao?.tipo !== 'codigo') continue
+        // o ponto que conta é o alto do cartão (onde fica o nome), não o meio de um cartão grande
+        const altura = cartao.y + Math.min(cartao.altura / 2, 40)
+        const perto = caixas
+          .map((c) => ({
+            c,
+            dx: Math.abs(cartao.x - c.x),
+            dy: altura < c.topo ? c.topo - altura : altura > c.baixo ? altura - c.baixo : 0
+          }))
+          .sort((a, b) => a.dy - b.dy || a.dx - b.dx)[0]
+        destino.set(id, perto && perto.dx <= LONGE ? perto.c.id : null)
+      }
       saida = {
         ...saida,
-        nos: saida.nos.map((n) =>
-          foraAgora.has(n.id)
+        nos: saida.nos.map((n) => {
+          if (!destino.has(n.id)) return n
+          const alvo = destino.get(n.id)!
+          return alvo === null
             ? ({ ...n, automatico: false, ordem: undefined } as No)
-            : ordem.has(n.id)
-              ? ({ ...n, ordem: ordem.get(n.id) } as No)
-              : n
-        )
+            : ({ ...n, arvore: alvo === ARVORE_PRINCIPAL ? undefined : alvo, ordem: undefined } as No)
+        })
       }
-      saida = arrumarColuna(saida, terminalId, arvoreId)
+      // a ordem de cada árvore passa a ser a ordem em que os cartões ficaram na tela
+      for (const a of arvores) {
+        const ordem = new Map(
+          codigos(a.id, false)
+            .sort((x, y) => x.y - y.y)
+            .map((n, i) => [n.id, i])
+        )
+        saida = { ...saida, nos: saida.nos.map((n) => (ordem.has(n.id) ? ({ ...n, ordem: ordem.get(n.id) } as No) : n)) }
+        saida = arrumarColuna(saida, terminalId, a.id)
+      }
     }
     return saida
   }, false)
@@ -1688,11 +1736,15 @@ export function usarArvore(terminalId: string, arvoreId: string): void {
 
 export function renomearArvore(terminalId: string, arvoreId: string, nome: string): void {
   const limpo = nome.trim().slice(0, 40)
-  if (!limpo || arvoreId === ARVORE_PRINCIPAL) return
-  mudarTerminal(terminalId, (n) => ({
-    ...n,
-    arvores: (n.arvores ?? []).map((a) => (a.id === arvoreId ? { ...a, nome: limpo } : a))
-  }))
+  if (!limpo) return
+  mudarTerminal(terminalId, (n) => {
+    const lista = n.arvores ?? []
+    // a principal pode não estar na lista: entra só para guardar o nome (o deslocamento dela fica no agente)
+    const arvores = lista.some((a) => a.id === arvoreId)
+      ? lista.map((a) => (a.id === arvoreId ? { ...a, nome: limpo } : a))
+      : [...lista, { id: arvoreId, nome: limpo }]
+    return { ...n, arvores }
+  })
 }
 
 /** Tira a árvore do agente; os cartões dela voltam para a principal, para nada sumir sem você mandar. */
@@ -1752,6 +1804,17 @@ export function mostrarArquivoNaArvore(terminalId: string, caminho: string, arvo
   return !!criarCodigoDoArquivo(terminal, caminho, alvo)
 }
 
+/** Fecha os cartões de código que saíram da coluna deste agente. Os da coluna ficam. */
+export function fecharCodigosSoltos(terminalId: string): void {
+  const plano = planoAtual()
+  if (!plano) return
+  const soltos = plano.nos.filter((n) => n.tipo === 'codigo' && n.terminal === terminalId && !n.automatico)
+  if (!soltos.length) return
+  const ids = new Set(soltos.map((n) => n.id))
+  registrarHistorico()
+  mudarPlano((p) => ({ ...p, nos: p.nos.filter((n) => !ids.has(n.id)) }), false)
+}
+
 /** Tira um cartão da coluna do agente: daí em diante ele fica onde o usuário o deixar. */
 export function soltarCodigoDaColuna(id: string): void {
   const no = acharNo(id)
@@ -1804,14 +1867,18 @@ function arrumarColuna(plano: Plano, terminalId: string, arvoreId: string, chego
       const pb = b.id === chegou ? -1 : b.ordem ?? Number.MAX_SAFE_INTEGER
       return pa - pb || b.criadoEm.localeCompare(a.criadoEm)
     })
-  const sobrando = new Set(meus.slice(MAX_NA_COLUNA).map((n) => n.id))
+  // passando do limite, saem do quadro só os que estão recolhidos: cartão que você deixou aberto está
+  // sendo lido agora, e sumir no meio do trabalho do agente era o pior jeito de respeitar um limite
+  const excedentes = meus.slice(MAX_NA_COLUNA)
+  const sobrando = new Set(excedentes.filter((n) => n.recolhido).map((n) => n.id))
+  const naColuna = [...meus.slice(0, MAX_NA_COLUNA), ...excedentes.filter((n) => !n.recolhido)]
   // o que era o arquivo da vez até agora é o que se recolhe quando chega um novo
   const anterior = chegou ? meus[1]?.id : undefined
   const inicio = inicioDaColuna(terminal, arvoreId)
   const x = inicio.x
   let y = inicio.y
   const ajustes = new Map<string, Partial<NoCodigo>>()
-  for (const cartao of meus.slice(0, MAX_NA_COLUNA)) {
+  for (const cartao of naColuna) {
     const recolhido = cartao.id === chegou ? false : cartao.id === anterior ? true : !!cartao.recolhido
     const larguraAberta = cartao.larguraAberta ?? (cartao.recolhido ? ABERTO.largura : cartao.largura)
     const alturaAberta = cartao.alturaAberta ?? (cartao.recolhido ? ABERTO.altura : cartao.altura)
