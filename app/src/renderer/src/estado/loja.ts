@@ -25,6 +25,7 @@ import { MAX_SESSOES_POR_AGENTE, type AvisoJanelas, type EspecTerminal, type Ped
 import { proximoZ } from '../../../shared/quadro/geometria'
 import { empurrarParaBaixo } from '../../../shared/quadro/empurrar'
 import { abrir, fechar, passar } from '../../../shared/quadro/transformacoes'
+import { mexerNoQuadro } from '../../../shared/quadro/agente'
 import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, enquadrar, lerViewport, uniao, type Caixa } from '../quadro/geometria'
 
 export type Ferramenta = 'selecionar' | 'postit' | 'texto' | 'desenho'
@@ -2089,6 +2090,31 @@ function atenderArvore(pedido: Extract<PedidoDoAgente, { tipo: 'arvore' }>): Res
   return { ok: true, texto: `Mostrei ${feitos.length} arquivo(s) na árvore "${onde}".` }
 }
 
+/**
+ * O agente mexendo no quadro pelo `mpro` (ler, mover, arrumar, nome, ligar, desligar, anotar, juntar).
+ *
+ * Diferente dos outros pedidos de agente, **isto entra no desfazer**: o que um agente arrumar errado o
+ * usuário desfaz com Ctrl+Z, como se tivesse arrastado ele mesmo. A decisão toda é da função pura; aqui só
+ * se aplica o plano que ela devolveu e se rearruma a árvore de código de quem mudou de lugar.
+ */
+function atenderQuadroDoAgente(pedido: Extract<PedidoDoAgente, { tipo: 'quadro' }>): RespostaAoAgente {
+  const espaco = estado.espaco
+  const plano = planoAtual()
+  if (!espaco || !plano) return { ok: false, erro: 'nenhum espaço aberto nesta janela' }
+  const eu = acharNo(pedido.id)
+  if (eu?.tipo !== 'terminal') return { ok: false, erro: 'o seu cartão não está no andar à mostra desta janela' }
+  const andar = andarAtual()
+  const onde = `Espaço "${espaco.nome}" · ${andar ? `andar "${andar.nome}"` : 'térreo'}`
+  const feito = mexerNoQuadro(plano, { ...pedido.pedido, eu: pedido.id, onde }, { novoId, agora })
+  if ('erro' in feito) return { ok: false, erro: feito.erro }
+  if (feito.plano !== plano) {
+    registrarHistorico()
+    // o plano saiu da função pura a partir do que está à mostra agora (este atendimento é síncrono)
+    mudarPlano(() => feito.terminais.reduce((acc, id) => arrumarArvores(acc, id), feito.plano), false)
+  }
+  return { ok: true, texto: feito.texto }
+}
+
 /** Um agente pediu pelo `mpro`: abrir, fechar ou passar a responsabilidade de cartões. */
 function atenderAgente(pedido: PedidoDoAgente): RespostaAoAgente {
   // Este atendimento precisa continuar síncrono: o resultado puro abaixo parte do espaço lido agora.
@@ -2096,6 +2122,7 @@ function atenderAgente(pedido: PedidoDoAgente): RespostaAoAgente {
   if (!e || e.id !== pedido.espacoId) return { ok: false, erro: 'o espaço deste terminal não está aberto nesta janela' }
   // as árvores de código não mexem na topologia dos terminais: a loja desta janela resolve sozinha
   if (pedido.tipo === 'arvore') return atenderArvore(pedido)
+  if (pedido.tipo === 'quadro') return atenderQuadroDoAgente(pedido)
   if (pedido.tipo === 'funcoes') {
     const lista = estado.preferencias.funcoes ?? []
     const linhas = lista.map((f) => `  "${f.nome}"${f.pasta ? ` · pasta ${f.pasta}` : ''} — ${primeiraLinha(f.prompt)}`)

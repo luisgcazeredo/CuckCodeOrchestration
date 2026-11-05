@@ -6,6 +6,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { CANAIS, CANAIS_AGENTES, MAX_SESSOES_POR_AGENTE, type PedidoDoAgente, type RespostaAoAgente, type ResumoContextoTerminal } from '../shared/api'
 import type { Agente } from '../shared/modelo'
+import type { PedidoNoQuadro } from '../shared/quadro/agente'
 import { criarEspacoDoAgente, PASTA_DADOS, resumosDosEspacos } from './dados'
 import { abrirJanela, donoDe } from './janelas'
 import { AJUDA, SKILL } from './manual'
@@ -538,6 +539,17 @@ interface ContextoDoVerbo {
 
 type HandlerDoVerbo = (ctx: ContextoDoVerbo) => Promise<ResultadoDoComando>
 
+/** Opção numérica já validada pelo registro (faixa inclusive); ausente fica indefinida. */
+const comoNumero = (valor: string | number | true | undefined): number | undefined => (typeof valor === 'number' ? valor : undefined)
+
+/** Leva ao quadro o que o agente pediu. A janela dona do espaço é que aplica, e registra no desfazer. */
+async function mexerNoQuadro(eu: Sessao, pedido: Omit<PedidoNoQuadro, 'eu' | 'onde'>): Promise<ResultadoDoComando> {
+  await abrirJanelaPronta(eu.espacoId)
+  const r = await pedirAJanela({ tipo: 'quadro', espacoId: eu.espacoId, id: eu.id, pedido })
+  if (!r.ok) throw new Error(r.erro)
+  return { saida: r.texto ?? 'Pronto.' }
+}
+
 /**
  * Um handler por verbo, com o nome vindo do registro: o `Record<NomeDeVerbo, …>` não compila se um verbo novo
  * entrar em `verbos.ts` e ninguém escrever o corpo dele. Argumentos e opções já chegam validados.
@@ -703,6 +715,36 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
     await aguardarFim(alvo, 15_000, cancelado)
     return { saida: `Contexto de "${alvo.espec.nome}" zerado.` }
   },
+
+  /**
+   * Os sete verbos com que o agente mexe no quadro. Todos vão pelo mesmo recado, porque quem decide o que
+   * acontece é a janela dona do espaço (e lá isso entra no desfazer do usuário).
+   */
+  quadro: async ({ eu }) => mexerNoQuadro(eu, { acao: 'ler' }),
+
+  mover: async ({ eu, pos, opcoes }) =>
+    mexerNoQuadro(eu, {
+      acao: 'mover',
+      alvos: pos,
+      x: comoNumero(opcoes.x),
+      y: comoNumero(opcoes.y),
+      dx: comoNumero(opcoes.dx),
+      dy: comoNumero(opcoes.dy)
+    }),
+
+  arrumar: async ({ eu, pos, opcoes }) =>
+    mexerNoQuadro(eu, { acao: 'arrumar', alvos: pos, colunas: comoNumero(opcoes.colunas), vao: comoNumero(opcoes.vao) }),
+
+  nome: async ({ eu, pos }) => mexerNoQuadro(eu, { acao: 'nome', alvos: pos.slice(0, 1), texto: pos.slice(1).join(' ') }),
+
+  ligar: async ({ eu, pos }) => mexerNoQuadro(eu, { acao: 'ligar', alvos: pos }),
+
+  desligar: async ({ eu, pos }) => mexerNoQuadro(eu, { acao: 'desligar', alvos: pos }),
+
+  anotar: async ({ eu, pos, opcoes }) =>
+    mexerNoQuadro(eu, { acao: 'anotar', texto: pos.join(' '), x: comoNumero(opcoes.x), y: comoNumero(opcoes.y) }),
+
+  juntar: async ({ eu, pos, opcoes }) => mexerNoQuadro(eu, { acao: 'juntar', alvos: pos, soltar: opcoes.soltar === true }),
 
   /** As funções (papéis) que o usuário guardou. Quem sabe quais existem é a janela, dona das preferências. */
   funcoes: async ({ eu }) => {

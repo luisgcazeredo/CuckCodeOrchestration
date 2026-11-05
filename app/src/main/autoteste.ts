@@ -1231,12 +1231,136 @@ export async function rodarAutoteste(
       },
     },
     {
+      // O agente mexendo no quadro (volta 1A): ler, mover, arrumar, nome, ligar, desligar, anotar, juntar.
+      // Os cartões deste cenário nascem longe de tudo para não atrapalhar os outros, e o que ele mexe no
+      // cartão do chefe (o nome, a corda) ele desfaz antes de sair.
+      nome: 'mpro-quadro',
+      depende: 'mpro-conexoes',
+      rodar: async (d) => {
+        const { esperar, js, conferir, aguardar, comando, comandoAte, telaNoApp, ultimas } = d
+    // os cartões nascem centrados no ponto, então todo lugar esperado vem do estado, não de número fixo
+    const notas = await js<Record<string, string>>(`(() => { const L = window.__teste.loja
+      return {
+        a: L.adicionarNo({ tipo: 'texto', texto: 'Nota A' }, 9000, 4000),
+        b: L.adicionarNo({ tipo: 'texto', texto: 'Nota B' }, 9600, 4000),
+        c: L.adicionarNo({ tipo: 'texto', texto: 'Nota C' }, 9000, 4600)
+      } })()`)
+    const lugarDe = (id: string): Promise<{ x: number; y: number; altura: number; grupo: string }> =>
+      js(`(() => { const n = window.__teste.loja.acharNo('${id}')
+        return { x: n.x, y: n.y, altura: n.altura, grupo: n.grupo ?? '' } })()`)
+    const antesDeMexer = await lugarDe(notas.a)
+
+    const leitura = await comandoAte(chefe, 'mpro quadro', /cartão\(ões\)/, 15_000)
+    conferir(
+      'mpro quadro: lista os cartões numerados, com lugar, e marca quem perguntou',
+      /cartão\(ões\)/.test(leitura) && /← você/.test(leitura) && /Nota A/.test(leitura) && /em \(\d+, \d+\)/.test(leitura),
+      ultimas(leitura, 2)
+    )
+
+    // só lugar absoluto neste cenário: repetir o comando dá no mesmo, então a repetição do comandoAte
+    // (que existe porque a entrada sintética se perde) não muda o resultado
+    await comandoAte(chefe, 'mpro mover "Nota A" --x 9000 --y 7000', /Movi "Nota A"/, 15_000)
+    const movida = await lugarDe(notas.a)
+    await js('window.__teste.loja.desfazer()')
+    await esperar(300)
+    const desfeita = await lugarDe(notas.a)
+    conferir(
+      'mpro mover leva o cartão para o lugar pedido, e o Ctrl+Z do usuário desfaz',
+      movida.x === 9000 && movida.y === 7000 && desfeita.x === antesDeMexer.x && desfeita.y === antesDeMexer.y,
+      `movida (${movida.x}, ${movida.y}) · desfeita (${desfeita.x}, ${desfeita.y}) · era (${antesDeMexer.x}, ${antesDeMexer.y})`
+    )
+
+    await comandoAte(chefe, 'mpro juntar "Nota A" "Nota B"', /num grupo/, 15_000)
+    await comandoAte(chefe, 'mpro mover "Nota A" --x 5000 --y 5000', /Movi "Nota A", "Nota B"/, 15_000)
+    const [grupoA, grupoB] = [await lugarDe(notas.a), await lugarDe(notas.b)]
+    conferir(
+      'mpro juntar agrupa, e mover um leva o grupo inteiro (sem perder a distância)',
+      !!grupoA.grupo && grupoA.grupo === grupoB.grupo && grupoA.x === 5000 && grupoA.y === 5000 && grupoB.x - grupoA.x === 600 && grupoB.y === 5000,
+      `grupo ${grupoA.grupo ? 'sim' : 'não'} · A em (${grupoA.x}, ${grupoA.y}) · B em (${grupoB.x}, ${grupoB.y})`
+    )
+
+    await js(`window.__teste.loja.atualizarNo('${notas.c}', { travado: true }, false)`)
+    await esperar(200)
+    const antesDoTravado = await lugarDe(notas.c)
+    const recusa = await comandoAte(chefe, 'mpro mover "Nota C" --x 1 --y 1', /travado/, 15_000)
+    const travada = await lugarDe(notas.c)
+    conferir(
+      'cartão travado não se mexe por pedido de agente, e o mpro diz por quê',
+      /travado/.test(recusa) && travada.x === antesDoTravado.x && travada.y === antesDoTravado.y,
+      `${ultimas(recusa, 1)} · (${travada.x}, ${travada.y})`
+    )
+    await js(`window.__teste.loja.atualizarNo('${notas.c}', { travado: false }, false)`)
+    await esperar(200)
+
+    await comandoAte(chefe, 'mpro arrumar "Nota A" "Nota B" "Nota C" --colunas 1 --vao 20', /Arrumei \d+ bloco/, 15_000)
+    const arrumadas = [await lugarDe(notas.a), await lugarDe(notas.b), await lugarDe(notas.c)]
+    conferir(
+      // a ordem dos blocos na coluna é a de cima para baixo do quadro antes de arrumar, então o que se
+      // confere é a coluna (mesmo x), a distância do vão e o grupo inteiro de pé
+      'mpro arrumar põe em coluna, trata o grupo como um bloco e não desmancha o grupo',
+      arrumadas[0].x === arrumadas[2].x &&
+        arrumadas[1].x - arrumadas[0].x === 600 &&
+        Math.abs(arrumadas[2].y - arrumadas[0].y) === arrumadas[0].altura + 20,
+      arrumadas.map((l) => `(${l.x}, ${l.y})`).join(' ')
+    )
+
+    await comando(chefe, 'mpro nome "PowerShell" "Maestro"')
+    await aguardar(() => telaNoApp(chefe), 'agora se chama "Maestro"', 15_000)
+    const batizado = await js<string>(`window.__teste.loja.acharNo('${chefe}').nome`)
+    await comando(chefe, 'mpro nome "Maestro" "PowerShell"')
+    await aguardar(() => telaNoApp(chefe), 'agora se chama "PowerShell"', 15_000)
+    const devolta = await js<string>(`window.__teste.loja.acharNo('${chefe}').nome`)
+    conferir('mpro nome renomeia o cartão de agente nos dois sentidos', batizado === 'Maestro' && devolta === 'PowerShell', `${batizado} → ${devolta}`)
+
+    const cordasDe = (): Promise<number> => js(`window.__teste.loja.planoAtual().cordas.filter((c) => c.de === '${chefe}' || c.para === '${chefe}').length`)
+    // não dá para supor que estes dois estão soltos (outros cenários já desenharam cordas): o teste parte de
+    // um estado conhecido e devolve no fim o que achou
+    const cordaJaExistia = await js<boolean>(`window.__teste.loja.planoAtual().cordas
+      .some((c) => [c.de, c.para].includes('${chefe}') && [c.de, c.para].includes('${solto}'))`)
+    if (cordaJaExistia) await comandoAte(chefe, 'mpro desligar "PowerShell" "Solto"', /Desliguei/, 15_000)
+    const antesDaCorda = await cordasDe()
+    await comandoAte(chefe, 'mpro ligar "PowerShell" "Solto"', /Liguei/, 15_000)
+    const comCorda = await cordasDe()
+    await comandoAte(chefe, 'mpro desligar "PowerShell" "Solto"', /Desliguei/, 15_000)
+    const semCorda = await cordasDe()
+    if (cordaJaExistia) await js(`window.__teste.loja.ligar('${chefe}', '${solto}')`)
+    conferir(
+      'mpro ligar desenha a corda entre dois agentes e mpro desligar a tira',
+      comCorda === antesDaCorda + 1 && semCorda === antesDaCorda,
+      `${antesDaCorda} → ${comCorda} → ${semCorda} cordas`
+    )
+
+    await comando(chefe, 'mpro anotar "Falta o teste do empurrao"')
+    await aguardar(() => telaNoApp(chefe), 'Anotei no quadro', 15_000)
+    const anotacao = await js<{ achou: boolean; abaixo: boolean }>(`(() => { const L = window.__teste.loja
+      const chefe = L.acharNo('${chefe}')
+      const nova = L.planoAtual().nos.find((n) => n.tipo === 'texto' && n.texto === 'Falta o teste do empurrao')
+      return { achou: !!nova, abaixo: !!nova && nova.y > chefe.y + chefe.altura - 1 && nova.x === chefe.x } })()`)
+    conferir('mpro anotar escreve no quadro, abaixo do cartão de quem anotou', anotacao.achou && anotacao.abaixo, `achou:${anotacao.achou} · abaixo:${anotacao.abaixo}`)
+
+    // o quadro volta ao que era para os cenários seguintes: as notas e a anotação deste teste saem
+    await js(`(() => { const L = window.__teste.loja
+      const anotacao = L.planoAtual().nos.find((n) => n.tipo === 'texto' && n.texto === 'Falta o teste do empurrao')
+      for (const id of [...${JSON.stringify(Object.values(notas))}, anotacao?.id].filter(Boolean)) {
+        L.selecionar({ tipo: 'no', id }); L.apagarSelecao()
+      }
+      L.selecionar(null) })()`)
+    await esperar(300)
+    // e a tela do chefe fica limpa: a leitura do quadro escreve o nome do espaço, e o cenário seguinte
+    // espera por texto na tela — resto de um comando meu faria a espera dele terminar antes da hora
+    await comando(chefe, 'Clear-Host')
+    await esperar(600)
+      },
+    },
+    {
       nome: 'mpro-espacos',
       depende: 'mpro-conexoes',
       rodar: async (d) => {
-        const { tela, esperar, js, centroDe, clicar, conferir, aguardar, comando, telaNoApp, ultimas } = d
-    await comando(chefe, 'mpro espacos')
-    const espacosDoMpro = await aguardar(() => telaNoApp(chefe), '"Terminais"')
+        const { tela, esperar, js, centroDe, clicar, conferir, aguardar, comando, comandoAte, telaNoApp, ultimas } = d
+    // espera por "seu espaço", que só este comando escreve: procurar o nome do espaço casava com o que
+    // outro comando (o `mpro quadro`) tinha deixado na tela, e a espera terminava antes da saída de verdade.
+    // Ler não muda nada, então aqui vale repetir: o Enter sintético se perde quando a máquina está carregada.
+    const espacosDoMpro = await comandoAte(chefe, 'mpro espacos', 'seu espaço', 15_000)
     conferir(
       'mpro espacos lista o espaço do agente e o marca',
       /\* "Terminais"[\s\S]*seu espaço/.test(espacosDoMpro),

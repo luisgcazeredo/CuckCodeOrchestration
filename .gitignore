@@ -21,3 +21,6 @@ Thumbs.db
 
 # trabalho do time da 1.0: briefings e revisões citam o planejamento, que fica fora daqui
 .volta0/
+
+# pasta de cobaia dos testes manuais (arquivos que eu mando o agente mexer)
+_lab/

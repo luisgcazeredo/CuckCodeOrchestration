@@ -10,6 +10,7 @@ import type {
   ResumoEspaco,
   SituacaoAndar
 } from './modelo'
+import type { PedidoNoQuadro } from './quadro/agente'
 
 /** O que o processo principal precisa para manter o processo de um cartão de terminal. */
 export interface EspecTerminal {
@@ -94,6 +95,11 @@ export type PedidoDoAgente =
       nome?: string
       arquivos?: string[]
     }
+  /**
+   * O agente mexendo no quadro: ler, mover, arrumar, renomear, ligar, anotar e juntar. O que cada ação faz
+   * (e o que ela se recusa a fazer) está em `shared/quadro/agente.ts`; aqui vai só o recado.
+   */
+  | { tipo: 'quadro'; espacoId: string; id: string; pedido: Omit<PedidoNoQuadro, 'eu' | 'onde'> }
   | {
       tipo: 'passar'
       espacoId: string

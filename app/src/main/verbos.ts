@@ -27,6 +27,8 @@ export interface Verbo {
 const texto = (nome: string): OpcaoDoVerbo => ({ nome, tipo: 'texto' })
 const numero = (nome: string, minimo: number, maximo: number): OpcaoDoVerbo => ({ nome, tipo: 'numero', minimo, maximo })
 const bandeira = (nome: string): OpcaoDoVerbo => ({ nome, tipo: 'bandeira' })
+/** Coordenada do quadro: cabe folgado o maior quadro que alguém arruma à mão, e nada de infinito. */
+const lugar = (nome: string): OpcaoDoVerbo => numero(nome, -1_000_000, 1_000_000)
 const obrigatorio = (nome: string): ArgumentoDoVerbo => ({ nome, obrigatorio: true })
 
 export const VERBOS = [
@@ -59,6 +61,36 @@ export const VERBOS = [
     opcoes: [texto('arvore')],
     descricao: 'as árvores de código do seu cartão: separe os arquivos por assunto',
     ajuda: '  mpro arvore                         lista as árvores de código do seu cartão (e qual está em uso)\n  mpro arvore nova "Nome"             cria uma árvore e passa a usá-la para os próximos arquivos\n  mpro arvore usar "Nome"             passa a usar uma árvore que já existe\n  mpro arvore mostrar <arquivo>... [--arvore "Nome"]\n                                      abre esses arquivos como cartões na árvore\n  mpro arvore desfazer "Nome"         desfaz a árvore; os arquivos dela voltam para a principal'
+  },
+  { nome: 'quadro', aliases: [], posicionais: [], opcoes: [], descricao: 'lê o quadro: cada cartão com número, nome, lugar e tamanho, e as cordas', ajuda: '  mpro quadro                         lê o quadro: cada cartão com número, nome, lugar e tamanho, e as cordas' },
+  {
+    nome: 'mover', aliases: [], posicionais: [{ nome: 'cartão', obrigatorio: true, resto: true }],
+    opcoes: [lugar('x'), lugar('y'), lugar('dx'), lugar('dy')],
+    descricao: 'põe cartões num lugar (--x/--y) ou anda com eles (--dx/--dy)',
+    ajuda: '  mpro mover <cartão>... [--x N --y N] [--dx N --dy N]\n                                      põe cartões num lugar, ou anda com eles de onde estão'
+  },
+  {
+    nome: 'arrumar', aliases: [], posicionais: [{ nome: 'cartão', resto: true }],
+    opcoes: [numero('colunas', 1, 12), numero('vao', 0, 400)],
+    descricao: 'põe os cartões em grade, sem sair do canto onde já estavam',
+    ajuda: '  mpro arrumar [cartão]... [--colunas N] [--vao N]\n                                      põe os cartões (ou só esses) em grade, a partir do canto onde já estavam'
+  },
+  {
+    nome: 'nome', aliases: [], posicionais: [obrigatorio('cartão'), { nome: 'nome novo', obrigatorio: true, resto: true }], opcoes: [],
+    descricao: 'renomeia um cartão de agente (o nome é como todos falam dele)',
+    ajuda: '  mpro nome <cartão> "Nome novo"      renomeia um cartão de agente; é o nome que o `mpro` passa a usar'
+  },
+  { nome: 'ligar', aliases: [], posicionais: [obrigatorio('cartão'), obrigatorio('cartão')], opcoes: [], descricao: 'desenha a corda entre dois agentes (eles passam a poder se falar)', ajuda: '  mpro ligar <cartão> <cartão>        desenha a corda entre dois agentes: eles passam a poder se falar' },
+  { nome: 'desligar', aliases: [], posicionais: [obrigatorio('cartão'), obrigatorio('cartão')], opcoes: [], descricao: 'tira a corda entre dois agentes', ajuda: '  mpro desligar <cartão> <cartão>     tira a corda entre dois agentes' },
+  {
+    nome: 'anotar', aliases: [], posicionais: [{ nome: 'texto', obrigatorio: true, resto: true }], opcoes: [lugar('x'), lugar('y')],
+    descricao: 'escreve um texto no quadro, abaixo do seu cartão',
+    ajuda: '  mpro anotar "texto" [--x N --y N]   escreve um texto no quadro (abaixo do seu cartão, se você não disser onde)'
+  },
+  {
+    nome: 'juntar', aliases: [], posicionais: [{ nome: 'cartão', obrigatorio: true, resto: true }], opcoes: [bandeira('soltar')],
+    descricao: 'agrupa cartões (andam juntos); --soltar desfaz',
+    ajuda: '  mpro juntar <cartão>... [--soltar]  agrupa cartões para andarem juntos no quadro; --soltar desfaz o grupo'
   },
   { nome: 'funcoes', aliases: ['funcao'], posicionais: [], opcoes: [], descricao: 'lista as funções (papéis) que o usuário guardou', ajuda: '  mpro funcoes                        lista as funções (papéis) guardadas, para usar em `mpro abrir --funcao`' },
   { nome: 'limpar', aliases: [], posicionais: [obrigatorio('nome')], opcoes: [], descricao: 'zera o contexto da sessão', ajuda: '  mpro limpar <nome>                  zera o contexto da sessão (/clear no Claude, /new no Codex)' },

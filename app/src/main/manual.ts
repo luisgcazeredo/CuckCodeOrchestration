@@ -13,7 +13,7 @@ ${tabelaDeComandos()}
 
 export const SKILL = `---
 name: maestri-proprio
-description: Use dentro de um terminal do Maestri Próprio (a variável de ambiente MP_PIPE existe) para fazer engenharia de contexto — abrir uma sessão nova de agente (Claude, Codex ou shell) com um contexto limpo e focado, delegar uma parte do trabalho, conversar com os agentes ligados a você pela corda, ler a tela deles, zerar o contexto de uma sessão ou fechar as sessões que você abriu. Comando: mpro. Fora do app não funciona.
+description: Use dentro de um terminal do Maestri Próprio (a variável de ambiente MP_PIPE existe) para fazer engenharia de contexto — abrir uma sessão nova de agente (Claude, Codex ou shell) com um contexto limpo e focado, delegar uma parte do trabalho, conversar com os agentes ligados a você pela corda, ler a tela deles, zerar o contexto de uma sessão ou fechar as sessões que você abriu — e para organizar o quadro: ler o que há nele, mover, arrumar em grade, renomear, ligar dois agentes, anotar e agrupar cartões. Comando: mpro. Fora do app não funciona.
 ---
 
 # Maestri Próprio: o comando \`mpro\`
@@ -89,6 +89,37 @@ mpro arvore desfazer "Backend"       # os arquivos dela voltam para a principal
 
 Use antes de começar uma frente nova, para o usuário enxergar o trabalho separado. Arquivo com cara de segredo
 (\`.env\`, chave, credencial) nunca vira cartão, e o \`mostrar\` só aceita arquivo de uma pasta que está no quadro.
+
+## Organizar o quadro você mesmo
+
+O quadro é o lugar onde o usuário acompanha o trabalho, e você pode arrumá-lo. Comece sempre por
+\`mpro quadro\`: ele lista cada cartão com um número, o tipo, o nome, o tamanho e o lugar, as cordas e quem é
+você. Depois fale dos cartões pelo nome (o começo basta) ou pelo \`#número\`:
+
+\`\`\`
+mpro quadro                            # o que existe, com nome, lugar e tamanho
+mpro mover "Revisor" --x 1200 --y 0    # põe o cartão nesse lugar
+mpro mover "Revisor" --dx 0 --dy 600   # ou anda com ele de onde está
+mpro arrumar --colunas 3               # tudo o que está solto, em grade, no mesmo canto
+mpro arrumar "Revisor" "Testes"        # ou só esses
+mpro nome "Claude Code 2" "Revisor"    # renomeia: é o nome que o mpro passa a usar
+mpro ligar "Revisor" "Testes"          # a corda: os dois passam a poder se falar
+mpro desligar "Revisor" "Testes"
+mpro anotar "Falta o teste do empurrão"   # um texto no quadro, abaixo do seu cartão
+mpro juntar "Revisor" "Testes"         # andam juntos daqui para frente (--soltar desfaz)
+\`\`\`
+
+O que isto **não** faz, de propósito:
+
+- **Não apaga nada.** Não há verbo para apagar cartão; para fechar uma sessão que você abriu, use \`mpro fechar\`.
+- **Não mexe em cartão travado** nem em **cartão de código**: a árvore de arquivos é arrumada pelo app, e o
+  cartão que o usuário tirou dela ficou onde ele quis. O \`mpro\` diz quando deixou algo como estava.
+- **Só alcança o andar à mostra** da janela daquele espaço, e só pelo nome — você não conhece id de nada.
+
+Tudo o que você fizer aqui entra no **desfazer do usuário**: um Ctrl+Z volta o quadro inteiro. Mesmo assim,
+arrumar o quadro é coisa que se faz com parcimônia — o lugar onde o usuário deixou um cartão costuma querer
+dizer algo. Mover o que é seu (os seus subagentes, as suas anotações) é de boa educação; reorganizar o quadro
+todo sem ele pedir, não.
 
 ## Regras de convívio
 

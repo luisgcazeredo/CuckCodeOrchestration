@@ -4,8 +4,12 @@ import test from 'node:test'
 const modulo = new URL('./verbos.ts', import.meta.url).href
 const { VERBOS, tabelaDeComandos, validarChamada, verboPorNome } = (await import(modulo)) as typeof import('./verbos')
 
-test('registro declara os quinze verbos operacionais, a ajuda, aliases e opções', () => {
-  assert.deepEqual(VERBOS.map((verbo) => verbo.nome), ['ajuda', 'quem', 'orcamento', 'espacos', 'janela', 'abrir', 'pedir', 'esperar', 'ver', 'teclas', 'arvore', 'funcoes', 'limpar', 'fechar', 'passar', 'sair'])
+test('registro declara os verbos operacionais, a ajuda, aliases e opções', () => {
+  assert.deepEqual(VERBOS.map((verbo) => verbo.nome), [
+    'ajuda', 'quem', 'orcamento', 'espacos', 'janela', 'abrir', 'pedir', 'esperar', 'ver', 'teclas', 'arvore',
+    'quadro', 'mover', 'arrumar', 'nome', 'ligar', 'desligar', 'anotar', 'juntar',
+    'funcoes', 'limpar', 'fechar', 'passar', 'sair'
+  ])
   assert.equal(verboPorNome('help')?.nome, 'ajuda')
   for (const verbo of VERBOS) {
     assert.ok(Array.isArray(verbo.opcoes), `${verbo.nome} declara opções`)

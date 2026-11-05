@@ -20,7 +20,15 @@ mpro pedir <nome> "…"             manda um pedido e espera terminar (devolve a
 mpro esperar | ver <nome>         espera terminar · lê a tela sem mandar nada
 mpro teclas <nome> enter|esc|…    responde menus e perguntas
 mpro limpar | fechar <nome>       zera o contexto · fecha uma sessão que você abriu
+mpro arvore nova|usar|mostrar     as árvores de código do cartão dele, uma por frente de trabalho
+mpro quadro                       lê o quadro: cada cartão com número, nome, lugar e tamanho, e as cordas
+mpro mover | arrumar              põe cartões num lugar (--x/--y, --dx/--dy) · arruma em grade (--colunas)
+mpro nome | ligar | desligar      renomeia um cartão · desenha ou tira a corda entre dois agentes
+mpro anotar "…" | juntar          escreve um texto no quadro · agrupa cartões (--soltar desfaz)
 ```
+
+Mexer no quadro **entra no desfazer** do usuário, nunca apaga nada, não toca em cartão travado nem em cartão
+de código, e só alcança o andar à mostra — sempre pelo nome do cartão.
 
 O app grava o manual como skill `maestri-proprio` em `~/.claude/skills` e `~/.codex/skills`.
 
@@ -50,3 +58,5 @@ npm run instalar   # gera o instalador e instala/atualiza o app neste PC (feche 
 
 Instalado, o app abre pelo atalho **Maestri Próprio** (área de trabalho e menu Iniciar). Os dados ficam em
 `%USERPROFILE%\.maestri-proprio` (JSON + post-its em `.md`) e não são apagados ao desinstalar.
+
+<!-- Linha de teste do visualizador de código (04/11/2026). -->
