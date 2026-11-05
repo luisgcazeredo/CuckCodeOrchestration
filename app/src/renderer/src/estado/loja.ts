@@ -8,6 +8,7 @@ import {
   type Corda,
   type Desenho,
   type Espaco,
+  type Funcao,
   type No,
   type NoCodigo,
   type NoTerminal,
@@ -501,6 +502,13 @@ export function alternarLinhasDoCodigo(): void {
   void window.mp.dados.salvarPreferencias(estado.preferencias)
 }
 
+/** As funções (papéis) ficam nas preferências, como os presets: valem em todos os espaços. */
+export function definirFuncoes(funcoes: Funcao[]): void {
+  const preferencias = { ...estado.preferencias, funcoes }
+  definir({ preferencias })
+  void window.mp.dados.salvarPreferencias(preferencias)
+}
+
 export function definirPresets(presets: PresetAgente[]): void {
   const preferencias = { ...estado.preferencias, presets }
   definir({ preferencias })
@@ -784,7 +792,7 @@ export function acharNo(id: string): No | undefined {
 }
 
 export type NovoNo =
-  | { tipo: 'terminal'; preset: PresetAgente }
+  | { tipo: 'terminal'; preset: PresetAgente; funcao?: Funcao }
   /** `texto`: já nasce escrito (colado); sem ele, abre para digitar. */
   | { tipo: 'postit'; texto?: string }
   | { tipo: 'texto'; texto?: string }
@@ -812,14 +820,22 @@ export function adicionarNo(novo: NovoNo, x: number, y: number): string {
   let no: No
   switch (novo.tipo) {
     case 'terminal': {
-      const mesmos = plano.nos.filter((n) => n.tipo === 'terminal' && n.agente === novo.preset.agente).length
+      // com função, o cartão nasce com o nome do papel (é assim que você e os agentes falam dele). O número
+      // só entra quando o nome já está em uso — a mesma regra do `mpro abrir`, para os dois caminhos baterem
+      const comoChamar = novo.funcao?.nome ?? novo.preset.nome
+      const usados = new Set(plano.nos.flatMap((n) => (n.tipo === 'terminal' ? [n.nome.toLowerCase()] : [])))
+      let comoNomear = comoChamar
+      for (let i = 2; usados.has(comoNomear.toLowerCase()); i++) comoNomear = `${comoChamar} ${i}`
       no = {
         ...base,
         ...centrado(800, 500),
         tipo: 'terminal',
-        nome: mesmos ? `${novo.preset.nome} ${mesmos + 1}` : novo.preset.nome,
+        nome: comoNomear,
         agente: novo.preset.agente,
         comando: novo.preset.comando,
+        funcao: novo.funcao?.nome,
+        pasta: novo.funcao?.pasta || undefined,
+        // o prompt da função é entregue pelo processo principal, que sabe quando o agente ficou pronto
         // o Claude aceita o id da conversa desde o começo: com ele, o cartão retoma a mesma conversa ao reabrir
         sessao: novo.preset.agente === 'claude' ? novoId() : undefined
       }
@@ -859,6 +875,7 @@ export function adicionarNo(novo: NovoNo, x: number, y: number): string {
       break
   }
   mudarPlano((p) => ({ ...p, nos: [...p.nos, no] }), false)
+  if (novo.tipo === 'terminal' && novo.funcao?.prompt.trim()) window.mp.terminal.primeiroPedido(no.id, novo.funcao.prompt)
   definir({
     selecao: { ...NADA, nos: [no.id] },
     editando: (novo.tipo === 'postit' || novo.tipo === 'texto') && !novo.texto ? no.id : null,
@@ -1358,8 +1375,8 @@ function sincronizarTerminais(): void {
   for (const plano of [e, ...e.andares]) {
     for (const n of plano.nos) {
       if (n.tipo !== 'terminal') continue
-      const { id, nome, agente, comando, sessao, criadoPor } = n
-      especs.push({ id, nome, agente, comando, pasta: n.pasta || pastaDe(e, plano), sessao, criadoPor })
+      const { id, nome, agente, comando, sessao, criadoPor, funcao } = n
+      especs.push({ id, nome, agente, comando, pasta: n.pasta || pastaDe(e, plano), sessao, criadoPor, funcao })
     }
     for (const c of plano.cordas) cordas.push([c.de, c.para])
   }
@@ -2026,6 +2043,9 @@ function anotarSessoes(descobertas: Record<string, string>): void {
   for (const [id, sessao] of Object.entries(descobertas)) mudarTerminal(id, (n) => (n.sessao === sessao ? n : { ...n, sessao }))
 }
 
+/** A primeira linha do prompt de uma função, para caber numa lista. */
+const primeiraLinha = (texto: string): string => texto.split(/\r?\n/)[0].slice(0, 80)
+
 /** O agente mexendo nas próprias árvores de código pelo `mpro arvore`. */
 function atenderArvore(pedido: Extract<PedidoDoAgente, { tipo: 'arvore' }>): RespostaAoAgente {
   const terminal = acharNo(pedido.id)
@@ -2076,7 +2096,24 @@ function atenderAgente(pedido: PedidoDoAgente): RespostaAoAgente {
   if (!e || e.id !== pedido.espacoId) return { ok: false, erro: 'o espaço deste terminal não está aberto nesta janela' }
   // as árvores de código não mexem na topologia dos terminais: a loja desta janela resolve sozinha
   if (pedido.tipo === 'arvore') return atenderArvore(pedido)
-  const ambiente = { presets: estado.preferencias.presets, presetsPadrao: PRESETS_PADRAO, limiteSessoesPorAgente: MAX_SESSOES_POR_AGENTE, novoId, agora }
+  if (pedido.tipo === 'funcoes') {
+    const lista = estado.preferencias.funcoes ?? []
+    const linhas = lista.map((f) => `  "${f.nome}"${f.pasta ? ` · pasta ${f.pasta}` : ''} — ${primeiraLinha(f.prompt)}`)
+    return {
+      ok: true,
+      texto: lista.length
+        ? ['Funções guardadas:', ...linhas].join('\n')
+        : 'Nenhuma função guardada ainda. O usuário cria em "Editar funções…", no menu de terminal da barra.'
+    }
+  }
+  const ambiente = {
+    presets: estado.preferencias.presets,
+    funcoes: estado.preferencias.funcoes ?? [],
+    presetsPadrao: PRESETS_PADRAO,
+    limiteSessoesPorAgente: MAX_SESSOES_POR_AGENTE,
+    novoId,
+    agora
+  }
   const resultado = pedido.tipo === 'abrir' ? abrir(e, pedido, ambiente) : pedido.tipo === 'fechar' ? fechar(e, pedido) : passar(e, pedido, ambiente)
   if (!resultado.resposta.ok) return resultado.resposta
   // Pedidos de agentes são estado operacional: não entram no histórico de desfazer.

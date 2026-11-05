@@ -25,6 +25,8 @@ export interface EspecTerminal {
   sessao?: string
   /** Cartão do agente que abriu este pelo `mpro abrir`. */
   criadoPor?: string
+  /** Função (papel) com que o cartão nasceu, para o `mpro quem` dizer quem é quem. */
+  funcao?: string
 }
 
 /** Retrato do terminal para um cartão que acabou de se ligar a ele. */
@@ -58,6 +60,11 @@ export interface ApiTerminal {
   aoDescobrirSessao(ouvinte: (id: string, sessao: string) => void): void
   /** Retrato leve dos terminais deste espaço para o painel de contexto. */
   contextos(espacoId: string): Promise<ResumoContextoTerminal[]>
+  /**
+   * Primeiro pedido de um cartão que nasceu com função: o processo principal espera o agente ficar pronto
+   * e digita. A janela não faria isso direito — ela não sabe quando o agente terminou de abrir.
+   */
+  primeiroPedido(id: string, texto: string): void
 }
 
 /** O processo principal lê a tela espelhada; sem rodapé reconhecível, `contexto` fica nulo. */
@@ -74,7 +81,9 @@ export const MAX_SESSOES_POR_AGENTE = 8
 
 /** Pedidos que um agente faz pelo `mpro` e que mexem no quadro (só a janela dona do espaço pode). */
 export type PedidoDoAgente =
-  | { tipo: 'abrir'; espacoId: string; criador: string; agente: Agente; nome?: string; pasta?: string }
+  | { tipo: 'abrir'; espacoId: string; criador: string; agente: Agente; nome?: string; pasta?: string; funcao?: string }
+  /** As funções (papéis) guardadas nas preferências desta janela. */
+  | { tipo: 'funcoes'; espacoId: string }
   | { tipo: 'fechar'; espacoId: string; id: string }
   /** Árvores de código do cartão do próprio agente: listar, criar, usar, mostrar arquivos e desfazer. */
   | {
@@ -326,7 +335,8 @@ export const CANAIS = {
   dados: 'terminal:dados',
   saida: 'terminal:saida',
   sessao: 'terminal:sessao',
-  contextos: 'terminal:contextos'
+  contextos: 'terminal:contextos',
+  primeiroPedido: 'terminal:primeiro-pedido'
 } as const
 
 export const CANAIS_AGENTES = {

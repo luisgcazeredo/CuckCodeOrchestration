@@ -13,11 +13,12 @@ import {
   Type,
   type LucideIcon
 } from 'lucide-react'
-import type { PincelDesenho } from '../../../shared/modelo'
+import type { PincelDesenho, Funcao } from '../../../shared/modelo'
 import { adicionarNo, definirEstiloDesenho, escolherFerramenta, planoAtual, usarLoja, type Ferramenta } from '../estado/loja'
 import { anexarArquivoEm, arvoreEm, portalEm } from './menus'
 import { centroDaTela } from '../quadro/geometria'
 import { COR_AGENTE, ICONE_AGENTE } from '../nos/icones'
+import { abrirFuncoes } from './Funcoes'
 import { abrirPresets } from './Presets'
 
 const CORES_DESENHO = ['#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#007AFF', '#AF52DE', '#8E8E93']
@@ -54,10 +55,16 @@ function Botao({
   )
 }
 
+/** Lista vazia constante: ver o comentário em `funcoes`. */
+const SEM_FUNCOES: Funcao[] = []
+
 export function BarraFerramentas() {
   const ferramenta = usarLoja((e) => e.ferramenta)
   const estilo = usarLoja((e) => e.estiloDesenho)
   const presets = usarLoja((e) => e.preferencias.presets)
+  // sem o `?? []` aqui: um array novo a cada leitura faz o useSyncExternalStore repetir sem parar e a
+  // janela fica em branco (custou uma rodada inteira do autoteste)
+  const funcoes = usarLoja((e) => e.preferencias.funcoes) ?? SEM_FUNCOES
   const [menuTerminal, setMenuTerminal] = useState(false)
 
   const escolher = (f: Ferramenta) => () => {
@@ -118,6 +125,27 @@ export function BarraFerramentas() {
               </button>
             )
           })}
+          {funcoes.length > 0 && <span className="divisoria" />}
+          {funcoes.map((f) => {
+            // a função abre com o preset preferido dela, ou com o primeiro da lista
+            const preset = presets.find((p) => p.id === f.preset) ?? presets[0]
+            const Icone = ICONE_AGENTE[preset.agente]
+            return (
+              <button
+                key={f.id}
+                className="menu-terminal-funcao"
+                title={f.prompt.slice(0, 200)}
+                onClick={() => {
+                  setMenuTerminal(false)
+                  const { x, y } = noCentro()
+                  adicionarNo({ tipo: 'terminal', preset, funcao: f }, x, y)
+                }}
+              >
+                <Icone size={15} color={COR_AGENTE[preset.agente]} />
+                {f.nome}
+              </button>
+            )
+          })}
           <span className="divisoria" />
           <button
             className="menu-terminal-editar"
@@ -127,6 +155,15 @@ export function BarraFerramentas() {
             }}
           >
             Editar presets…
+          </button>
+          <button
+            className="menu-terminal-funcoes"
+            onClick={() => {
+              setMenuTerminal(false)
+              abrirFuncoes()
+            }}
+          >
+            Editar funções…
           </button>
         </div>
       )}

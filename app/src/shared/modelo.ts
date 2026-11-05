@@ -2,6 +2,21 @@
 
 export type Agente = 'claude' | 'codex' | 'shell'
 
+/**
+ * Uma função (papel) que um agente pode ter: o que ele é, escrito uma vez e reaproveitado. O cartão nasce
+ * com o nome da função e recebe o prompt dela como primeiro pedido, em vez de nascer vazio.
+ */
+export interface Funcao {
+  id: string
+  nome: string
+  /** O que o agente é e o que se espera dele. Vai como primeiro pedido assim que o cartão fica pronto. */
+  prompt: string
+  /** Pasta própria de quem nasce nesta função; vazia, vale a do espaço. */
+  pasta?: string
+  /** Preset preferido (id). Sem ele, a função usa o preset que o usuário escolher na hora. */
+  preset?: string
+}
+
 export interface PresetAgente {
   id: string
   nome: string
@@ -38,6 +53,8 @@ export interface NoTerminal extends NoBase {
   sessao?: string
   /** Cartão do agente que abriu este pelo `mpro abrir` (só ele pode fechar). */
   criadoPor?: string
+  /** Nome da função com que este cartão nasceu, para você e as partituras saberem o papel dele. */
+  funcao?: string
   /** false: o usuário fechou o cartão de código deste agente, então ele não nasce mais sozinho. */
   codigoSozinho?: boolean
   /**
@@ -264,6 +281,8 @@ export interface Preferencias {
   versao: 1
   tema: Tema
   presets: PresetAgente[]
+  /** Campo novo: sem ele, não há nenhuma função guardada. */
+  funcoes?: Funcao[]
   corPostItPadrao: CorPostIt
   /** false esconde as linhas entre o agente e os cartões de código dele. Campo novo: sem ele, mostra. */
   linhasDoCodigo?: boolean

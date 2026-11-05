@@ -41,9 +41,9 @@ export const VERBOS = [
   },
   {
     nome: 'abrir', aliases: [], posicionais: [obrigatorio('claude|codex|shell')],
-    opcoes: [texto('espaco'), texto('nome'), texto('pasta'), texto('pedido'), texto('arquivo'), bandeira('esperar'), numero('tempo', 1, 3600)],
+    opcoes: [texto('espaco'), texto('nome'), texto('pasta'), texto('funcao'), texto('pedido'), texto('arquivo'), bandeira('esperar'), numero('tempo', 1, 3600)],
     descricao: 'abre uma sessão nova; em outro espaço, você continua sendo o dono',
-    ajuda: '  mpro abrir <claude|codex|shell> [--espaco "Nome"] [--nome N] [--pasta P] [--pedido "texto" | --arquivo pedido.md] [--esperar] [--tempo S]\n                                       abre uma sessão nova; em outro espaço, você continua sendo o dono'
+    ajuda: '  mpro abrir <claude|codex|shell> [--espaco "Nome"] [--nome N] [--pasta P] [--funcao "Papel"] [--pedido "texto" | --arquivo pedido.md] [--esperar] [--tempo S]\n                                       abre uma sessão nova; em outro espaço, você continua sendo o dono'
   },
   {
     nome: 'pedir', aliases: [], posicionais: [obrigatorio('nome'), { nome: 'texto', resto: true }],
@@ -60,6 +60,7 @@ export const VERBOS = [
     descricao: 'as árvores de código do seu cartão: separe os arquivos por assunto',
     ajuda: '  mpro arvore                         lista as árvores de código do seu cartão (e qual está em uso)\n  mpro arvore nova "Nome"             cria uma árvore e passa a usá-la para os próximos arquivos\n  mpro arvore usar "Nome"             passa a usar uma árvore que já existe\n  mpro arvore mostrar <arquivo>... [--arvore "Nome"]\n                                      abre esses arquivos como cartões na árvore\n  mpro arvore desfazer "Nome"         desfaz a árvore; os arquivos dela voltam para a principal'
   },
+  { nome: 'funcoes', aliases: ['funcao'], posicionais: [], opcoes: [], descricao: 'lista as funções (papéis) que o usuário guardou', ajuda: '  mpro funcoes                        lista as funções (papéis) guardadas, para usar em `mpro abrir --funcao`' },
   { nome: 'limpar', aliases: [], posicionais: [obrigatorio('nome')], opcoes: [], descricao: 'zera o contexto da sessão', ajuda: '  mpro limpar <nome>                  zera o contexto da sessão (/clear no Claude, /new no Codex)' },
   { nome: 'fechar', aliases: [], posicionais: [obrigatorio('nome')], opcoes: [], descricao: 'fecha uma sessão que você abriu', ajuda: '  mpro fechar <nome>                  fecha uma sessão que você abriu; o que ela abriu passa para você' },
   { nome: 'passar', aliases: [], posicionais: [obrigatorio('nome')], opcoes: [], descricao: 'passa ao sucessor vivo as sessões que você abriu', ajuda: '  mpro passar <nome>                  passa ao sucessor vivo (aberto por você ou ligado) as outras sessões que abriu' },

@@ -578,7 +578,7 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
     const linhas = await Promise.all(
       ligados.map(
         async (s) =>
-          `  "${s.espec.nome}" · ${s.espec.agente} · ${await situacao(s)} · ${textoDoContexto(await contextoRestante(s))}${
+          `  "${s.espec.nome}" · ${s.espec.agente}${s.espec.funcao ? ` · função ${s.espec.funcao}` : ''} · ${await situacao(s)} · ${textoDoContexto(await contextoRestante(s))}${
             s.espec.criadoPor === eu.id ? ' · aberto por você' : ''
           }`
       )
@@ -586,7 +586,7 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
     const filhos = sessoesCriadasPor(eu.id).length
     return {
       saida: [
-        `Você é "${eu.espec.nome}" (${eu.espec.agente}) · pasta ${eu.espec.pasta} · ${textoDoContexto(await contextoRestante(eu))}`,
+        `Você é "${eu.espec.nome}" (${eu.espec.agente})${eu.espec.funcao ? ` · função ${eu.espec.funcao}` : ''} · pasta ${eu.espec.pasta} · ${textoDoContexto(await contextoRestante(eu))}`,
         'Ligados a você:',
         ...(linhas.length ? linhas : ['  ninguém (o usuário liga cartões com uma corda; quem você abre continua acessível mesmo em outro espaço)']),
         `Você abriu ${filhos} de ${MAX_SESSOES_POR_AGENTE} sessões possíveis.`
@@ -607,24 +607,29 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
     const pasta = typeof opcoes.pasta === 'string' ? opcoes.pasta : undefined
     if (pasta && !(existsSync(pasta) && statSync(pasta).isDirectory())) throw new Error(`a pasta não existe: ${pasta}`)
     const nome = typeof opcoes.nome === 'string' ? opcoes.nome.trim().slice(0, 80) || undefined : undefined
+    const funcao = typeof opcoes.funcao === 'string' ? opcoes.funcao.trim() || undefined : undefined
+    // o primeiro pedido pode vir do --pedido, da função, ou dos dois
+    let pedidoInicial = texto
     const espaco = typeof opcoes.espaco === 'string' ? espacoPorNome(opcoes.espaco) : { id: eu.espacoId, nome: '' }
     abrindo.set(eu.id, (abrindo.get(eu.id) ?? 0) + 1)
     let novo: Sessao | undefined
     try {
       await abrirJanelaPronta(espaco.id)
-      const r = await pedirAJanela({ tipo: 'abrir', espacoId: espaco.id, criador: eu.id, agente, nome, pasta })
+      const r = await pedirAJanela({ tipo: 'abrir', espacoId: espaco.id, criador: eu.id, agente, nome, pasta, funcao })
       if (!r.ok) throw new Error(r.erro)
+      // o prompt da função é o primeiro pedido; com --pedido junto, a função vem antes e o pedido depois
+      if (r.texto) pedidoInicial = [r.texto, pedidoInicial].filter(Boolean).join('\n\n')
       novo = r.id ? await esperarSessao(r.id, 5000) : undefined
     } finally {
       abrindo.set(eu.id, (abrindo.get(eu.id) ?? 1) - 1)
     }
     if (!novo) throw new Error('o cartão foi criado, mas o processo não abriu')
-    registrar(eu, novo, 'abrir', texto)
+    registrar(eu, novo, 'abrir', pedidoInicial)
     const aberto =
       novo.espacoId === eu.espacoId
         ? `Abri "${novo.espec.nome}" (${agente}), ligado a você.`
         : `Abri "${novo.espec.nome}" (${agente}) no espaço "${espaco.nome}"; você pode falar com ele porque o abriu.`
-    if (!texto) return { saida: `${aberto} Mande o primeiro pedido com: mpro pedir "${novo.espec.nome}" "…"` }
+    if (!pedidoInicial) return { saida: `${aberto} Mande o primeiro pedido com: mpro pedir "${novo.espec.nome}" "…"` }
     const pronto = await aguardarPronto(novo, 90_000, cancelado)
     if (pronto !== 'pronto') {
       const motivo = {
@@ -635,7 +640,7 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
       }[pronto]
       return { saida: `${aberto}\n${motivo}\nTela agora:\n${await telaDe(novo, 30)}` }
     }
-    await digitarPedido(novo, texto)
+    await digitarPedido(novo, pedidoInicial)
     if (!opcoes.esperar) return { saida: `${aberto} Pedido enviado. Acompanhe com \`mpro esperar "${novo.espec.nome}"\` ou \`mpro ver\`.` }
     return { saida: `${aberto}\n${await resultado(novo, tempoDe(opcoes), cancelado)}` }
   },
@@ -697,6 +702,14 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
     escreverNoProcesso(alvo, '\r')
     await aguardarFim(alvo, 15_000, cancelado)
     return { saida: `Contexto de "${alvo.espec.nome}" zerado.` }
+  },
+
+  /** As funções (papéis) que o usuário guardou. Quem sabe quais existem é a janela, dona das preferências. */
+  funcoes: async ({ eu }) => {
+    await abrirJanelaPronta(eu.espacoId)
+    const r = await pedirAJanela({ tipo: 'funcoes', espacoId: eu.espacoId })
+    if (!r.ok) throw new Error(r.erro)
+    return { saida: r.texto ?? 'Nenhuma função guardada.' }
   },
 
   /**
@@ -819,6 +832,22 @@ export function registrarComandos(): void {
     // Recarregar preserva o WebContents, mas derruba o atendente do renderer; até ele se anunciar de novo não enviamos pedidos.
     evento.sender.once('did-start-loading', () => janelasProntas.delete(evento.sender.id))
     evento.sender.once('destroyed', () => janelasProntas.delete(evento.sender.id))
+  })
+
+  /**
+   * Cartão criado pela interface com uma função: o prompt dela é o primeiro pedido. Quem espera o agente
+   * ficar pronto é o processo principal, que é quem lê a tela — a janela não sabe quando a abertura acabou.
+   */
+  ipcMain.on(CANAIS.primeiroPedido, (_evento, id: unknown, texto: unknown) => {
+    if (typeof id !== 'string' || typeof texto !== 'string' || !texto.trim()) return
+    void (async () => {
+      const s = await esperarSessao(id, 5000)
+      if (!s) return
+      // falhou em ficar pronto (pergunta de confiar na pasta, por exemplo): não digita nada, o cartão
+      // fica lá esperando o usuário — melhor do que escrever o papel no meio de um diálogo
+      if ((await aguardarPronto(s, 90_000, () => false)) !== 'pronto') return
+      await digitarPedido(s, texto)
+    })()
   })
 
   ipcMain.on(CANAIS_AGENTES.resposta, (evento, id: unknown, resposta: RespostaAoAgente) => {

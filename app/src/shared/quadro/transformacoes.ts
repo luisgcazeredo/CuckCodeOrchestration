@@ -1,5 +1,5 @@
 import type { PedidoDoAgente, RespostaAoAgente } from '../api'
-import type { Corda, Espaco, NoTerminal, Plano, PresetAgente } from '../modelo'
+import type { Corda, Espaco, Funcao, NoTerminal, Plano, PresetAgente } from '../modelo'
 // Node executa as provas TypeScript diretamente e precisa da extensão neste único import de execução.
 // @ts-expect-error TS ainda exige allowImportingTsExtensions para esse modo de execução do Node.
 import { caixaDoNo, proximoZ, tocam, type Caixa } from './geometria.ts'
@@ -10,6 +10,8 @@ type PedidoPassar = Extract<PedidoDoAgente, { tipo: 'passar' }>
 
 export interface AmbienteTransformacoesDoQuadro {
   presets: PresetAgente[]
+  /** As funções guardadas; `abrir --funcao` procura aqui pelo nome. */
+  funcoes: Funcao[]
   presetsPadrao: PresetAgente[]
   limiteSessoesPorAgente: number
   novoId: () => string
@@ -55,8 +57,16 @@ export function abrir(
   }
 
   const preset = ambiente.presets.find((item) => item.agente === pedido.agente) ?? ambiente.presetsPadrao.find((item) => item.agente === pedido.agente)!
+  // função pedida pelo nome: ela dá o nome do cartão, a pasta e o primeiro pedido
+  const funcao = pedido.funcao
+    ? ambiente.funcoes.find((f) => f.nome.toLowerCase() === pedido.funcao!.trim().toLowerCase())
+    : undefined
+  if (pedido.funcao && !funcao) {
+    const quais = ambiente.funcoes.map((f) => `"${f.nome}"`).join(', ')
+    return { espaco, resposta: { ok: false, erro: `não existe a função "${pedido.funcao}"${quais ? `; as que existem: ${quais}` : ' (nenhuma criada ainda)'}` } }
+  }
   const nomes = new Set(planos.flatMap((atual) => atual.nos.flatMap((no) => (no.tipo === 'terminal' ? [no.nome.toLowerCase()] : []))))
-  const base = pedido.nome || preset.nome
+  const base = pedido.nome || funcao?.nome || preset.nome
   let nome = base
   for (let indice = 2; nomes.has(nome.toLowerCase()); indice++) nome = `${base} ${indice}`
 
@@ -76,13 +86,16 @@ export function abrir(
     nome,
     agente: preset.agente,
     comando: preset.comando,
-    pasta: pedido.pasta,
+    pasta: pedido.pasta || funcao?.pasta || undefined,
+    funcao: funcao?.nome,
     sessao: preset.agente === 'claude' ? ambiente.novoId() : undefined,
     criadoPor: pedido.criador
   }
   const corda: Corda | null = criador ? { id: ambiente.novoId(), de: criador.id, para: no.id, criadoEm: ambiente.agora() } : null
   const proximo = mudarPlano(espaco, plano, (atual) => ({ ...atual, nos: [...atual.nos, no], cordas: corda ? [...atual.cordas, corda] : atual.cordas }))
-  return { espaco: proximo, resposta: { ok: true, id: no.id, nome } }
+  // sem função, a resposta não ganha campo nenhum a mais (há provas comparando o objeto inteiro)
+  const comPrompt = funcao?.prompt ? { texto: funcao.prompt } : {}
+  return { espaco: proximo, resposta: { ok: true, id: no.id, nome, ...comPrompt } }
 }
 
 /** Remove o cartão e todas as cordas dele. */

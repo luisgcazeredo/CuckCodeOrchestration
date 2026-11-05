@@ -11,6 +11,7 @@ function ambiente(): AmbienteTransformacoesDoQuadro {
   let proximo = 1
   return {
     presets: [],
+    funcoes: [],
     presetsPadrao: [
       { id: 'claude', nome: 'Claude Code', agente: 'claude', comando: 'claude' },
       { id: 'codex', nome: 'Codex', agente: 'codex', comando: 'codex' },

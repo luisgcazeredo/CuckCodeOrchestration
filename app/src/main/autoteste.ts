@@ -1120,7 +1120,7 @@ export async function rodarAutoteste(
       nome: 'mpro-conexoes',
       depende: 'mpro',
       rodar: async (d) => {
-        const { esperar, js, conferir, aguardar, comando, telaNoApp, ultimas } = d
+        const { esperar, js, conferir, aguardar, comando, comandoAte, telaNoApp, ultimas } = d
     await comando(chefe, 'mpro quem')
     const quem = await aguardar(() => telaNoApp(chefe), 'Você é "PowerShell"')
     conferir('mpro quem (o comando existe dentro do terminal)', quem.includes('Você é "PowerShell"'), ultimas(quem, 3))
@@ -1199,6 +1199,34 @@ export async function rodarAutoteste(
       !sobrou.includes('Ajudante') && sobrou.includes('Solto') && !!ajudante && !sessaoPorId(ajudante.id),
       sobrou.join(', ')
     )
+    // funções (papéis): o cartão nasce com o nome do papel, na pasta dela, e o prompt vai como primeiro pedido
+    await js(`window.__teste.loja.definirFuncoes([{ id: 'f-teste', nome: 'Carteiro', prompt: 'echo FUNCAO-CHEGOU' }])`)
+    await esperar(300)
+    const idFuncao = await js<string>(`(() => { const L = window.__teste.loja
+      const preset = L.lerEstado().preferencias.presets.find((p) => p.agente === 'shell')
+      const funcao = L.lerEstado().preferencias.funcoes[0]
+      return L.adicionarNo({ tipo: 'terminal', preset, funcao }, 3600, 2200) })()`)
+    const doCartao = await js<{ nome: string; funcao: string }>(
+      `(() => { const n = window.__teste.loja.acharNo('${idFuncao}'); return { nome: n.nome, funcao: n.funcao ?? '' } })()`
+    )
+    const chegou = await aguardar(() => telaNoApp(idFuncao), /^FUNCAO-CHEGOU/m, 30_000)
+    conferir(
+      'cartão nasce com a função: nome do papel e o prompt entregue como primeiro pedido',
+      doCartao.nome === 'Carteiro' && doCartao.funcao === 'Carteiro' && /^FUNCAO-CHEGOU/m.test(chegou),
+      `nome ${doCartao.nome} · função ${doCartao.funcao} · ${ultimas(chegou, 2)}`
+    )
+
+    // o agente também enxerga as funções e abre por elas
+    const listaFuncoes = await comandoAte(chefe, 'mpro funcoes', /Carteiro/, 15_000)
+    const abriuComFuncao = await comandoAte(chefe, 'mpro abrir shell --funcao "Carteiro" --nome Entregador', /Abri "Entregador"/, 30_000)
+    const oEntregador = await js<string>(`(() => { const n = window.__teste.loja.planoAtual().nos
+      .find((x) => x.tipo === 'terminal' && x.nome === 'Entregador'); return n ? n.funcao ?? '' : 'não nasceu' })()`)
+    conferir(
+      'mpro funcoes lista, e mpro abrir --funcao dá o papel ao cartão novo',
+      /Carteiro/.test(listaFuncoes) && /Abri "Entregador"/.test(abriuComFuncao) && oEntregador === 'Carteiro',
+      `lista:${/Carteiro/.test(listaFuncoes)} · abriu:${/Abri "Entregador"/.test(abriuComFuncao)} · função do novo: ${oEntregador}`
+    )
+
 
       },
     },
