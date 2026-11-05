@@ -92,6 +92,11 @@ export const VERBOS = [
     descricao: 'agrupa cartões (andam juntos); --soltar desfaz',
     ajuda: '  mpro juntar <cartão>... [--soltar]  agrupa cartões para andarem juntos no quadro; --soltar desfaz o grupo'
   },
+  {
+    nome: 'partitura', aliases: ['partituras'], posicionais: [{ nome: 'usar|salvar' }, { nome: 'nome' }, { nome: 'cartão', resto: true }], opcoes: [],
+    descricao: 'times salvos: lista, sobe um time no quadro ou guarda o que está nele',
+    ajuda: '  mpro partitura                      lista os times salvos (agentes, funções, cordas e recados)\n  mpro partitura usar "Nome"          sobe esse time ao seu lado, ligado a você\n  mpro partitura salvar "Nome" [cartão]...\n                                      guarda como partitura os cartões (ou o andar à mostra todo)'
+  },
   { nome: 'funcoes', aliases: ['funcao'], posicionais: [], opcoes: [], descricao: 'lista as funções (papéis) que o usuário guardou', ajuda: '  mpro funcoes                        lista as funções (papéis) guardadas, para usar em `mpro abrir --funcao`' },
   { nome: 'limpar', aliases: [], posicionais: [obrigatorio('nome')], opcoes: [], descricao: 'zera o contexto da sessão', ajuda: '  mpro limpar <nome>                  zera o contexto da sessão (/clear no Claude, /new no Codex)' },
   { nome: 'fechar', aliases: [], posicionais: [obrigatorio('nome')], opcoes: [], descricao: 'fecha uma sessão que você abriu', ajuda: '  mpro fechar <nome>                  fecha uma sessão que você abriu; o que ela abriu passa para você' },

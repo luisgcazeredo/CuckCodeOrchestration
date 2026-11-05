@@ -100,6 +100,11 @@ export type PedidoDoAgente =
    * (e o que ela se recusa a fazer) está em `shared/quadro/agente.ts`; aqui vai só o recado.
    */
   | { tipo: 'quadro'; espacoId: string; id: string; pedido: Omit<PedidoNoQuadro, 'eu' | 'onde'> }
+  /**
+   * Partituras (times salvos): listar, subir uma no andar à mostra (nasce ligada a quem pediu) e guardar o
+   * que está no quadro como partitura. O que é uma partitura está em `shared/quadro/partituras.ts`.
+   */
+  | { tipo: 'partitura'; espacoId: string; id: string; acao: 'lista' | 'usar' | 'salvar'; nome?: string; alvos?: string[] }
   | {
       tipo: 'passar'
       espacoId: string

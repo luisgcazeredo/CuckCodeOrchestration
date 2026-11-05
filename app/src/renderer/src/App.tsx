@@ -33,6 +33,7 @@ import { MenuContexto, menuAberto } from './ui/MenuContexto'
 import { abrirPaleta, Paleta } from './ui/Paleta'
 import { Perguntas } from './ui/Perguntas'
 import { Funcoes } from './ui/Funcoes'
+import { Partituras } from './ui/Partituras'
 import { Presets } from './ui/Presets'
 
 function digitando(): boolean {
@@ -146,6 +147,7 @@ export function App() {
       <Paleta />
       <Presets />
       <Funcoes />
+      <Partituras />
     </div>
   )
 }

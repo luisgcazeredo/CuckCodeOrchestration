@@ -9,6 +9,7 @@ import {
   type Desenho,
   type Espaco,
   type Funcao,
+  type Partitura,
   type No,
   type NoCodigo,
   type NoTerminal,
@@ -25,7 +26,8 @@ import { MAX_SESSOES_POR_AGENTE, type AvisoJanelas, type EspecTerminal, type Ped
 import { proximoZ } from '../../../shared/quadro/geometria'
 import { empurrarParaBaixo } from '../../../shared/quadro/empurrar'
 import { abrir, fechar, passar } from '../../../shared/quadro/transformacoes'
-import { mexerNoQuadro } from '../../../shared/quadro/agente'
+import { acharAlvos, mexerNoQuadro } from '../../../shared/quadro/agente'
+import { MAX_PARTITURAS, aplicarPartitura, partituraDe, resumoDaPartitura } from '../../../shared/quadro/partituras'
 import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, enquadrar, lerViewport, uniao, type Caixa } from '../quadro/geometria'
 
 export type Ferramenta = 'selecionar' | 'postit' | 'texto' | 'desenho'
@@ -508,6 +510,60 @@ export function definirFuncoes(funcoes: Funcao[]): void {
   const preferencias = { ...estado.preferencias, funcoes }
   definir({ preferencias })
   void window.mp.dados.salvarPreferencias(preferencias)
+}
+
+/** As partituras (times salvos) moram nas preferências, como as funções: valem em todos os espaços. */
+export function definirPartituras(partituras: Partitura[]): void {
+  const preferencias = { ...estado.preferencias, partituras }
+  definir({ preferencias })
+  void window.mp.dados.salvarPreferencias(preferencias)
+}
+
+/** Guarda como partitura os cartões escolhidos (ou todos os do andar, com `ids` nulo). */
+export function salvarPartitura(nome: string, ids: string[] | null): string | null {
+  const plano = planoAtual()
+  if (!plano) return 'nenhum espaço aberto'
+  const guardadas = estado.preferencias.partituras ?? []
+  if (guardadas.length >= MAX_PARTITURAS) return `você já tem ${guardadas.length} partituras guardadas (o limite é ${MAX_PARTITURAS})`
+  const feita = partituraDe(plano, estado.notas, nome, ids, { novoId, agora })
+  if (typeof feita === 'string') return feita
+  // mesmo nome: a partitura nova toma o lugar da velha, como um "salvar em cima"
+  definirPartituras([...guardadas.filter((p) => p.nome.toLowerCase() !== feita.nome.toLowerCase()), feita])
+  return null
+}
+
+/**
+ * Sobe uma partitura no andar à mostra. `dono` é o cartão do agente que pediu; sem ele, o time é do usuário.
+ *
+ * **Quem sobe decide se entra no desfazer.** O time que o usuário sobe entra: um Ctrl+Z tira ele inteiro,
+ * como qualquer cartão que ele põe no quadro. O time que um agente sobe fica fora, pela regra que já valia
+ * para o `mpro abrir`: são sessões vivas, e o desfazer do usuário não mata sessão de agente no meio do
+ * trabalho (ver `aplicarInstantaneo`). Quem subiu fecha com `mpro fechar`. Mexer em cartão que já existe
+ * (mover, arrumar, nome, anotar) continua entrando no desfazer, mesmo vindo de agente.
+ */
+export function subirPartitura(
+  partitura: Partitura,
+  x: number,
+  y: number,
+  dono?: string
+): { erro: string } | { ids: string[]; texto: string } {
+  const plano = planoAtual()
+  if (!plano) return { erro: 'nenhum espaço aberto' }
+  const feito = aplicarPartitura(plano, estado.notas, partitura, x, y, {
+    novoId,
+    agora,
+    funcoes: estado.preferencias.funcoes ?? [],
+    dono,
+    limiteSessoesPorAgente: MAX_SESSOES_POR_AGENTE
+  })
+  if ('erro' in feito) return feito
+  if (!dono) registrarHistorico()
+  definir({ notas: feito.notas })
+  mudarPlano(() => feito.plano, false)
+  definir({ selecao: { ...NADA, nos: feito.ids }, editando: null })
+  // o prompt de cada função é entregue pelo processo principal, que sabe quando o agente ficou pronto
+  for (const pedido of feito.pedidos) window.mp.terminal.primeiroPedido(pedido.id, pedido.texto)
+  return { ids: feito.ids, texto: feito.texto }
 }
 
 export function definirPresets(presets: PresetAgente[]): void {
@@ -2091,6 +2147,55 @@ function atenderArvore(pedido: Extract<PedidoDoAgente, { tipo: 'arvore' }>): Res
 }
 
 /**
+ * Partituras pelo `mpro`: listar, subir um time e guardar o que está no quadro como partitura.
+ *
+ * Subir entra no desfazer (é o `subirPartitura` que registra); guardar não mexe no quadro, mexe nas
+ * preferências. O time sobe à direita do cartão de quem pediu, ligado a ele, como o `mpro abrir`.
+ */
+function atenderPartitura(pedido: Extract<PedidoDoAgente, { tipo: 'partitura' }>): RespostaAoAgente {
+  const plano = planoAtual()
+  if (!plano) return { ok: false, erro: 'nenhum espaço aberto nesta janela' }
+  const guardadas = estado.preferencias.partituras ?? []
+  if (pedido.acao === 'lista') {
+    const linhas = guardadas.map((p) => `  "${p.nome}" — ${resumoDaPartitura(p)}`)
+    return {
+      ok: true,
+      texto: linhas.length
+        ? ['Partituras guardadas:', ...linhas, 'Suba uma com `mpro partitura usar "Nome"`.'].join('\n')
+        : 'Nenhuma partitura guardada ainda. Guarde o time que está no quadro com `mpro partitura salvar "Nome"`.'
+    }
+  }
+  const eu = acharNo(pedido.id)
+  if (eu?.tipo !== 'terminal') return { ok: false, erro: 'o seu cartão não está no andar à mostra desta janela' }
+  const nome = (pedido.nome ?? '').trim()
+  if (!nome) return { ok: false, erro: 'diga o nome da partitura' }
+
+  if (pedido.acao === 'salvar') {
+    let ids: string[] | null = null
+    if (pedido.alvos?.length) {
+      const achados = acharAlvos(plano, pedido.alvos)
+      if (typeof achados === 'string') return { ok: false, erro: achados }
+      ids = achados.map((no) => no.id)
+    }
+    const erro = salvarPartitura(nome, ids)
+    if (erro) return { ok: false, erro }
+    const salva = (estado.preferencias.partituras ?? []).find((p) => p.nome.toLowerCase() === nome.slice(0, 80).toLowerCase())
+    return { ok: true, texto: `Guardei a partitura "${salva?.nome ?? nome}"${salva ? ` — ${resumoDaPartitura(salva)}` : ''}.` }
+  }
+
+  const procurado = nome.toLowerCase()
+  const exatas = guardadas.filter((p) => p.nome.toLowerCase() === procurado)
+  const quase = exatas.length ? exatas : guardadas.filter((p) => p.nome.toLowerCase().startsWith(procurado))
+  if (!quase.length) {
+    const quais = guardadas.map((p) => `"${p.nome}"`).join(', ')
+    return { ok: false, erro: `não existe a partitura "${nome}"${quais ? `; as que existem: ${quais}` : ' (nenhuma guardada ainda)'}` }
+  }
+  if (quase.length > 1) return { ok: false, erro: `"${nome}" serve para ${quase.map((p) => `"${p.nome}"`).join(' e ')}; diga o nome inteiro` }
+  const feito = subirPartitura(quase[0], eu.x + eu.largura + 80, eu.y, eu.id)
+  return 'erro' in feito ? { ok: false, erro: feito.erro } : { ok: true, texto: feito.texto }
+}
+
+/**
  * O agente mexendo no quadro pelo `mpro` (ler, mover, arrumar, nome, ligar, desligar, anotar, juntar).
  *
  * Diferente dos outros pedidos de agente, **isto entra no desfazer**: o que um agente arrumar errado o
@@ -2123,6 +2228,7 @@ function atenderAgente(pedido: PedidoDoAgente): RespostaAoAgente {
   // as árvores de código não mexem na topologia dos terminais: a loja desta janela resolve sozinha
   if (pedido.tipo === 'arvore') return atenderArvore(pedido)
   if (pedido.tipo === 'quadro') return atenderQuadroDoAgente(pedido)
+  if (pedido.tipo === 'partitura') return atenderPartitura(pedido)
   if (pedido.tipo === 'funcoes') {
     const lista = estado.preferencias.funcoes ?? []
     const linhas = lista.map((f) => `  "${f.nome}"${f.pasta ? ` · pasta ${f.pasta}` : ''} — ${primeiraLinha(f.prompt)}`)

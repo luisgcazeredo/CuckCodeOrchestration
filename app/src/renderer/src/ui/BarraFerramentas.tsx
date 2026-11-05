@@ -11,15 +11,18 @@ import {
   SquareTerminal,
   StickyNote,
   Type,
+  Users,
   type LucideIcon
 } from 'lucide-react'
-import type { PincelDesenho, Funcao } from '../../../shared/modelo'
+import type { PincelDesenho, Funcao, Partitura } from '../../../shared/modelo'
+import { resumoDaPartitura } from '../../../shared/quadro/partituras'
 import { adicionarNo, definirEstiloDesenho, escolherFerramenta, planoAtual, usarLoja, type Ferramenta } from '../estado/loja'
 import { anexarArquivoEm, arvoreEm, portalEm } from './menus'
 import { centroDaTela } from '../quadro/geometria'
 import { COR_AGENTE, ICONE_AGENTE } from '../nos/icones'
 import { abrirFuncoes } from './Funcoes'
 import { abrirPresets } from './Presets'
+import { abrirPartituras, subirPartituraNoCentro } from './Partituras'
 
 const CORES_DESENHO = ['#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#007AFF', '#AF52DE', '#8E8E93']
 const FORMAS: Array<[PincelDesenho, LucideIcon, string]> = [
@@ -57,6 +60,7 @@ function Botao({
 
 /** Lista vazia constante: ver o comentário em `funcoes`. */
 const SEM_FUNCOES: Funcao[] = []
+const SEM_PARTITURAS: Partitura[] = []
 
 export function BarraFerramentas() {
   const ferramenta = usarLoja((e) => e.ferramenta)
@@ -65,6 +69,7 @@ export function BarraFerramentas() {
   // sem o `?? []` aqui: um array novo a cada leitura faz o useSyncExternalStore repetir sem parar e a
   // janela fica em branco (custou uma rodada inteira do autoteste)
   const funcoes = usarLoja((e) => e.preferencias.funcoes) ?? SEM_FUNCOES
+  const partituras = usarLoja((e) => e.preferencias.partituras) ?? SEM_PARTITURAS
   const [menuTerminal, setMenuTerminal] = useState(false)
 
   const escolher = (f: Ferramenta) => () => {
@@ -146,6 +151,21 @@ export function BarraFerramentas() {
               </button>
             )
           })}
+          {partituras.length > 0 && <span className="divisoria" />}
+          {partituras.map((p) => (
+            <button
+              key={p.id}
+              className="menu-terminal-partitura"
+              title={`Subir este time: ${resumoDaPartitura(p)}`}
+              onClick={() => {
+                setMenuTerminal(false)
+                subirPartituraNoCentro(p)
+              }}
+            >
+              <Users size={15} />
+              {p.nome}
+            </button>
+          ))}
           <span className="divisoria" />
           <button
             className="menu-terminal-editar"
@@ -164,6 +184,15 @@ export function BarraFerramentas() {
             }}
           >
             Editar funções…
+          </button>
+          <button
+            className="menu-terminal-partituras"
+            onClick={() => {
+              setMenuTerminal(false)
+              abrirPartituras()
+            }}
+          >
+            Partituras…
           </button>
         </div>
       )}

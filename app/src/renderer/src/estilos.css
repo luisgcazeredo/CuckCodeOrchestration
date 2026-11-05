@@ -2269,6 +2269,53 @@ kbd {
   font-weight: 600;
 }
 
+/* ---------- partituras (times salvos) ---------- */
+.partituras {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+  max-height: 46vh;
+  overflow: auto;
+}
+
+.partitura-linha {
+  display: grid;
+  grid-template-columns: 1fr auto 30px 30px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--pilula-borda);
+  border-radius: 8px;
+  background: var(--pilula-fundo);
+}
+
+.partitura-dados {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.partitura-nome {
+  font-weight: 600;
+}
+
+.partitura-resumo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.partitura-subir {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
 
 /* ---------- realce de sintaxe: cores do Dark+ e do Light+ do VS Code ---------- */
 /* Os nomes das classes vêm do highlight.js; os valores, dos temas do VS Code. */

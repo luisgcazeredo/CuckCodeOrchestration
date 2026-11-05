@@ -22,10 +22,12 @@ import {
   type Espaco,
   type EspacoCarregado,
   type EstadoJanela,
+  type Partitura,
   type Preferencias,
   type ResumoEspaco
 } from '../shared/modelo'
 import { CANAIS_DADOS } from '../shared/api'
+import { MAX_NOME_DA_PARTITURA, MAX_PARTITURAS, MAX_PECAS, MAX_TEXTO_DA_PECA } from '../shared/quadro/partituras'
 import { avisar, avisarTodas, donoDe, esquecerEspaco, exigirDono } from './janelas'
 
 // Tudo do app mora numa pasta só, em JSON e markdown legíveis. O autoteste usa uma pasta temporária limpa.
@@ -328,6 +330,36 @@ function validarParaSalvar(carregado: EspacoCarregado): EspacoCarregado {
 }
 
 const AGENTES = new Set(['claude', 'codex', 'shell'])
+const TIPOS_DE_PECA = new Set(['terminal', 'texto', 'postit'])
+
+/**
+ * Partituras: times salvos. Só entra o que a partitura é — cartão de agente, texto e post-it, com lugar
+ * relativo e cordas por índice. Pasta não existe aqui de propósito (ver `shared/quadro/partituras.ts`).
+ */
+function partiturasValidas(partituras: unknown): boolean {
+  if (partituras === undefined) return true
+  if (!Array.isArray(partituras) || partituras.length > MAX_PARTITURAS) return false
+  return partituras.every(
+    (p: Partitura) =>
+      typeof p?.id === 'string' &&
+      typeof p.nome === 'string' &&
+      p.nome.trim().length > 0 &&
+      p.nome.length <= MAX_NOME_DA_PARTITURA &&
+      [p.largura, p.altura].every(Number.isFinite) &&
+      Array.isArray(p.pecas) &&
+      p.pecas.length > 0 &&
+      p.pecas.length <= MAX_PECAS &&
+      p.pecas.every(
+        (peca) =>
+          TIPOS_DE_PECA.has(peca?.tipo) &&
+          [peca.x, peca.y, peca.largura, peca.altura].every(Number.isFinite) &&
+          (peca.tipo !== 'terminal' || (AGENTES.has(peca.agente) && typeof peca.nome === 'string' && typeof peca.comando === 'string' && !/[\r\n]/.test(peca.comando))) &&
+          (peca.tipo === 'terminal' || (typeof peca.texto === 'string' && peca.texto.length <= MAX_TEXTO_DA_PECA))
+      ) &&
+      Array.isArray(p.cordas) &&
+      p.cordas.every((corda) => Array.isArray(corda) && corda.length === 2 && corda.every((i) => Number.isInteger(i) && i >= 0 && i < p.pecas.length))
+  )
+}
 
 /** Presets: o comando é digitado no PowerShell quando o terminal abre, então é uma linha só e curta. */
 function preferenciasValidas(p: Preferencias): boolean {
@@ -335,6 +367,7 @@ function preferenciasValidas(p: Preferencias): boolean {
     p?.versao === 1 &&
     (p.tema === 'escuro' || p.tema === 'claro') &&
     typeof p.corPostItPadrao === 'string' &&
+    partiturasValidas(p.partituras) &&
     Array.isArray(p.presets) &&
     p.presets.length > 0 &&
     p.presets.length <= 50 &&

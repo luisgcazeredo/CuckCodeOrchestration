@@ -13,7 +13,7 @@ ${tabelaDeComandos()}
 
 export const SKILL = `---
 name: maestri-proprio
-description: Use dentro de um terminal do Maestri Próprio (a variável de ambiente MP_PIPE existe) para fazer engenharia de contexto — abrir uma sessão nova de agente (Claude, Codex ou shell) com um contexto limpo e focado, delegar uma parte do trabalho, conversar com os agentes ligados a você pela corda, ler a tela deles, zerar o contexto de uma sessão ou fechar as sessões que você abriu — e para organizar o quadro: ler o que há nele, mover, arrumar em grade, renomear, ligar dois agentes, anotar e agrupar cartões. Comando: mpro. Fora do app não funciona.
+description: Use dentro de um terminal do Maestri Próprio (a variável de ambiente MP_PIPE existe) para fazer engenharia de contexto — abrir uma sessão nova de agente (Claude, Codex ou shell) com um contexto limpo e focado, delegar uma parte do trabalho, conversar com os agentes ligados a você pela corda, ler a tela deles, zerar o contexto de uma sessão ou fechar as sessões que você abriu — e para organizar o quadro: ler o que há nele, mover, arrumar em grade, renomear, ligar dois agentes, anotar e agrupar cartões — e para subir um time salvo (partitura) com as funções e as cordas dele, ou guardar o time que está no quadro. Comando: mpro. Fora do app não funciona.
 ---
 
 # Maestri Próprio: o comando \`mpro\`
@@ -120,6 +120,28 @@ Tudo o que você fizer aqui entra no **desfazer do usuário**: um Ctrl+Z volta o
 arrumar o quadro é coisa que se faz com parcimônia — o lugar onde o usuário deixou um cartão costuma querer
 dizer algo. Mover o que é seu (os seus subagentes, as suas anotações) é de boa educação; reorganizar o quadro
 todo sem ele pedir, não.
+
+## Subir um time salvo: partituras
+
+Uma **partitura** é um time guardado — os agentes com as funções e os comandos deles, os recados e as
+cordas entre eles. Subir uma é a forma rápida de montar a mesa inteira em vez de abrir um cartão por vez:
+
+\`\`\`
+mpro partitura                       # os times salvos, com quantos agentes e que funções
+mpro partitura usar "Time de revisão"   # sobe o time ao seu lado, já ligado a você
+mpro partitura salvar "Time de revisão" # guarda o que está no andar à mostra como partitura
+mpro partitura salvar "Dupla" "Main" "Revisor"   # ou só esses cartões
+\`\`\`
+
+- Os cartões que você sobe assim **são seus**: nascem ligados a você por corda, contam no seu limite de 8
+  sessões e você pode fechá-los com \`mpro fechar\`.
+- **A pasta não é salva de propósito**: cada cartão abre na pasta do espaço (ou na da função). A partitura
+  é o time, não o projeto — é por isso que o mesmo time serve em qualquer lugar.
+- **O prompt vem da função de hoje**, não de uma cópia do dia em que se salvou. Função apagada depois:
+  o cartão sobe com o nome do papel e sem primeiro pedido, e a resposta diz isso em vez de inventar.
+- O time que **você** sobe fica **fora do desfazer** do usuário, como o \`mpro abrir\`: são sessões vivas, e um
+  Ctrl+Z não mata agente no meio do trabalho. Quem fecha é você, com \`mpro fechar\`. (Mover, arrumar, renomear
+  e anotar continuam entrando no desfazer: aquilo é arrumação, isto é gente trabalhando.)
 
 ## Regras de convívio
 

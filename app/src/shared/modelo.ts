@@ -17,6 +17,52 @@ export interface Funcao {
   preset?: string
 }
 
+/**
+ * Uma peça de partitura: o cartão como ele vai subir de novo. O lugar é relativo ao canto de cima à
+ * esquerda do arranjo salvo, para a partitura caber em qualquer canto de qualquer espaço.
+ */
+export type PecaDePartitura = {
+  x: number
+  y: number
+  largura: number
+  altura: number
+  cor?: string
+  /** Peças com o mesmo número sobem agrupadas (o grupo do quadro, renumerado ao salvar). */
+  grupo?: number
+} & (
+  | {
+      tipo: 'terminal'
+      nome: string
+      agente: Agente
+      /** Linha digitada ao abrir, guardada como estava: a partitura não depende de preset nenhum. */
+      comando: string
+      /** Nome da função (papel). O prompt vem da função na hora de subir, nunca de uma cópia velha. */
+      funcao?: string
+    }
+  | { tipo: 'texto'; texto: string; tamanhoFonte: number; mono: boolean }
+  | { tipo: 'postit'; texto: string; corPostIt: CorPostIt }
+)
+
+/**
+ * Partitura: um time salvo — os agentes com as funções e os comandos deles, os recados (textos e post-its),
+ * as cordas entre os agentes e os grupos — para subir inteiro num espaço novo.
+ *
+ * **Pasta não entra de propósito.** A partitura é o time, não o projeto: cada cartão abre na pasta do espaço
+ * onde ele subiu (ou na pasta da função, se ela tiver uma). Um caminho salvo de outro projeto subiria o time
+ * inteiro mexendo na pasta errada.
+ */
+export interface Partitura {
+  id: string
+  nome: string
+  criadaEm: string
+  /** Tamanho do arranjo, para a janela achar um canto livre do tamanho certo. */
+  largura: number
+  altura: number
+  pecas: PecaDePartitura[]
+  /** Cordas entre as peças, pelo índice em `pecas` (a corda é a permissão de dois agentes se falarem). */
+  cordas: Array<[number, number]>
+}
+
 export interface PresetAgente {
   id: string
   nome: string
@@ -283,6 +329,8 @@ export interface Preferencias {
   presets: PresetAgente[]
   /** Campo novo: sem ele, não há nenhuma função guardada. */
   funcoes?: Funcao[]
+  /** Times salvos, para subir de novo. Campo novo: arquivo antigo não tem nenhum. */
+  partituras?: Partitura[]
   corPostItPadrao: CorPostIt
   /** false esconde as linhas entre o agente e os cartões de código dele. Campo novo: sem ele, mostra. */
   linhasDoCodigo?: boolean

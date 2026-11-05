@@ -746,6 +746,30 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
 
   juntar: async ({ eu, pos, opcoes }) => mexerNoQuadro(eu, { acao: 'juntar', alvos: pos, soltar: opcoes.soltar === true }),
 
+  /**
+   * Partituras: times salvos. `usar` sobe o time ao lado de quem pediu, já ligado a ele; `salvar` guarda o
+   * que está no quadro. Quem guarda as partituras é a janela, dona das preferências.
+   */
+  partitura: async ({ eu, pos }) => {
+    const acoes = ['lista', 'usar', 'salvar'] as const
+    const pedida = (pos[0] ?? 'lista').toLowerCase()
+    const acao = acoes.find((a) => a === pedida)
+    if (!acao) throw new Error(`não conheço \`mpro partitura ${pos[0]}\`. Use: usar, salvar, ou nada para listar.`)
+    const nome = (pos[1] ?? '').trim()
+    if (acao !== 'lista' && !nome) throw new Error(`diga o nome: mpro partitura ${acao} "Nome"`)
+    await abrirJanelaPronta(eu.espacoId)
+    const r = await pedirAJanela({
+      tipo: 'partitura',
+      espacoId: eu.espacoId,
+      id: eu.id,
+      acao,
+      nome,
+      alvos: pos.slice(2).filter(Boolean)
+    })
+    if (!r.ok) throw new Error(r.erro)
+    return { saida: r.texto ?? 'Pronto.' }
+  },
+
   /** As funções (papéis) que o usuário guardou. Quem sabe quais existem é a janela, dona das preferências. */
   funcoes: async ({ eu }) => {
     await abrirJanelaPronta(eu.espacoId)

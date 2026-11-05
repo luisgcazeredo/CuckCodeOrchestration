@@ -40,7 +40,8 @@ import {
   Type,
   Ungroup,
   Unlink,
-  Unlock
+  Unlock,
+  Users
 } from 'lucide-react'
 import type { Andar, Desenho, EntradaPasta, EstadoAndar, No, NoPostIt, NoTerminal, ResumoEspaco } from '../../../shared/modelo'
 import {
@@ -88,6 +89,7 @@ import {
   pastaDoPlano,
   renomearAndar,
   renomearEspaco,
+  salvarPartitura,
   selecionarTudo,
   tirarDoGrupo,
   trazerParaFrente
@@ -101,7 +103,7 @@ import { COR_POSTIT } from '../nos/PostIt'
 import { abrirNovoAndar, apagarAndarComConfirmacao, juntarAndar } from './acoesAndar'
 import { enquadrarTudo } from './Controles'
 import type { ItemMenu } from './MenuContexto'
-import { confirmar, perguntarTexto } from './Perguntas'
+import { avisar, confirmar, perguntarTexto } from './Perguntas'
 
 export const CORES_CARTAO: Array<{ cor: string | null; nome: string }> = [
   { cor: null, nome: 'Sem cor' },
@@ -414,6 +416,23 @@ const itensDeCopia: ItemMenu[] = [
 
 const itemTirarDoGrupo: ItemMenu = { rotulo: 'Tirar do grupo', icone: Ungroup, acao: tirarDoGrupo }
 
+/**
+ * Guarda os cartões escolhidos como partitura (um time reaplicável). Só aparece quando há agente na
+ * escolha: partitura é time, e o que vale guardar é quem trabalha, com os recados ao redor.
+ */
+function itemSalvarPartitura(ids: string[]): ItemMenu {
+  return {
+    rotulo: 'Salvar como partitura…',
+    icone: Users,
+    acao: async () => {
+      const nome = await perguntarTexto('Salvar como partitura', 'Nome do time', '', 'Salvar')
+      if (!nome?.trim()) return
+      const erro = salvarPartitura(nome, ids)
+      if (erro) await avisar('Partitura', erro)
+    }
+  }
+}
+
 /** Menu de vários itens selecionados (ou de um grupo). */
 export function itensDaSelecao(): ItemMenu[] {
   const info = infoDaSelecao()
@@ -428,6 +447,7 @@ export function itensDaSelecao(): ItemMenu[] {
   return [
     { rotulo: 'Cor', icone: Paintbrush, submenu: [linhaDeCoresDaSelecao()] },
     ...itensDeCopia,
+    ...(info.nos.some((n) => n.tipo === 'terminal') ? [itemSalvarPartitura(info.nos.map((n) => n.id))] : []),
     info.umGrupo
       ? { rotulo: 'Desagrupar', icone: Ungroup, atalho: 'Ctrl+Shift+G', acao: desagrupar }
       : { rotulo: 'Agrupar', icone: Group, atalho: 'Ctrl+G', acao: agrupar },
@@ -472,6 +492,7 @@ export function itensDoNo(no: No): ItemMenu[] {
           }
         },
         { rotulo: 'Código que ele escreve', icone: FileCode, submenu: itensDoCodigoDoTerminal(no) },
+        itemSalvarPartitura([no.id]),
         {
           rotulo: 'Anexar ao prompt',
           icone: Paperclip,

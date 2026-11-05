@@ -25,10 +25,16 @@ mpro quadro                       lê o quadro: cada cartão com número, nome, 
 mpro mover | arrumar              põe cartões num lugar (--x/--y, --dx/--dy) · arruma em grade (--colunas)
 mpro nome | ligar | desligar      renomeia um cartão · desenha ou tira a corda entre dois agentes
 mpro anotar "…" | juntar          escreve um texto no quadro · agrupa cartões (--soltar desfaz)
+mpro partitura                    times salvos: lista, `usar "Nome"` sobe um ao seu lado, `salvar "Nome"` guarda
 ```
 
 Mexer no quadro **entra no desfazer** do usuário, nunca apaga nada, não toca em cartão travado nem em cartão
 de código, e só alcança o andar à mostra — sempre pelo nome do cartão.
+
+Uma **partitura** é um time salvo (agentes com funções e comandos, recados, cordas e grupos) que sobe inteiro
+num espaço novo: no app, pelo menu de terminal ou por "Salvar como partitura…" na seleção. A pasta não é
+salva de propósito — cada cartão abre na pasta do espaço (ou na da função), então o mesmo time serve em
+qualquer projeto —, e o prompt de cada papel vem da função de hoje, nunca de uma cópia velha.
 
 O app grava o manual como skill `maestri-proprio` em `~/.claude/skills` e `~/.codex/skills`.
 
