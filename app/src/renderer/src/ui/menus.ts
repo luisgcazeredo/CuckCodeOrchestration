@@ -40,6 +40,7 @@ import {
   Type,
   Ungroup,
   Unlink,
+  Repeat,
   Unlock,
   Users
 } from 'lucide-react'
@@ -90,7 +91,11 @@ import {
   renomearAndar,
   renomearEspaco,
   salvarPartitura,
+  criarBandaNoQuadro,
+  membrosDaBandaAtual,
+  trocarAgenteDoCartao,
   selecionarTudo,
+  selecionarVarios,
   tirarDoGrupo,
   trazerParaFrente
 } from '../estado/loja'
@@ -340,6 +345,7 @@ export function itensDoFundo(x: number, y: number): ItemMenu[] {
     { rotulo: 'Anexar arquivo…', icone: Paperclip, acao: () => void anexarArquivoEm(x, y) },
     { rotulo: 'Árvore de uma pasta…', icone: FolderTree, acao: () => void arvoreEm(x, y) },
     { rotulo: 'Portal (navegador)', icone: Globe, acao: () => portalEm(x, y) },
+    { rotulo: 'Banda (grupo de agentes)…', icone: Users, acao: () => void novaBandaEm([], { x, y }) },
     { rotulo: 'Colar aqui', icone: ClipboardPaste, atalho: 'Ctrl+V', acao: () => void colar({ x, y }) },
     separador,
     {
@@ -417,6 +423,35 @@ const itensDeCopia: ItemMenu[] = [
 const itemTirarDoGrupo: ItemMenu = { rotulo: 'Tirar do grupo', icone: Ungroup, acao: tirarDoGrupo }
 
 /**
+ * Cria uma banda (grupo de agentes): a moldura em volta dos cartões escolhidos, ou vazia no ponto do clique
+ * para você arrastar agentes para dentro depois.
+ */
+async function novaBandaEm(ids: string[], onde: { x: number; y: number }): Promise<void> {
+  const nome = await perguntarTexto('Nova banda', 'Nome do time', '', 'Criar')
+  if (!nome?.trim()) return
+  const feito = criarBandaNoQuadro(nome, ids, onde)
+  if ('erro' in feito) await avisar('Banda', feito.erro)
+}
+
+/** Trocar o agente de um cartão: o cartão fica, o agente muda (ver shared/quadro/trocar.ts). */
+function itemTrocarAgente(no: NoTerminal): ItemMenu {
+  const { preferencias } = lerEstado()
+  return {
+    rotulo: 'Trocar o agente',
+    icone: Repeat,
+    submenu: preferencias.presets.map((p) => ({
+      rotulo: p.nome,
+      marcado: p.agente === no.agente && p.comando === no.comando,
+      desligado: p.agente === no.agente && p.comando === no.comando,
+      acao: async () => {
+        const feito = trocarAgenteDoCartao(no.id, p)
+        if ('erro' in feito) await avisar('Trocar o agente', feito.erro)
+      }
+    }))
+  }
+}
+
+/**
  * Guarda os cartões escolhidos como partitura (um time reaplicável). Só aparece quando há agente na
  * escolha: partitura é time, e o que vale guardar é quem trabalha, com os recados ao redor.
  */
@@ -447,7 +482,16 @@ export function itensDaSelecao(): ItemMenu[] {
   return [
     { rotulo: 'Cor', icone: Paintbrush, submenu: [linhaDeCoresDaSelecao()] },
     ...itensDeCopia,
-    ...(info.nos.some((n) => n.tipo === 'terminal') ? [itemSalvarPartitura(info.nos.map((n) => n.id))] : []),
+    ...(info.nos.some((n) => n.tipo === 'terminal')
+      ? [
+          itemSalvarPartitura(info.nos.map((n) => n.id)),
+          {
+            rotulo: 'Juntar numa banda…',
+            icone: Users,
+            acao: () => void novaBandaEm(info.nos.filter((n) => n.tipo === 'terminal').map((n) => n.id), { x: 0, y: 0 })
+          }
+        ]
+      : []),
     info.umGrupo
       ? { rotulo: 'Desagrupar', icone: Ungroup, atalho: 'Ctrl+Shift+G', acao: desagrupar }
       : { rotulo: 'Agrupar', icone: Group, atalho: 'Ctrl+G', acao: agrupar },
@@ -492,6 +536,7 @@ export function itensDoNo(no: No): ItemMenu[] {
           }
         },
         { rotulo: 'Código que ele escreve', icone: FileCode, submenu: itensDoCodigoDoTerminal(no) },
+        itemTrocarAgente(no),
         itemSalvarPartitura([no.id]),
         {
           rotulo: 'Anexar ao prompt',
@@ -538,6 +583,32 @@ export function itensDoNo(no: No): ItemMenu[] {
     case 'portal':
       especificos.push({ rotulo: 'Abrir no navegador do sistema', icone: ExternalLink, acao: () => window.open(no.url) })
       break
+    case 'banda': {
+      const dentro = membrosDaBandaAtual(no.id)
+      especificos.push(
+        {
+          rotulo: 'Renomear a banda…',
+          icone: Pencil,
+          acao: async () => {
+            const nome = await perguntarTexto('Renomear a banda', 'Nome', no.nome, 'Renomear')
+            if (nome?.trim()) atualizarNo(no.id, { nome: nome.trim().slice(0, 60) })
+          }
+        },
+        // informativo: é a moldura que diz quem é do time, então o menu só mostra quem está dentro agora
+        {
+          rotulo: dentro.length ? `No time: ${dentro.map((n) => n.nome).join(', ')}` : 'Vazia: arraste agentes para dentro',
+          icone: Users,
+          desligado: true
+        },
+        {
+          rotulo: 'Ver o time todo',
+          icone: Scan,
+          desligado: !dentro.length,
+          acao: () => selecionarVarios([no.id, ...dentro.map((n) => n.id)], [])
+        }
+      )
+      break
+    }
     case 'codigo':
       especificos.push(
         {

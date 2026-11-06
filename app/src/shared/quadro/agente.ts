@@ -82,6 +82,8 @@ export function rotuloDoNo(no: No): string {
       return no.url
     case 'imagem':
       return 'imagem'
+    case 'banda':
+      return no.nome
   }
 }
 
@@ -93,7 +95,8 @@ const COMO_CHAMAR: Record<No['tipo'], string> = {
   arquivo: 'arquivo',
   pasta: 'pasta',
   portal: 'portal',
-  imagem: 'imagem'
+  imagem: 'imagem',
+  banda: 'banda'
 }
 
 /** A ordem em que a leitura numera os cartões: de cima para baixo, da esquerda para a direita. */
@@ -343,8 +346,9 @@ export function mexerNoQuadro(plano: Plano, pedido: PedidoNoQuadro, amb: Ambient
     if (typeof alvos === 'string') return { erro: alvos }
     if (alvos.length !== 2) return { erro: 'são o mesmo cartão; a corda liga dois agentes diferentes' }
     const [a, b] = alvos
-    const naoAgente = alvos.find((n) => n.tipo !== 'terminal')
-    if (naoAgente) return { erro: `a corda liga agentes; "${rotuloDoNo(naoAgente)}" é ${COMO_CHAMAR[naoAgente.tipo]}` }
+    // a corda liga agentes, e também uma banda (aí ela vale para cada agente de dentro da moldura)
+    const naoAgente = alvos.find((n) => n.tipo !== 'terminal' && n.tipo !== 'banda')
+    if (naoAgente) return { erro: `a corda liga agentes (ou uma banda); "${rotuloDoNo(naoAgente)}" é ${COMO_CHAMAR[naoAgente.tipo]}` }
     const achada = plano.cordas.find((c) => (c.de === a.id && c.para === b.id) || (c.de === b.id && c.para === a.id))
     if (pedido.acao === 'desligar') {
       if (!achada) return { erro: `"${rotuloDoNo(a)}" e "${rotuloDoNo(b)}" não estão ligados` }

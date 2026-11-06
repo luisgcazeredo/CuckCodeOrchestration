@@ -106,7 +106,8 @@ const api: ApiMaestri = {
       ipcRenderer.on(CANAIS.sessao, (_evento, id: string, sessao: string) => ouvinte(id, sessao))
     },
     contextos: (espacoId) => ipcRenderer.invoke(CANAIS.contextos, espacoId),
-    primeiroPedido: (id, texto) => ipcRenderer.send(CANAIS.primeiroPedido, id, texto)
+    primeiroPedido: (id, texto) => ipcRenderer.send(CANAIS.primeiroPedido, id, texto),
+    trocar: (id) => ipcRenderer.send(CANAIS.trocar, id)
   },
   agentes: {
     aoPedir: (atender) => {

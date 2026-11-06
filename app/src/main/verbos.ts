@@ -93,6 +93,16 @@ export const VERBOS = [
     ajuda: '  mpro juntar <cartão>... [--soltar]  agrupa cartões para andarem juntos no quadro; --soltar desfaz o grupo'
   },
   {
+    nome: 'trocar', aliases: [], posicionais: [obrigatorio('cartão'), obrigatorio('claude|codex|shell')], opcoes: [],
+    descricao: 'troca o agente de um cartão que você abriu (o cartão fica, o agente muda)',
+    ajuda: '  mpro trocar <cartão> <claude|codex|shell>\n                                      troca o agente de um cartão que você abriu: lugar, nome e cordas ficam'
+  },
+  {
+    nome: 'banda', aliases: ['bandas'], posicionais: [{ nome: 'criar' }, { nome: 'nome' }, { nome: 'cartão', resto: true }], opcoes: [],
+    descricao: 'bandas (grupos de agentes): quem está dentro da moldura fala com todos os de dentro',
+    ajuda: '  mpro banda                          lista as bandas do andar, com quem está dentro de cada uma\n  mpro banda criar "Nome" <cartão>...  põe uma moldura em volta desses agentes: todos passam a se falar'
+  },
+  {
     nome: 'partitura', aliases: ['partituras'], posicionais: [{ nome: 'usar|salvar' }, { nome: 'nome' }, { nome: 'cartão', resto: true }], opcoes: [],
     descricao: 'times salvos: lista, sobe um time no quadro ou guarda o que está nele',
     ajuda: '  mpro partitura                      lista os times salvos (agentes, funções, cordas e recados)\n  mpro partitura usar "Nome"          sobe esse time ao seu lado, ligado a você\n  mpro partitura salvar "Nome" [cartão]...\n                                      guarda como partitura os cartões (ou o andar à mostra todo)'

@@ -3,6 +3,8 @@ import test from 'node:test'
 // Node executa provas TypeScript diretamente e precisa da extensão; o bundler resolve a fonte normalmente.
 // @ts-expect-error TS ainda exige allowImportingTsExtensions para esse modo de execução do Node.
 import { aplicarPartitura, partituraDe, resumoDaPartitura, type SubidaDePartitura } from './partituras.ts'
+// @ts-expect-error idem.
+import { membrosDaBanda } from './bandas.ts'
 import type { Funcao, No, Partitura, Plano } from '../modelo'
 
 const instante = '2026-11-05T12:00:00.000Z'
@@ -235,4 +237,27 @@ test('teto de cartões do andar: recusa em vez de encher o quadro', () => {
 
 test('o resumo conta o que tem dentro, sem abrir', () => {
   assert.equal(resumoDaPartitura(salvar()), '2 agentes · 2 recados · 1 corda · funções: "Main", "Revisor"')
+})
+
+test('a banda vai na partitura: o time sobe junto com a moldura que dá as permissões', () => {
+  const banda = { id: 'b', tipo: 'banda', nome: 'Revisores', x: 900, y: 400, largura: 2000, altura: 800, z: -1, criadoEm: instante } as No
+  const { plano: p, notas } = timeDeQuatro()
+  const comBanda = plano([banda, ...p.nos], [...p.cordas, corda('c2', 'b', 'm')])
+  const salva = partituraDe(comBanda, notas, 'Time', null, ambiente()) as Partitura
+  const moldura = salva.pecas.find((x) => x.tipo === 'banda')
+  assert.ok(moldura, 'a moldura entrou na partitura')
+  assert.equal(moldura.tipo === 'banda' && moldura.nome, 'Revisores')
+  // a corda desenhada na banda também é guardada (é permissão de time, não enfeite)
+  assert.equal(salva.cordas.length, 2)
+  const r = subida(aplicarPartitura(plano([]), {}, salva, 0, 0, ambiente()))
+  const nova = r.plano.nos.find((n) => n.tipo === 'banda')
+  assert.ok(nova && nova.tipo === 'banda' && nova.nome === 'Revisores')
+  // a moldura sobe atrás dos cartões, senão cobriria o time
+  assert.ok(nova.z < Math.min(...r.plano.nos.filter((n) => n.tipo !== 'banda').map((n) => n.z)))
+  // e o time sobe dentro dela: a moldura guarda o lugar relativo, então quem estava dentro continua dentro
+  assert.deepEqual(
+    membrosDaBanda(r.plano, nova.id).map((n) => n.nome),
+    ['Main', 'Revisor']
+  )
+  assert.match(resumoDaPartitura(salva), /banda/)
 })

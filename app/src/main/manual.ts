@@ -13,7 +13,7 @@ ${tabelaDeComandos()}
 
 export const SKILL = `---
 name: maestri-proprio
-description: Use dentro de um terminal do Maestri Próprio (a variável de ambiente MP_PIPE existe) para fazer engenharia de contexto — abrir uma sessão nova de agente (Claude, Codex ou shell) com um contexto limpo e focado, delegar uma parte do trabalho, conversar com os agentes ligados a você pela corda, ler a tela deles, zerar o contexto de uma sessão ou fechar as sessões que você abriu — e para organizar o quadro: ler o que há nele, mover, arrumar em grade, renomear, ligar dois agentes, anotar e agrupar cartões — e para subir um time salvo (partitura) com as funções e as cordas dele, ou guardar o time que está no quadro. Comando: mpro. Fora do app não funciona.
+description: Use dentro de um terminal do Maestri Próprio (a variável de ambiente MP_PIPE existe) para fazer engenharia de contexto — abrir uma sessão nova de agente (Claude, Codex ou shell) com um contexto limpo e focado, delegar uma parte do trabalho, conversar com os agentes ligados a você pela corda, ler a tela deles, zerar o contexto de uma sessão ou fechar as sessões que você abriu — e para organizar o quadro: ler o que há nele, mover, arrumar em grade, renomear, ligar dois agentes, anotar e agrupar cartões — para juntar agentes numa banda (grupo em que todos se falam), trocar o agente de um cartão que você abriu, e subir um time salvo (partitura) com as funções e as cordas dele, ou guardar o time que está no quadro. Comando: mpro. Fora do app não funciona.
 ---
 
 # Maestri Próprio: o comando \`mpro\`
@@ -120,6 +120,32 @@ Tudo o que você fizer aqui entra no **desfazer do usuário**: um Ctrl+Z volta o
 arrumar o quadro é coisa que se faz com parcimônia — o lugar onde o usuário deixou um cartão costuma querer
 dizer algo. Mover o que é seu (os seus subagentes, as suas anotações) é de boa educação; reorganizar o quadro
 todo sem ele pedir, não.
+
+## Banda: um grupo de agentes
+
+Uma **banda** é uma moldura no quadro. Quem está **dentro** dela fala com todos os outros de dentro, e a
+corda desenhada na banda vale para cada um deles — é o que evita seis cordas à mão num time de quatro.
+
+\`\`\`
+mpro banda                           # as bandas deste andar, quem está dentro e onde está a moldura
+mpro banda criar "Revisores" "Revisor" "Prova"   # moldura em volta deles: passam a se falar
+\`\`\`
+
+- **Não há lista de membros:** quem está dentro da moldura é do time. Para pôr alguém, mova o cartão para
+  dentro dela (\`mpro banda\` diz as coordenadas da moldura, e \`mpro mover\` leva o cartão); para tirar, mova
+  para fora. O que está na tela é sempre a verdade.
+- A corda continua sendo a permissão. A banda só poupa trabalho: ela gera as cordas por você.
+
+## Trocar o agente de um cartão
+
+\`\`\`
+mpro trocar "Revisor" codex          # o cartão fica, o agente muda
+\`\`\`
+
+O lugar, o nome, a função, as cordas, a banda e a árvore de código ficam; a conversa anterior não vem (é
+outro agente), e a função do cartão é entregue de novo ao que entrou. **Só nos cartões que você abriu** —
+nem no seu (isso encerraria você no meio deste comando), nem nos do usuário: trocar encerra um processo, e
+ninguém encerra o trabalho de outro.
 
 ## Subir um time salvo: partituras
 

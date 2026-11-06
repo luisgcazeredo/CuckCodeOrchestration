@@ -747,6 +747,35 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
   juntar: async ({ eu, pos, opcoes }) => mexerNoQuadro(eu, { acao: 'juntar', alvos: pos, soltar: opcoes.soltar === true }),
 
   /**
+   * Troca o agente de um cartão **que ele abriu**: o cartão fica (lugar, nome, cordas, árvore de código) e o
+   * agente muda. Só o que ele abriu, pela mesma razão do `mpro fechar`: trocar encerra o processo, e ninguém
+   * encerra o trabalho de outro — nem o seu próprio, que mataria o comando no meio.
+   */
+  trocar: async ({ eu, pos }) => {
+    const agente = (pos[1] ?? '').toLowerCase()
+    if (agente !== 'claude' && agente !== 'codex' && agente !== 'shell') {
+      throw new Error('diga o agente: mpro trocar <cartão> <claude|codex|shell>')
+    }
+    await abrirJanelaPronta(eu.espacoId)
+    const r = await pedirAJanela({ tipo: 'trocar', espacoId: eu.espacoId, id: eu.id, alvo: pos[0], agente })
+    if (!r.ok) throw new Error(r.erro)
+    return { saida: r.texto ?? 'Pronto.' }
+  },
+
+  /** Bandas: grupo de agentes como moldura no quadro. Quem sabe o que está dentro dela é a janela. */
+  banda: async ({ eu, pos }) => {
+    const pedida = (pos[0] ?? 'lista').toLowerCase()
+    const acao = pedida === 'lista' ? 'lista' : pedida === 'criar' ? 'criar' : null
+    if (!acao) throw new Error(`não conheço \`mpro banda ${pos[0]}\`. Use: criar, ou nada para listar.`)
+    const nome = (pos[1] ?? '').trim()
+    if (acao === 'criar' && !nome) throw new Error('diga o nome: mpro banda criar "Nome" <cartão>...')
+    await abrirJanelaPronta(eu.espacoId)
+    const r = await pedirAJanela({ tipo: 'banda', espacoId: eu.espacoId, id: eu.id, acao, nome, alvos: pos.slice(2).filter(Boolean) })
+    if (!r.ok) throw new Error(r.erro)
+    return { saida: r.texto ?? 'Pronto.' }
+  },
+
+  /**
    * Partituras: times salvos. `usar` sobe o time ao lado de quem pediu, já ligado a ele; `salvar` guarda o
    * que está no quadro. Quem guarda as partituras é a janela, dona das preferências.
    */

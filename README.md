@@ -25,13 +25,20 @@ mpro quadro                       lê o quadro: cada cartão com número, nome, 
 mpro mover | arrumar              põe cartões num lugar (--x/--y, --dx/--dy) · arruma em grade (--colunas)
 mpro nome | ligar | desligar      renomeia um cartão · desenha ou tira a corda entre dois agentes
 mpro anotar "…" | juntar          escreve um texto no quadro · agrupa cartões (--soltar desfaz)
+mpro banda | banda criar "Nome" …  grupos de agentes: quem está dentro da moldura fala com todos os de dentro
+mpro trocar <cartão> <agente>     troca o agente de um cartão que ele abriu (o cartão fica, o agente muda)
 mpro partitura                    times salvos: lista, `usar "Nome"` sobe um ao seu lado, `salvar "Nome"` guarda
 ```
 
 Mexer no quadro **entra no desfazer** do usuário, nunca apaga nada, não toca em cartão travado nem em cartão
 de código, e só alcança o andar à mostra — sempre pelo nome do cartão.
 
-Uma **partitura** é um time salvo (agentes com funções e comandos, recados, cordas e grupos) que sobe inteiro
+Uma **banda** é um grupo de agentes desenhado como moldura: quem está dentro dela fala com todos os outros de
+dentro, e a corda desenhada na banda vale para cada um deles. Não há lista de membros — é a moldura que diz
+quem é do time, então arrastar um cartão para dentro ou para fora é entrar e sair. **Trocar o agente** de um
+cartão (menu do cartão, ou `mpro trocar`) mantém lugar, nome, função, cordas, banda e árvore de código.
+
+Uma **partitura** é um time salvo (agentes com funções e comandos, recados, bandas, cordas e grupos) que sobe inteiro
 num espaço novo: no app, pelo menu de terminal ou por "Salvar como partitura…" na seleção. A pasta não é
 salva de propósito — cada cartão abre na pasta do espaço (ou na da função), então o mesmo time serve em
 qualquer projeto —, e o prompt de cada papel vem da função de hoje, nunca de uma cópia velha.

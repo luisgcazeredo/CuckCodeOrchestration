@@ -8,7 +8,7 @@ test('registro declara os verbos operacionais, a ajuda, aliases e opções', () 
   assert.deepEqual(VERBOS.map((verbo) => verbo.nome), [
     'ajuda', 'quem', 'orcamento', 'espacos', 'janela', 'abrir', 'pedir', 'esperar', 'ver', 'teclas', 'arvore',
     'quadro', 'mover', 'arrumar', 'nome', 'ligar', 'desligar', 'anotar', 'juntar',
-    'partitura', 'funcoes', 'limpar', 'fechar', 'passar', 'sair'
+    'trocar', 'banda', 'partitura', 'funcoes', 'limpar', 'fechar', 'passar', 'sair'
   ])
   assert.equal(verboPorNome('help')?.nome, 'ajuda')
   for (const verbo of VERBOS) {

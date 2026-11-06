@@ -41,6 +41,8 @@ export type PecaDePartitura = {
     }
   | { tipo: 'texto'; texto: string; tamanhoFonte: number; mono: boolean }
   | { tipo: 'postit'; texto: string; corPostIt: CorPostIt }
+  /** A moldura de uma banda: sem ela, um time montado em banda subiria sem as permissões que a banda dá. */
+  | { tipo: 'banda'; nome: string }
 )
 
 /**
@@ -189,6 +191,20 @@ export interface NoCodigo extends NoBase {
   arvore?: string
 }
 
+/**
+ * Banda: um grupo de agentes, desenhado como uma moldura no quadro. Quem está dentro dela fala com todos os
+ * outros de dentro, e a corda desenhada na banda vale para cada um deles — é o que evita desenhar seis
+ * cordas à mão para um time de quatro.
+ *
+ * **Não há lista de membros de propósito:** é a moldura que diz quem é do time. O cartão que você arrasta
+ * para dentro entra, o que você tira sai, e o que está escrito na tela é sempre a verdade — uma lista
+ * guardada poderia discordar do que se vê.
+ */
+export interface NoBanda extends NoBase {
+  tipo: 'banda'
+  nome: string
+}
+
 /** Navegador dentro do quadro. */
 export interface NoPortal extends NoBase {
   tipo: 'portal'
@@ -208,7 +224,7 @@ export interface EntradaPasta {
   ehPasta: boolean
 }
 
-export type No = NoTerminal | NoPostIt | NoTexto | NoArquivo | NoPasta | NoPortal | NoImagem | NoCodigo
+export type No = NoTerminal | NoPostIt | NoTexto | NoArquivo | NoPasta | NoPortal | NoImagem | NoCodigo | NoBanda
 export type TipoNo = No['tipo']
 
 /** Ligação entre dois terminais: é a permissão de um agente falar com o outro pelo `mpro`. */

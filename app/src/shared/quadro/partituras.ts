@@ -18,7 +18,7 @@
  *   o Ctrl+Z do usuário não mata sessão de agente no meio do trabalho; quem subiu fecha com `mpro fechar`.
  *   Subida pelo usuário é cartão do usuário: entra no desfazer e sai inteira com um Ctrl+Z.
  */
-import type { Corda, Funcao, No, NoPostIt, NoTerminal, NoTexto, Partitura, PecaDePartitura, Plano } from '../modelo'
+import type { Corda, Funcao, No, NoBanda, NoPostIt, NoTerminal, NoTexto, Partitura, PecaDePartitura, Plano } from '../modelo'
 // Node executa as provas TypeScript diretamente e precisa da extensão nestes imports de execução.
 // @ts-expect-error TS ainda exige allowImportingTsExtensions para esse modo de execução do Node.
 import { MAX_NOS } from './agente.ts'
@@ -35,10 +35,14 @@ export const MAX_TEXTO_DA_PECA = 4000
 /** Folga ao procurar um canto livre para o arranjo. */
 export const FOLGA = 60
 
-export type NoSalvavel = NoTerminal | NoTexto | NoPostIt
+export type NoSalvavel = NoTerminal | NoTexto | NoPostIt | NoBanda
 
-/** O que entra numa partitura: agentes e recados. O resto do quadro (código, pasta, portal…) fica de fora. */
-export const salvavel = (no: No): no is NoSalvavel => no.tipo === 'terminal' || no.tipo === 'texto' || no.tipo === 'postit'
+/**
+ * O que entra numa partitura: agentes, recados e as bandas (grupos de agentes) que os juntam. O resto do
+ * quadro — código, pasta, portal, imagem — fica de fora: aquilo é do projeto, não do time.
+ */
+export const salvavel = (no: No): no is NoSalvavel =>
+  no.tipo === 'terminal' || no.tipo === 'texto' || no.tipo === 'postit' || no.tipo === 'banda'
 
 export interface AmbienteDePartitura {
   novoId: () => string
@@ -71,9 +75,11 @@ const limitar = (texto: string): string => texto.slice(0, MAX_TEXTO_DA_PECA)
 /** Linha de uma partitura numa lista: o que ela tem dentro, sem abrir. */
 export function resumoDaPartitura(partitura: Partitura): string {
   const agentes = partitura.pecas.filter((p) => p.tipo === 'terminal')
-  const recados = partitura.pecas.length - agentes.length
+  const bandas = partitura.pecas.filter((p) => p.tipo === 'banda')
+  const recados = partitura.pecas.length - agentes.length - bandas.length
   const papeis = [...new Set(agentes.flatMap((p) => (p.tipo === 'terminal' && p.funcao ? [p.funcao] : [])))]
   const partes = [`${agentes.length} ${agentes.length === 1 ? 'agente' : 'agentes'}`]
+  if (bandas.length) partes.push(`${bandas.length === 1 ? 'banda' : `${bandas.length} bandas`}`)
   if (recados) partes.push(`${recados} ${recados === 1 ? 'recado' : 'recados'}`)
   if (partitura.cordas.length) partes.push(`${partitura.cordas.length} ${partitura.cordas.length === 1 ? 'corda' : 'cordas'}`)
   if (papeis.length) partes.push(`funções: ${papeis.map((p) => `"${p}"`).join(', ')}`)
@@ -127,6 +133,7 @@ export function partituraDe(
     if (no.tipo === 'texto') {
       return { ...base, tipo: 'texto', texto: limitar(no.texto), tamanhoFonte: no.tamanhoFonte, mono: no.mono }
     }
+    if (no.tipo === 'banda') return { ...base, tipo: 'banda', nome: no.nome }
     return { ...base, tipo: 'postit', texto: limitar(notas[no.arquivo] ?? ''), corPostIt: no.cor }
   })
 
@@ -137,7 +144,9 @@ export function partituraDe(
     const de = indices.get(corda.de)
     const para = indices.get(corda.para)
     if (de === undefined || para === undefined || de === para) continue
-    if (nos[de].tipo !== 'terminal' || nos[para].tipo !== 'terminal') continue
+    // a corda liga agentes, e também uma banda (nela, vale para cada agente de dentro da moldura)
+    const vale = (no: No): boolean => no.tipo === 'terminal' || no.tipo === 'banda'
+    if (!vale(nos[de]) || !vale(nos[para])) continue
     const chave = [Math.min(de, para), Math.max(de, para)].join('-')
     if (vistas.has(chave)) continue
     vistas.add(chave)
@@ -206,6 +215,7 @@ export function aplicarPartitura(
   const porNome = new Map(amb.funcoes.map((f) => [f.nome.trim().toLowerCase(), f]))
 
   let z = proximoZ(plano)
+  let fundo = Math.min(0, ...plano.nos.map((no) => no.z)) - 1
   const novas = { ...notas }
   const pedidos: Array<{ id: string; texto: string }> = []
   const semFuncao = new Set<string>()
@@ -225,6 +235,8 @@ export function aplicarPartitura(
       ...(grupoDe(peca.grupo) ? { grupo: grupoDe(peca.grupo) } : {})
     }
     if (peca.tipo === 'texto') return { ...base, tipo: 'texto', texto: peca.texto, tamanhoFonte: peca.tamanhoFonte, mono: peca.mono }
+    // a moldura da banda sobe atrás de tudo, como quando ela é criada: é fundo, não cartão
+    if (peca.tipo === 'banda') return { ...base, z: fundo--, tipo: 'banda', nome: peca.nome }
     if (peca.tipo === 'postit') {
       const arquivo = `${id}.md`
       novas[arquivo] = peca.texto

@@ -21,6 +21,7 @@ import {
   type Alvo
 } from '../estado/loja'
 import { Arquivo } from '../nos/Arquivo'
+import { Banda } from '../nos/Banda'
 import { Codigo } from '../nos/Codigo'
 import { Imagem } from '../nos/Imagem'
 import { ArvorePasta } from '../nos/ArvorePasta'
@@ -32,6 +33,7 @@ import { abrirMenu } from '../ui/MenuContexto'
 import { itensDaCorda, itensDaSelecao, itensDoDesenho, itensDoFundo, itensDoNo } from '../ui/menus'
 import { CamadaCordas, CamadaDesenhos, CamadaGuias, CamadaSelecao, CamadaVinculos, FormaDesenho } from './Camadas'
 import { marcarGesto, type Marca } from './MolduraNo'
+import { membrosDaBanda } from '../../../shared/quadro/bandas'
 import { caixaDoDesenho, caixaDoNo, caixaEntre, definirMouse, definirViewport, seTocam, telaParaQuadro, zoomEm, type Ponto } from './geometria'
 
 const GRADE = 24
@@ -373,6 +375,8 @@ export function Quadro() {
               return <Imagem key={no.id} no={no} selecionado={marcado} />
             case 'codigo':
               return <Codigo key={no.id} no={no} selecionado={marcado} />
+            case 'banda':
+              return <Banda key={no.id} no={no} selecionado={marcado} membros={membrosDaBanda(plano, no.id).length} />
           }
         })}
         {linhasDoCodigo && <CamadaVinculos nos={plano.nos} />}

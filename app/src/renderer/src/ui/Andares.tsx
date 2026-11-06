@@ -95,7 +95,8 @@ const COR_MINI: Record<No['tipo'], string> = {
   pasta: '#d8d8dc',
   codigo: '#2b2b32',
   portal: '#ffffff',
-  imagem: '#8e8e93'
+  imagem: '#8e8e93',
+  banda: 'transparent'
 }
 
 function Miniatura({ plano, largura, altura }: { plano: Plano; largura: number; altura: number }) {

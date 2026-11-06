@@ -271,7 +271,7 @@ export function dentroDeUmaRaiz(caminho: string): boolean {
   })
 }
 
-const TIPOS_DE_NO = new Set(['terminal', 'postit', 'texto', 'arquivo', 'pasta', 'portal', 'imagem', 'codigo'])
+const TIPOS_DE_NO = new Set(['terminal', 'postit', 'texto', 'arquivo', 'pasta', 'portal', 'imagem', 'codigo', 'banda'])
 const LIMITE_JSON = 20 * 1024 * 1024
 
 function planoValido(p: Plano): boolean {
@@ -289,7 +289,8 @@ function planoValido(p: Plano): boolean {
         (n.tipo !== 'imagem' || IMAGEM_VALIDA.test(n.arquivo)) &&
         (n.tipo !== 'pasta' || typeof n.caminho === 'string') &&
         (n.tipo !== 'portal' || /^https?:\/\//.test(n.url)) &&
-        (n.tipo !== 'codigo' || n.modo === 'diff' || n.modo === 'conteudo')
+        (n.tipo !== 'codigo' || n.modo === 'diff' || n.modo === 'conteudo') &&
+        (n.tipo !== 'banda' || typeof n.nome === 'string')
     )
   )
 }
@@ -330,7 +331,7 @@ function validarParaSalvar(carregado: EspacoCarregado): EspacoCarregado {
 }
 
 const AGENTES = new Set(['claude', 'codex', 'shell'])
-const TIPOS_DE_PECA = new Set(['terminal', 'texto', 'postit'])
+const TIPOS_DE_PECA = new Set(['terminal', 'texto', 'postit', 'banda'])
 
 /**
  * Partituras: times salvos. Só entra o que a partitura é — cartão de agente, texto e post-it, com lugar
@@ -354,7 +355,10 @@ function partiturasValidas(partituras: unknown): boolean {
           TIPOS_DE_PECA.has(peca?.tipo) &&
           [peca.x, peca.y, peca.largura, peca.altura].every(Number.isFinite) &&
           (peca.tipo !== 'terminal' || (AGENTES.has(peca.agente) && typeof peca.nome === 'string' && typeof peca.comando === 'string' && !/[\r\n]/.test(peca.comando))) &&
-          (peca.tipo === 'terminal' || (typeof peca.texto === 'string' && peca.texto.length <= MAX_TEXTO_DA_PECA))
+          (peca.tipo !== 'banda' || (typeof peca.nome === 'string' && peca.nome.length <= 60)) &&
+          (peca.tipo === 'terminal' ||
+            peca.tipo === 'banda' ||
+            (typeof peca.texto === 'string' && peca.texto.length <= MAX_TEXTO_DA_PECA))
       ) &&
       Array.isArray(p.cordas) &&
       p.cordas.every((corda) => Array.isArray(corda) && corda.length === 2 && corda.every((i) => Number.isInteger(i) && i >= 0 && i < p.pecas.length))

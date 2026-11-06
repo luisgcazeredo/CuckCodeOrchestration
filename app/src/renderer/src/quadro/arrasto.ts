@@ -26,7 +26,9 @@ const MINIMO = {
   pasta: { largura: 200, altura: 160 },
   portal: { largura: 320, altura: 220 },
   imagem: { largura: 40, altura: 40 },
-  codigo: { largura: 280, altura: 120 }
+  codigo: { largura: 280, altura: 120 },
+  // moldura de banda: o mínimo é o mesmo de shared/quadro/bandas.ts
+  banda: { largura: 320, altura: 220 }
 } as const
 
 /** Quanto o mouse anda antes de um clique virar arrasto. */

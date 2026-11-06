@@ -19,6 +19,7 @@ import {
   StickyNote,
   Sun,
   Type,
+  Users,
   type LucideIcon
 } from 'lucide-react'
 import type { No } from '../../../shared/modelo'
@@ -99,6 +100,8 @@ function nomeDoCartao(n: No, notas: Record<string, string>): string {
       return 'Imagem'
     case 'codigo':
       return n.caminho ? (n.caminho.split(/[/]/).pop() ?? 'Código') : 'Código do agente'
+    case 'banda':
+      return n.nome || 'Banda'
   }
 }
 
@@ -109,7 +112,8 @@ const ICONE_DO_CARTAO: Record<Exclude<No['tipo'], 'terminal'>, LucideIcon> = {
   pasta: FolderTree,
   portal: Globe,
   imagem: Image,
-  codigo: FileCode
+  codigo: FileCode,
+  banda: Users
 }
 
 /** Leva a tela até o cartão (no zoom atual, se ele couber) e o seleciona. */

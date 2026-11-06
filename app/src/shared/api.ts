@@ -66,6 +66,11 @@ export interface ApiTerminal {
    * e digita. A janela não faria isso direito — ela não sabe quando o agente terminou de abrir.
    */
   primeiroPedido(id: string, texto: string): void
+  /**
+   * O cartão passou a ser de outro agente: encerra o processo e abre o novo. A espec nova chega antes, pelo
+   * `sincronizar` (as mensagens para o processo principal mantêm a ordem).
+   */
+  trocar(id: string): void
 }
 
 /** O processo principal lê a tela espelhada; sem rodapé reconhecível, `contexto` fica nulo. */
@@ -105,6 +110,12 @@ export type PedidoDoAgente =
    * que está no quadro como partitura. O que é uma partitura está em `shared/quadro/partituras.ts`.
    */
   | { tipo: 'partitura'; espacoId: string; id: string; acao: 'lista' | 'usar' | 'salvar'; nome?: string; alvos?: string[] }
+  /**
+   * Trocar o agente de um cartão que ele abriu (nunca o seu nem o do usuário): o cartão fica, o agente muda.
+   */
+  | { tipo: 'trocar'; espacoId: string; id: string; alvo: string; agente: Agente }
+  /** Bandas (grupos de agentes): listar as do andar à mostra ou criar uma em volta de cartões. */
+  | { tipo: 'banda'; espacoId: string; id: string; acao: 'lista' | 'criar'; nome?: string; alvos?: string[] }
   | {
       tipo: 'passar'
       espacoId: string
@@ -347,7 +358,8 @@ export const CANAIS = {
   saida: 'terminal:saida',
   sessao: 'terminal:sessao',
   contextos: 'terminal:contextos',
-  primeiroPedido: 'terminal:primeiro-pedido'
+  primeiroPedido: 'terminal:primeiro-pedido',
+  trocar: 'terminal:trocar'
 } as const
 
 export const CANAIS_AGENTES = {

@@ -11,6 +11,7 @@ import {
   type Funcao,
   type Partitura,
   type No,
+  type NoBanda,
   type NoCodigo,
   type NoTerminal,
   type NoPostIt,
@@ -28,6 +29,8 @@ import { empurrarParaBaixo } from '../../../shared/quadro/empurrar'
 import { abrir, fechar, passar } from '../../../shared/quadro/transformacoes'
 import { acharAlvos, mexerNoQuadro } from '../../../shared/quadro/agente'
 import { MAX_PARTITURAS, aplicarPartitura, partituraDe, resumoDaPartitura } from '../../../shared/quadro/partituras'
+import { bandasDoNo, bandasDoPlano, cordasDaBanda, cordasEfetivas, criarBanda, membrosDaBanda } from '../../../shared/quadro/bandas'
+import { trocarAgente } from '../../../shared/quadro/trocar'
 import { caixaDoDesenho, caixaDoNo, distanciaAoDesenho, enquadrar, lerViewport, uniao, type Caixa } from '../quadro/geometria'
 
 export type Ferramenta = 'selecionar' | 'postit' | 'texto' | 'desenho'
@@ -564,6 +567,53 @@ export function subirPartitura(
   // o prompt de cada função é entregue pelo processo principal, que sabe quando o agente ficou pronto
   for (const pedido of feito.pedidos) window.mp.terminal.primeiroPedido(pedido.id, pedido.texto)
   return { ids: feito.ids, texto: feito.texto }
+}
+
+// ---------- bandas (grupos de agentes) e troca de agente ----------
+
+/**
+ * Cria uma banda: a moldura em volta dos cartões escolhidos, ou vazia em (x, y) para você arrastar agentes
+ * para dentro. Quem está dentro da moldura fala com todos os outros de dentro.
+ */
+export function criarBandaNoQuadro(nome: string, ids: string[], onde: { x: number; y: number }): { erro: string } | { texto: string } {
+  const plano = planoAtual()
+  if (!plano) return { erro: 'nenhum espaço aberto' }
+  const feito = criarBanda(plano, nome, ids, onde, { novoId, agora })
+  if ('erro' in feito) return feito
+  registrarHistorico()
+  mudarPlano(() => feito.plano, false)
+  definir({ selecao: { ...NADA, nos: [feito.banda.id] }, editando: null })
+  return { texto: feito.texto }
+}
+
+/** Os agentes que estão dentro desta banda agora (é a moldura que diz, não uma lista guardada). */
+export function membrosDaBandaAtual(bandaId: string): NoTerminal[] {
+  const plano = planoAtual()
+  return plano ? membrosDaBanda(plano, bandaId) : []
+}
+
+/** As bandas em que este cartão está. */
+export function bandasDoCartao(noId: string): NoBanda[] {
+  const plano = planoAtual()
+  return plano ? bandasDoNo(plano, noId) : []
+}
+
+/**
+ * Troca o agente de um cartão (Claude → Codex, outro modelo…) sem mexer no lugar, no nome, nas cordas nem na
+ * árvore de código. O processo é reaberto pelo processo principal, e a função do cartão é entregue de novo.
+ */
+export function trocarAgenteDoCartao(id: string, preset: PresetAgente, porAgente = false): { erro: string } | { texto: string } {
+  const plano = planoAtual()
+  if (!plano) return { erro: 'nenhum espaço aberto' }
+  const feito = trocarAgente(plano, { id, preset, porAgente }, estado.preferencias.funcoes ?? [], { novoId })
+  if ('erro' in feito) return feito
+  registrarHistorico()
+  mudarPlano(() => feito.plano, false)
+  // o `sincronizar` sai no mesmo instante (dentro de `definir`), então o main já tem o cartão novo quando a
+  // troca chega: as mensagens para o processo principal mantêm a ordem em que foram mandadas
+  window.mp.terminal.trocar(feito.id)
+  if (feito.primeiroPedido) window.mp.terminal.primeiroPedido(feito.id, feito.primeiroPedido)
+  return { texto: feito.texto }
 }
 
 export function definirPresets(presets: PresetAgente[]): void {
@@ -1122,6 +1172,10 @@ export function posicoesDaSelecao(): Posicoes {
   if (!plano) return { nos: [], desenhos: [] }
   // o agente leva os arquivos dele junto, como os ramos de um mapa mental vão com o nó que os segura
   const escolhidos = new Set(s.nos)
+  // e a moldura de uma banda leva o time que está dentro dela: mover a banda é mover o time
+  for (const n of plano.nos) {
+    if (n.tipo === 'banda' && escolhidos.has(n.id)) for (const membro of membrosDaBanda(plano, n.id)) escolhidos.add(membro.id)
+  }
   for (const n of plano.nos) {
     if (n.tipo === 'codigo' && n.automatico && n.terminal && escolhidos.has(n.terminal)) escolhidos.add(n.id)
   }
@@ -1356,8 +1410,9 @@ export function distribuir(eixo: 'x' | 'y'): void {
 export function ligar(de: string, para: string): boolean {
   const plano = planoAtual()
   if (!plano || de === para) return false
-  const ehTerminal = (id: string): boolean => plano.nos.some((n) => n.id === id && n.tipo === 'terminal')
-  if (!ehTerminal(de) || !ehTerminal(para)) return false
+  // a corda liga agentes, e também uma banda: nela, a corda vale para cada agente de dentro da moldura
+  const podeLigar = (id: string): boolean => plano.nos.some((n) => n.id === id && (n.tipo === 'terminal' || n.tipo === 'banda'))
+  if (!podeLigar(de) || !podeLigar(para)) return false
   const existe = plano.cordas.some((c) => (c.de === de && c.para === para) || (c.de === para && c.para === de))
   if (existe) return false
   const corda: Corda = { id: novoId(), de, para, criadoEm: agora() }
@@ -1419,10 +1474,20 @@ function sincronizarTerminais(): void {
   // objeto (o estado é imutável, então um cartão mudado é um objeto novo) e num arrasto só o cartão movido
   // muda. A lista de verdade só é montada quando a assinatura muda.
   const partes: string[] = [e.id]
+  // as cordas que o main recebe são as **efetivas**: as desenhadas mais as que a banda implica (todos os de
+  // dentro da moldura entre si, e cada um com quem a banda está ligada). Assim o main segue com uma regra só
+  // — corda é permissão — e não precisa saber o que é banda. Quando não há banda no plano, não custa nada.
+  const efetivas = new Map<Plano, Array<[string, string]>>()
   for (const plano of [e, ...e.andares]) {
     const pastaDoPlano = pastaDe(e, plano)
     for (const n of plano.nos) if (n.tipo === 'terminal') partes.push(firmaDoCartao(n, n.pasta || pastaDoPlano))
-    for (const c of plano.cordas) partes.push(`c\u0001${c.de}\u0001${c.para}`)
+    const lista = plano.nos.some((n) => n.tipo === 'banda')
+      ? cordasEfetivas(plano)
+      : plano.cordas.map((c) => [c.de, c.para] as [string, string])
+    efetivas.set(plano, lista)
+    // a lista efetiva entra na firma: arrastar um agente para dentro da moldura muda a permissão, e sem isto
+    // a mudança não chegaria ao main (a firma de um cartão não inclui o lugar dele, de propósito)
+    for (const [de, para] of lista) partes.push(`c\u0001${de}\u0001${para}`)
   }
   const firma = partes.join('\u0002')
   if (firma === firmaTerminais) return
@@ -1435,7 +1500,7 @@ function sincronizarTerminais(): void {
       const { id, nome, agente, comando, sessao, criadoPor, funcao } = n
       especs.push({ id, nome, agente, comando, pasta: n.pasta || pastaDe(e, plano), sessao, criadoPor, funcao })
     }
-    for (const c of plano.cordas) cordas.push([c.de, c.para])
+    for (const par of efetivas.get(plano) ?? []) cordas.push(par)
   }
   window.mp.terminal.sincronizar(e.id, especs, cordas).then(anotarSessoes, () => (firmaTerminais = ''))
 }
@@ -2147,6 +2212,61 @@ function atenderArvore(pedido: Extract<PedidoDoAgente, { tipo: 'arvore' }>): Res
 }
 
 /**
+ * Troca de agente pelo `mpro`. Só nos cartões que o próprio agente abriu: trocar encerra um processo, e
+ * encerrar trabalho de outro (ou o seu, no meio do comando) não é dele. O preset é o do usuário para aquele
+ * agente, como no `mpro abrir`.
+ */
+function atenderTroca(pedido: Extract<PedidoDoAgente, { tipo: 'trocar' }>): RespostaAoAgente {
+  const plano = planoAtual()
+  if (!plano) return { ok: false, erro: 'nenhum espaço aberto nesta janela' }
+  const achados = acharAlvos(plano, [pedido.alvo])
+  if (typeof achados === 'string') return { ok: false, erro: achados }
+  const alvo = achados[0]
+  if (alvo.tipo !== 'terminal') return { ok: false, erro: 'só cartão de agente troca de agente' }
+  if (alvo.id === pedido.id) return { ok: false, erro: 'você não troca o seu próprio cartão: isso encerraria você no meio deste comando' }
+  if (alvo.criadoPor !== pedido.id) return { ok: false, erro: `"${alvo.nome}" não foi aberto por você; só trocar o que é seu` }
+  const preset =
+    estado.preferencias.presets.find((p) => p.agente === pedido.agente) ?? PRESETS_PADRAO.find((p) => p.agente === pedido.agente)!
+  const feito = trocarAgenteDoCartao(alvo.id, preset, true)
+  return 'erro' in feito ? { ok: false, erro: feito.erro } : { ok: true, texto: feito.texto }
+}
+
+/** Bandas pelo `mpro`: listar as do andar à mostra (com quem está dentro) e criar uma em volta de cartões. */
+function atenderBanda(pedido: Extract<PedidoDoAgente, { tipo: 'banda' }>): RespostaAoAgente {
+  const plano = planoAtual()
+  if (!plano) return { ok: false, erro: 'nenhum espaço aberto nesta janela' }
+  if (pedido.acao === 'lista') {
+    const bandas = bandasDoPlano(plano)
+    const linhas = bandas.map((b) => {
+      const dentro = membrosDaBanda(plano, b.id)
+      const ligada = cordasDaBanda(plano, b.id).length
+      return [
+        `  "${b.nome}" — ${dentro.length ? dentro.map((n) => `"${n.nome}"`).join(', ') : 'vazia'}`,
+        `    moldura de (${Math.round(b.x)}, ${Math.round(b.y)}) a (${Math.round(b.x + b.largura)}, ${Math.round(b.y + b.altura)})${
+          ligada ? ` · ${ligada} corda(s) na banda` : ''
+        }`
+      ].join('\n')
+    })
+    return {
+      ok: true,
+      texto: linhas.length
+        ? [
+            'Bandas deste andar (quem está dentro da moldura fala com todos os de dentro):',
+            ...linhas,
+            'Para pôr um agente num time, mova o cartão para dentro da moldura (`mpro mover "Nome" --x N --y N`).'
+          ].join('\n')
+        : 'Nenhuma banda neste andar. Crie uma com `mpro banda criar "Nome" <cartão>...`.'
+    }
+  }
+  const achados = pedido.alvos?.length ? acharAlvos(plano, pedido.alvos) : []
+  if (typeof achados === 'string') return { ok: false, erro: achados }
+  const eu = acharNo(pedido.id)
+  const onde = eu ? { x: eu.x + eu.largura / 2, y: eu.y + eu.altura + 200 } : { x: 0, y: 0 }
+  const feito = criarBandaNoQuadro(pedido.nome ?? '', achados.map((no) => no.id), onde)
+  return 'erro' in feito ? { ok: false, erro: feito.erro } : { ok: true, texto: feito.texto }
+}
+
+/**
  * Partituras pelo `mpro`: listar, subir um time e guardar o que está no quadro como partitura.
  *
  * Subir entra no desfazer (é o `subirPartitura` que registra); guardar não mexe no quadro, mexe nas
@@ -2229,6 +2349,8 @@ function atenderAgente(pedido: PedidoDoAgente): RespostaAoAgente {
   if (pedido.tipo === 'arvore') return atenderArvore(pedido)
   if (pedido.tipo === 'quadro') return atenderQuadroDoAgente(pedido)
   if (pedido.tipo === 'partitura') return atenderPartitura(pedido)
+  if (pedido.tipo === 'trocar') return atenderTroca(pedido)
+  if (pedido.tipo === 'banda') return atenderBanda(pedido)
   if (pedido.tipo === 'funcoes') {
     const lista = estado.preferencias.funcoes ?? []
     const linhas = lista.map((f) => `  "${f.nome}"${f.pasta ? ` · pasta ${f.pasta}` : ''} — ${primeiraLinha(f.prompt)}`)

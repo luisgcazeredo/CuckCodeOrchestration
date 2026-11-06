@@ -375,6 +375,26 @@ export function registrarTerminais(): void {
     s.espelho.resize(c, l)
   })
 
+  // troca de agente no mesmo cartão: o processo antigo sai e o novo entra com a espec que já chegou pelo
+  // `sincronizar`. A tela é zerada porque o que estava escrito nela era a conversa de outro agente.
+  ipcMain.on(CANAIS.trocar, (evento, id: unknown) => {
+    const s = daJanelaDona(evento, id)
+    if (!s) return
+    const processo = s.processo
+    s.processo = null
+    try {
+      processo?.kill()
+    } catch {
+      // já tinha saído
+    }
+    s.espelho.reset()
+    s.espelho.clear()
+    const aviso = `\x1b[2m— trocado para ${s.espec.nome}: ${s.espec.agente} —\x1b[0m\r\n`
+    s.espelho.write(aviso)
+    avisarVistas(s, CANAIS.dados, `\x1b[2J\x1b[H${aviso}`)
+    iniciarProcesso(s)
+  })
+
   ipcMain.handle(CANAIS.reiniciar, (evento, id: unknown) => {
     const s = daJanelaDona(evento, id)
     if (!s || s.processo) return

@@ -449,6 +449,65 @@ button {
   border-color: var(--destaque);
 }
 
+/* ---------- banda: a moldura de um grupo de agentes ---------- */
+/* O miolo não pega o mouse: clicar no meio da moldura é clicar no quadro, e o laço de seleção continua
+   funcionando por cima do time. Quem pega são a barra do nome, a borda e a porta da corda. */
+.no-banda {
+  pointer-events: none;
+  border: calc(2px / var(--zoom, 1)) dashed var(--corda);
+  border-radius: calc(14px / var(--zoom, 1));
+  background: color-mix(in srgb, var(--corda) 7%, transparent);
+}
+
+.no-banda.selecionado {
+  border-style: solid;
+  border-color: var(--destaque);
+}
+
+.banda-titulo {
+  position: absolute;
+  left: calc(-2px / var(--zoom, 1));
+  top: calc(-2px / var(--zoom, 1));
+  display: flex;
+  align-items: center;
+  gap: calc(7px / var(--zoom, 1));
+  max-width: 100%;
+  padding: calc(6px / var(--zoom, 1)) calc(12px / var(--zoom, 1));
+  border-radius: calc(12px / var(--zoom, 1)) calc(12px / var(--zoom, 1)) calc(10px / var(--zoom, 1)) 0;
+  background: var(--pilula-fundo);
+  border: calc(1px / var(--zoom, 1)) solid var(--pilula-borda);
+  color: var(--texto);
+  font-size: calc(13px / var(--zoom, 1));
+  white-space: nowrap;
+  cursor: grab;
+  pointer-events: auto;
+}
+
+.banda-nome {
+  font-weight: 600;
+}
+
+.banda-conta {
+  color: var(--texto-suave);
+  font-size: calc(11.5px / var(--zoom, 1));
+}
+
+.porta-banda {
+  top: calc(100% + 1px);
+  left: 50%;
+  margin: calc(-6px / var(--zoom, 1)) 0 0 calc(-6px / var(--zoom, 1));
+  pointer-events: auto;
+}
+
+.no-banda:hover .porta-banda,
+.no-banda.selecionado .porta-banda {
+  opacity: 1;
+}
+
+.no-banda .alca-redimensionar {
+  pointer-events: auto;
+}
+
 /* post-it */
 .postit {
   height: 100%;
