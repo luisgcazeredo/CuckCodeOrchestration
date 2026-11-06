@@ -1,90 +1,159 @@
 <img src="identidade/orkester-assinatura.png" alt="Orkester" height="96">
 
-> **Nome novo em 06/11/2026.** O projeto se chamava *Maestri Próprio* (repositório `CuckCodeOrchestration`) e o
-> comando dos agentes era `mpro`. Agora é **Orkester**, o comando é **`ork`**, a skill é `orkester` e os dados
-> ficam em `~/.orkester` — o app move a pasta antiga sozinho na primeira abertura.
+**Um quadro infinito onde cada agente de código é uma peça — e você desenha quem fala com quem.**
 
-Um quadro infinito para orquestrar agentes de código. Cada terminal (Claude Code, Codex ou um shell comum) é uma
-peça no quadro, ao lado de post-its e desenhos, e os agentes conversam entre si pelas ligações que você desenha.
+Claude Code, Codex e PowerShell rodam de verdade dentro dos cartões, lado a lado com post-its, arquivos e
+desenhos. A linha que você traça entre dois cartões é a permissão para um agente falar com o outro.
 
-**Estado:** quadro pronto (espaços, post-its, textos, anexos, árvore de arquivos, navegador, desenhos, ligações,
-desfazer, temas claro e escuro), instalável no Windows. Os terminais são de verdade: Claude Code, Codex e PowerShell
-rodam dentro do cartão, continuam vivos ao trocar de espaço e retomam a conversa ao reabrir. Dentro de qualquer
-terminal do app, o comando `ork` deixa um agente abrir sessões novas, conversar com quem está ligado a ele e ler a
-tela dos outros.
+<img src="capturas/quadro.png" alt="o quadro do Orkester: dois terminais ligados por uma corda, post-its e desenhos" width="100%">
+
+## Por que isto existe
+
+Um agente de código dá conta bem de uma tarefa de cada vez. Quando o trabalho cresce, a saída de todo mundo é
+a mesma: abrir mais terminais. Aí o gargalo deixa de ser o agente e passa a ser você — meia dúzia de janelas
+iguais, nenhuma sabe o que a outra está fazendo, e o único jeito de um agente aproveitar o trabalho do outro é
+você copiar e colar entre as duas.
+
+O Orkester troca a pilha de janelas por um quadro. Cada terminal vira uma peça com nome, lugar e função; entre
+duas peças você desenha uma corda, e a partir dela os agentes se falam sozinhos. O arranjo que antes existia só
+na sua cabeça vira uma coisa visível, que se salva e se repete no projeto seguinte.
+
+Três ideias seguram o resto:
+
+- **O quadro é o estado.** Posição, nome, grupo e ligação não são enfeite — é por eles que o app decide quem
+  alcança quem. Arrastar um cartão para dentro de um grupo *é* colocá-lo no time.
+- **A corda é a permissão.** Um agente só conversa com quem está ligado a ele. Nada de um agente solto mandando
+  recado para o quadro inteiro.
+- **O agente tem mão.** Dentro de um terminal do app existe o comando **`ork`**: com ele o agente abre sessões
+  novas, delega, lê a tela de quem está ligado a ele, organiza o quadro e monta o próprio time. Fora do app, o
+  comando recusa rodar.
+
+## O que já dá para fazer
+
+- **Terminais de verdade no quadro** — Claude Code, Codex ou PowerShell dentro do cartão, com rolagem, zoom e
+  cópia; continuam vivos ao trocar de espaço e retomam a conversa ao reabrir o app.
+- **Delegação entre agentes** — um agente abre outro já com contexto (`--pedido`, `--arquivo`, `--funcao`),
+  espera a resposta, lê a tela, responde menus e fecha o que abriu.
+- **Funções** — nome + prompt + pasta. O agente nasce sabendo o papel dele em vez de nascer vazio.
+- **Bandas** — grupos desenhados como moldura: quem está dentro fala com todos os de dentro.
+- **Partituras** — times inteiros salvos (agentes, funções, recados, cordas, bandas) que sobem de uma vez num
+  espaço novo, em qualquer projeto.
+- **Rotinas** — um pedido digitado num cartão a cada X minutos, todo dia ou toda semana. Se o terminal estiver
+  ocupado, parado numa pergunta ou encerrado, a rotina **pula a vez** em vez de escrever no meio do trabalho.
+- **Andares** — cópias isoladas do repositório por `git worktree`, para dois times mexerem no mesmo projeto sem
+  se atropelar.
+- **Árvores de código** — os arquivos que o agente toca viram cartões ao lado dele, com o diff do git,
+  agrupados por frente de trabalho.
+- **Leitura de contexto** — quanto de janela cada agente já gastou, para decidir quando limpar ou passar o
+  trabalho adiante.
+- **O resto do quadro** — espaços de trabalho, post-its em `.md`, textos, anexos, navegador embutido, desenho
+  à mão livre, desfazer de tudo, temas claro e escuro.
+
+## Instalar
+
+Precisa de **Node 24** e **Windows 11 x64**.
+
+```powershell
+git clone https://github.com/luisgcazeredo/orkester.git
+cd orkester/app
+npm install
+npm run instalar   # gera o instalador e instala o app neste PC
+```
+
+O app abre pelo atalho **Orkester** (área de trabalho e menu Iniciar). Os dados ficam em
+`%USERPROFILE%\.orkester` — JSON do quadro e post-its em `.md`, legíveis fora do app — e não são apagados ao
+desinstalar.
+
+Para desenvolver:
+
+```powershell
+npm run dev        # app com recarga automática
+npm run provas     # testes dos módulos puros
+npm run autoteste  # monta um quadro, usa mouse e teclado, confere tudo e fecha (0 = passou)
+```
 
 ## O comando `ork`
 
-Roda dentro de um terminal do app (fora dele, recusa). A ligação (corda) entre dois terminais é a permissão.
+Roda dentro de um terminal do app. A corda entre dois cartões é a permissão; os cartões se chamam pelo nome.
 
 ```text
-ork quem                         quem é você e quem está ligado a você
-ork abrir claude|codex|shell     sessão nova ao lado, já ligada, com --pedido "…" ou --arquivo pedido.md
-ork pedir <nome> "…"             manda um pedido e espera terminar (devolve a tela)
-ork esperar | ver <nome>         espera terminar · lê a tela sem mandar nada
-ork teclas <nome> enter|esc|…    responde menus e perguntas
-ork limpar | fechar <nome>       zera o contexto · fecha uma sessão que você abriu
-ork arvore nova|usar|mostrar     as árvores de código do cartão dele, uma por frente de trabalho
-ork quadro                       lê o quadro: cada cartão com número, nome, lugar e tamanho, e as cordas
-ork mover | arrumar              põe cartões num lugar (--x/--y, --dx/--dy) · arruma em grade (--colunas)
-ork nome | ligar | desligar      renomeia um cartão · desenha ou tira a corda entre dois agentes
-ork anotar "…" | juntar          escreve um texto no quadro · agrupa cartões (--soltar desfaz)
-ork banda | banda criar "Nome" …  grupos de agentes: quem está dentro da moldura fala com todos os de dentro
-ork trocar <cartão> <agente>     troca o agente de um cartão que ele abriu (o cartão fica, o agente muda)
-ork partitura                    times salvos: lista, `usar "Nome"` sobe um ao seu lado, `salvar "Nome"` guarda
+# quem sou eu, onde estou
+ork quem                          você, quem está ligado a você e o último contexto conhecido
+ork orcamento                     quanto de janela o agente já gastou
+ork espacos | janela              lista os espaços · abre um numa janela (--novo cria)
+
+# trabalhar com outros agentes
+ork abrir claude|codex|shell      sessão nova ao lado, já ligada (--funcao, --pedido, --arquivo, --esperar)
+ork pedir <nome> "…"              manda um pedido e espera terminar (devolve a tela)
+ork esperar | ver <nome>          espera terminar · lê a tela sem mandar nada
+ork teclas <nome> enter|esc|…     responde menus e perguntas
+ork limpar | fechar <nome>        zera o contexto · fecha uma sessão que você abriu
+ork passar <nome> | ork sair      entrega as sessões que você abriu · fecha o próprio cartão
+
+# montar o time
+ork funcoes                       os papéis guardados, para usar em `ork abrir --funcao`
+ork banda | banda criar "Nome"    grupos: quem está dentro da moldura fala com todos os de dentro
+ork trocar <cartão> <agente>      troca o agente de um cartão que ele abriu (o cartão fica, o agente muda)
+ork partitura                     times salvos: `usar "Nome"` sobe um ao lado, `salvar "Nome"` guarda
+
+# mexer no quadro
+ork quadro                        cada cartão com número, nome, lugar e tamanho, e as cordas
+ork mover | arrumar               põe cartões num lugar (--x/--y, --dx/--dy) · arruma em grade (--colunas)
+ork nome | ligar | desligar       renomeia um cartão · desenha ou tira a corda entre dois agentes
+ork anotar "…" | juntar           escreve um texto no quadro · agrupa cartões (--soltar desfaz)
+ork arvore nova|usar|mostrar      as árvores de código do cartão, uma por frente de trabalho
 ```
 
-Mexer no quadro **entra no desfazer** do usuário, nunca apaga nada, não toca em cartão travado nem em cartão
-de código, e só alcança o andar à mostra — sempre pelo nome do cartão.
+Tudo o que o agente faz no quadro **entra no desfazer** do usuário, nunca apaga nada, não toca em cartão
+travado nem em cartão de código, e só alcança o andar à mostra.
 
-Uma **rotina** digita um pedido num cartão a cada X minutos, todo dia ou toda semana (menu do cartão →
-Rotinas…). O que só o app faz: se o terminal estiver **ocupado**, parado numa pergunta ou encerrado, ela
-**pula a vez** em vez de escrever no meio do trabalho. Correm enquanto o espaço está aberto numa janela.
+O app grava o manual completo como skill `orkester` em `~/.claude/skills` e `~/.codex/skills`, então o agente
+aprende o comando sozinho na primeira vez que precisa dele.
 
-Uma **banda** é um grupo de agentes desenhado como moldura: quem está dentro dela fala com todos os outros de
-dentro, e a corda desenhada na banda vale para cada um deles. Não há lista de membros — é a moldura que diz
-quem é do time, então arrastar um cartão para dentro ou para fora é entrar e sair. **Trocar o agente** de um
-cartão (menu do cartão, ou `ork trocar`) mantém lugar, nome, função, cordas, banda e árvore de código.
+## Três ideias que valem explicar
 
-Uma **partitura** é um time salvo (agentes com funções e comandos, recados, bandas, cordas e grupos) que sobe inteiro
-num espaço novo: no app, pelo menu de terminal ou por "Salvar como partitura…" na seleção. A pasta não é
-salva de propósito — cada cartão abre na pasta do espaço (ou na da função), então o mesmo time serve em
-qualquer projeto —, e o prompt de cada papel vem da função de hoje, nunca de uma cópia velha.
+**Banda.** Um grupo desenhado como moldura. Não existe lista de membros — é a moldura que diz quem é do time,
+então arrastar um cartão para dentro ou para fora é entrar e sair. A corda ligada à banda vale para cada um dos
+que estão dentro.
 
-O app grava o manual como skill `orkester` em `~/.claude/skills` e `~/.codex/skills`.
+**Partitura.** Um time salvo. A pasta *não* é salva de propósito: cada cartão abre na pasta do espaço onde a
+partitura subiu, então o mesmo time serve em qualquer projeto. O prompt de cada papel vem da função de hoje,
+nunca de uma cópia velha guardada junto.
 
-## Fases
+**Rotina.** O que só o app consegue fazer é saber a situação do terminal antes de digitar. Uma rotina que
+escreve no meio de uma resposta estraga o trabalho; por isso ela confere e pula a vez.
 
-1. Quadro, terminais, post-its, salvar e reabrir
-2. Ligações entre agentes e linha de comando própria (`ork`: quem, abrir, pedir, ver, notas)
-3. Andares isolados com git worktree
-4. Gerente de time: funções, recrutar agentes, grupos, times salvos
-5. Navegador embutido, rotinas, desenhos, árvore de arquivos, medidor de uso
+## Por dentro
 
-## Stack
+Electron · React · TypeScript · xterm.js · node-pty.
 
-Electron · React · TypeScript · xterm.js · node-pty — Windows 11 x64 primeiro.
+O cálculo do quadro mora em módulos puros (`app/src/shared/`), cobertos por testes que rodam em Node sem abrir o
+app. Em cima deles, o autoteste abre o app de verdade, monta um quadro, mexe com mouse e teclado e confere o
+resultado na tela. Hoje: **103 provas** e **142 checagens** em 12 cenários.
+
+```text
+app/src/shared/    regras puras do quadro (bandas, partituras, trocar, rotinas, arquivos)
+app/src/main/      processo principal: terminais, verbos do `ork`, dados em disco, autoteste
+app/src/renderer/  o quadro em React
+app/src/cli/       o comando `ork` que o agente chama
+identidade/        a marca e os scripts que geram o ícone
+capturas/          telas usadas aqui
+```
+
+## Estado
+
+Versão **0.30.0**, em uso diário no Windows. Quadro, terminais, delegação, funções, bandas, partituras,
+rotinas, andares e árvores de código estão prontos; o caminho até a 1.0 segue por operação (o que acontece
+quando um agente trava, acaba o crédito ou o PC reinicia) e visual próprio.
 
 ## Marca
 
 <img src="identidade/orkester-simbolo.png" alt="símbolo do Orkester" height="72">
 
-Três peças orbitando um núcleo: três agentes em volta do trabalho. As versões (com e sem a palavra, PNG e
-vetor), as cores e os dois comandos que refazem tudo estão em [`identidade/`](identidade/README.md).
+Três peças orbitando um núcleo: três agentes em volta do mesmo trabalho. As versões com e sem a palavra, as
+cores e os comandos que refazem o ícone estão em [`identidade/`](identidade/README.md).
 
-## Rodar
+---
 
-Precisa de Node 24.
-
-```powershell
-cd app
-npm install
-npm run dev        # abre o app com recarga automática (para desenvolver)
-npm run autoteste  # monta um quadro de teste, usa o mouse e o teclado, confere tudo e fecha (0 = passou)
-npm run instalar   # gera o instalador e instala/atualiza o app neste PC (feche o app antes)
-```
-
-Instalado, o app abre pelo atalho **Orkester** (área de trabalho e menu Iniciar). Os dados ficam em
-`%USERPROFILE%\.orkester` (JSON + post-its em `.md`) e não são apagados ao desinstalar.
-
-<!-- Linha de teste do visualizador de código (04/11/2026). -->
+Projeto pessoal de [@luisgcazeredo](https://github.com/luisgcazeredo), feito para o uso dele. O código está
+aberto para quem quiser ler ou aproveitar; não há promessa de suporte nem de compatibilidade entre versões.
