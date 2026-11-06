@@ -84,11 +84,11 @@ export function CorpoXterm({ id, ativo }: Props) {
     let cancelado = false
     const fila: string[] = []
     const desligar = [
-      window.mp.terminal.aoReceber(id, (dados) => (ligado ? terminal.write(dados) : fila.push(dados))),
-      window.mp.terminal.aoSair(id, (codigo) => setSaiu(codigo))
+      window.ork.terminal.aoReceber(id, (dados) => (ligado ? terminal.write(dados) : fila.push(dados))),
+      window.ork.terminal.aoSair(id, (codigo) => setSaiu(codigo))
     ]
-    const digitado = terminal.onData((dados) => window.mp.terminal.escrever(id, dados))
-    const redimensionado = terminal.onResize(({ cols, rows }) => window.mp.terminal.redimensionar(id, cols, rows))
+    const digitado = terminal.onData((dados) => window.ork.terminal.escrever(id, dados))
+    const redimensionado = terminal.onResize(({ cols, rows }) => window.ork.terminal.redimensionar(id, cols, rows))
 
     /**
      * Caixa do tamanho do cartão × QUALIDADE, desfeita por um scale(1/QUALIDADE). O zoom do quadro não entra
@@ -105,10 +105,10 @@ export function CorpoXterm({ id, ativo }: Props) {
     termRef.current = { terminal, ajuste, ajustar }
     ajustar(false)
     // o autoteste lê o que o cartão mostra (com WebGL o texto não está no DOM)
-    const doTeste = window.mp.autoteste ? (((window as unknown as { __terminais?: Record<string, Terminal> }).__terminais ??= {})) : null
+    const doTeste = window.ork.autoteste ? (((window as unknown as { __terminais?: Record<string, Terminal> }).__terminais ??= {})) : null
     if (doTeste) doTeste[id] = terminal
 
-    window.mp.terminal.ligar(id).then((r) => {
+    window.ork.terminal.ligar(id).then((r) => {
       if (cancelado) return
       if (!r) {
         terminal.write('\x1b[2mo processo deste terminal não está disponível\x1b[0m\r\n')
@@ -132,7 +132,7 @@ export function CorpoXterm({ id, ativo }: Props) {
       desligar.forEach((f) => f())
       digitado.dispose()
       redimensionado.dispose()
-      window.mp.terminal.desligar(id)
+      window.ork.terminal.desligar(id)
       termRef.current = null
       if (doTeste?.[id] === terminal) delete doTeste[id]
       terminal.dispose()
@@ -175,7 +175,7 @@ export function CorpoXterm({ id, ativo }: Props) {
       {saiu !== null && (
         <div className="terminal-saiu" data-sem-arrasto>
           <span>Processo encerrado (código {saiu}).</span>
-          <button onClick={() => void window.mp.terminal.reiniciar(id).then(() => setSaiu(null))}>Abrir de novo</button>
+          <button onClick={() => void window.ork.terminal.reiniciar(id).then(() => setSaiu(null))}>Abrir de novo</button>
         </div>
       )}
     </div>

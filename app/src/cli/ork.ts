@@ -1,11 +1,11 @@
-// O `mpro`, rodado pelos agentes dentro de um terminal do app (pelo Electron em modo Node, ver comandos.ts).
+// O `ork`, rodado pelos agentes dentro de um terminal do app (pelo Electron em modo Node, ver comandos.ts).
 // Lê os argumentos, manda uma linha JSON pelo pipe do app e escreve a resposta. Saída: 0 ok, 1 recusado, 2 sem app.
 import { readFileSync } from 'node:fs'
 import { connect } from 'node:net'
 import { opcaoExigeValor, validarChamada } from '../main/verbos'
 
 function falhar(mensagem: string, codigo: number): void {
-  process.stderr.write(`mpro: ${mensagem}\n`)
+  process.stderr.write(`ork: ${mensagem}\n`)
   process.exitCode = codigo
 }
 
@@ -31,16 +31,16 @@ function lerTexto(comando: string, posicionais: string[], opcoes: Record<string,
   if (typeof opcoes.arquivo === 'string') return readFileSync(opcoes.arquivo, 'utf8')
   if (comando === 'abrir') return typeof opcoes.pedido === 'string' ? opcoes.pedido : ''
   if (comando !== 'pedir') return ''
-  // `mpro pedir Nome -`: o pedido vem pela entrada padrão
+  // `ork pedir Nome -`: o pedido vem pela entrada padrão
   if (posicionais[1] === '-') return readFileSync(0, 'utf8')
   return posicionais.slice(1).join(' ')
 }
 
 function principal(): void {
   const [comando = 'ajuda', ...resto] = process.argv.slice(2)
-  const pipe = process.env.MP_PIPE
-  const cracha = process.env.MP_CRACHA
-  if (!pipe || !cracha) return falhar('só funciona dentro de um terminal do Maestri Próprio', 2)
+  const pipe = process.env.ORK_PIPE
+  const cracha = process.env.ORK_CRACHA
+  if (!pipe || !cracha) return falhar('só funciona dentro de um terminal do Orkester', 2)
   const { posicionais, opcoes } = lerArgumentos(comando, resto)
   let texto: string
   try {

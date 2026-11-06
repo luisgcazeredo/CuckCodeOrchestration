@@ -12,7 +12,7 @@ export interface PedidoDeTroca {
   id: string
   /** O preset escolhido: é dele que vêm o agente e a linha de comando. */
   preset: PresetAgente
-  /** Pedido de agente pelo `mpro`: aí vale a regra de cartão travado ser intocável. */
+  /** Pedido de agente pelo `ork`: aí vale a regra de cartão travado ser intocável. */
   porAgente?: boolean
 }
 

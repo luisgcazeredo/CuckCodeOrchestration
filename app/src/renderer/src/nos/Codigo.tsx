@@ -89,7 +89,7 @@ export const Codigo = memo(function Codigo({ no, selecionado }: { no: NoCodigo; 
   useEffect(() => {
     if (!pasta) return
     let vivo = true
-    void window.mp.codigo.recentes(pasta).then((lista) => vivo && definirRecentes(lista))
+    void window.ork.codigo.recentes(pasta).then((lista) => vivo && definirRecentes(lista))
     return () => {
       vivo = false
     }
@@ -98,7 +98,7 @@ export const Codigo = memo(function Codigo({ no, selecionado }: { no: NoCodigo; 
   // vigia a pasta só para reler quando o arquivo deste cartão muda (quem abre cartão novo é a loja)
   useEffect(() => {
     if (!pasta) return
-    return window.mp.codigo.vigiar(pasta, (mudanca) => {
+    return window.ork.codigo.vigiar(pasta, (mudanca) => {
       definirRecentes((lista) => {
         const outros = lista.filter((m) => m.caminho !== mudanca.caminho)
         return mudanca.sumiu ? outros : [mudanca, ...outros].slice(0, 30)
@@ -115,7 +115,7 @@ export const Codigo = memo(function Codigo({ no, selecionado }: { no: NoCodigo; 
       if (vivo) definirCarga(c)
     }
     const mostrarArquivo = async (aviso: string | null): Promise<void> => {
-      const t = await window.mp.codigo.ler(alvo)
+      const t = await window.ork.codigo.ler(alvo)
       guardar({
         linhas: t.erro ? [] : realcarTudo(t.conteudo, alvo),
         erro: t.erro ?? null,
@@ -130,7 +130,7 @@ export const Codigo = memo(function Codigo({ no, selecionado }: { no: NoCodigo; 
         vivo = false
       }
     }
-    void window.mp.codigo.diff(alvo).then(async (d) => {
+    void window.ork.codigo.diff(alvo).then(async (d) => {
       if (d.erro) return guardar({ ...VAZIO, erro: d.erro })
       if (d.patch) {
         return guardar({ linhas: realcarDiff(lerPatch(d.patch), alvo), erro: null, aviso: null, truncado: false, patch: true })

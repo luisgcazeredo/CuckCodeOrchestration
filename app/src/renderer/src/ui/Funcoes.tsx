@@ -6,7 +6,7 @@ import { Dialogo } from './Dialogo'
 
 // Funções (papéis): o que um agente é, escrito uma vez e reaproveitado. O cartão nasce com o nome da função
 // e recebe o prompt dela como primeiro pedido, em vez de nascer vazio esperando você explicar tudo de novo.
-// Os agentes também usam, pelo `mpro abrir --funcao "Papel"` e `mpro funcoes`.
+// Os agentes também usam, pelo `ork abrir --funcao "Papel"` e `ork funcoes`.
 
 let aberto = false
 const ouvintes = new Set<() => void>()
@@ -37,7 +37,7 @@ function Editor() {
   }
 
   async function escolherPasta(id: string): Promise<void> {
-    const pasta = await window.mp.dados.escolherPasta()
+    const pasta = await window.ork.dados.escolherPasta()
     if (pasta) mudar(id, { pasta })
   }
 
@@ -45,7 +45,7 @@ function Editor() {
     <Dialogo titulo="Funções" aoFechar={fechar}>
       <p className="dialogo-texto suave">
         O prompt vai como primeiro pedido assim que o agente fica pronto. A pasta é opcional: sem ela, vale a do
-        espaço. Os agentes abrem uma função com <code>mpro abrir claude --funcao &quot;Nome&quot;</code>.
+        espaço. Os agentes abrem uma função com <code>ork abrir claude --funcao &quot;Nome&quot;</code>.
       </p>
       <div className="funcoes">
         {lista.map((f) => (

@@ -13,7 +13,7 @@ import { donoDe, exigirDono } from './janelas'
 // Cada cartão de terminal é um processo de verdade (ConPTY no Windows). O processo é do app, não da janela:
 // trocar de espaço, fechar uma janela ou recarregar não o encerra (decisão do Luís, 28/10/2026); o cartão só
 // se liga e se desliga dele. Um espelho (xterm sem tela) acompanha cada processo: é dele que sai o retrato
-// para o cartão que se liga de novo e a tela que os agentes leem pelo `mpro`.
+// para o cartão que se liga de novo e a tela que os agentes leem pelo `ork`.
 
 const AUTOTESTE = process.argv.includes('--autoteste')
 const MAX_TERMINAIS = 64
@@ -41,13 +41,13 @@ export interface Sessao {
   iniciadoEm: number
   /** Código de saída; null enquanto o processo vive. */
   saiu: number | null
-  /** Identifica o terminal no `mpro` (vai no ambiente do processo, nunca para a janela). */
+  /** Identifica o terminal no `ork` (vai no ambiente do processo, nunca para a janela). */
   cracha: string
   fim: ReturnType<typeof setTimeout> | null
 }
 
 const sessoes = new Map<string, Sessao>()
-/** Cordas de cada espaço (todos os andares), como a janela mandou: a permissão do `mpro`. */
+/** Cordas de cada espaço (todos os andares), como a janela mandou: a permissão do `ork`. */
 const cordas = new Map<string, Array<[string, string]>>()
 /** Conversa do Codex descoberta: vai também na resposta do próximo `sincronizar` (o espaço pode estar fechado). */
 const descobertas = new Map<string, string>()
@@ -147,8 +147,8 @@ function iniciarProcesso(s: Sessao): void {
     avisarVistas(s, CANAIS.saida, exitCode)
   })
   // no autoteste não abre Claude nem Codex de verdade (gastaria a conta), a não ser na checagem opcional
-  // MP_AGENTES_DE_VERDADE, e só nos que ela abre pelo `mpro`
-  const deVerdade = !AUTOTESTE || s.espec.agente === 'shell' || (!!process.env.MP_AGENTES_DE_VERDADE && !!s.espec.criadoPor)
+  // ORK_AGENTES_DE_VERDADE, e só nos que ela abre pelo `ork`
+  const deVerdade = !AUTOTESTE || s.espec.agente === 'shell' || (!!process.env.ORK_AGENTES_DE_VERDADE && !!s.espec.criadoPor)
   const linha = deVerdade ? linhaDeComando(s.espec) : ''
   if (linha) processo.write(`${linha}\r`)
   if (s.espec.agente === 'codex' && !s.espec.sessao) vigiarConversaDoCodex(s, processo)
@@ -404,7 +404,7 @@ export function registrarTerminais(): void {
   })
 }
 
-// ---------- para o `mpro` (comandos.ts) ----------
+// ---------- para o `ork` (comandos.ts) ----------
 
 export const sessaoPorCracha = (cracha: unknown): Sessao | undefined =>
   typeof cracha === 'string' && cracha ? [...sessoes.values()].find((s) => s.processo && s.cracha === cracha) : undefined

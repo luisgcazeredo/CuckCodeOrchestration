@@ -169,7 +169,7 @@ export function salvarAgora(): Promise<boolean> {
   // a fila nunca fica presa: uma falha é registrada e o próximo salvamento tenta de novo
   salvando = salvando.then(async () => {
     try {
-      const resumo = await window.mp.dados.salvarEspaco({ espaco, notas })
+      const resumo = await window.ork.dados.salvarEspaco({ espaco, notas })
       definir({ erroAoSalvar: null, espacos: estado.espacos.map((e) => (e.id === resumo.id ? resumo : e)) })
     } catch (erro) {
       definir({ erroAoSalvar: String(erro) })
@@ -316,15 +316,15 @@ function mudarPlano(mudar: (plano: Plano) => Plano, chave?: string | false): voi
 // ---------- início e espaços ----------
 
 export async function iniciar(): Promise<void> {
-  window.mp.janelas.aoAvisar(receberAviso)
-  window.mp.terminal.aoDescobrirSessao((id, sessao) => anotarSessoes({ [id]: sessao }))
-  window.mp.agentes.aoPedir(atenderAgente)
-  window.mp.rotinas.aoAcontecer(anotarDisparo)
+  window.ork.janelas.aoAvisar(receberAviso)
+  window.ork.terminal.aoDescobrirSessao((id, sessao) => anotarSessoes({ [id]: sessao }))
+  window.ork.agentes.aoPedir(atenderAgente)
+  window.ork.rotinas.aoAcontecer(anotarDisparo)
   const [preferencias, janela, espacos, inicio] = await Promise.all([
-    window.mp.dados.carregarPreferencias(),
-    window.mp.dados.carregarEstado(),
-    window.mp.dados.listarEspacos(),
-    window.mp.janelas.inicio()
+    window.ork.dados.carregarPreferencias(),
+    window.ork.dados.carregarEstado(),
+    window.ork.dados.listarEspacos(),
+    window.ork.janelas.inicio()
   ])
   definir({
     preferencias,
@@ -344,7 +344,7 @@ export async function iniciar(): Promise<void> {
 function receberAviso(aviso: AvisoJanelas): void {
   switch (aviso.tipo) {
     case 'lista':
-      void window.mp.dados.listarEspacos().then((espacos) => definir({ espacos }))
+      void window.ork.dados.listarEspacos().then((espacos) => definir({ espacos }))
       return
     case 'resumo':
       definir({ espacos: estado.espacos.map((r) => (r.id === aviso.resumo.id ? aviso.resumo : r)) })
@@ -356,13 +356,13 @@ function receberAviso(aviso: AvisoJanelas): void {
       if (estado.espaco?.id === aviso.espacoId) void renomearEspaco(aviso.espacoId, aviso.nome)
       return
     case 'preferencias':
-      void window.mp.dados.carregarPreferencias().then((preferencias) => definir({ preferencias }))
+      void window.ork.dados.carregarPreferencias().then((preferencias) => definir({ preferencias }))
   }
 }
 
 /** Abre uma janela nova (com o espaço pedido, ou com o primeiro livre). */
 export function abrirNovaJanela(espacoId: string | null = null): void {
-  void window.mp.janelas.nova(espacoId)
+  void window.ork.janelas.nova(espacoId)
 }
 
 let pedidoDeAbertura = 0
@@ -377,11 +377,11 @@ export async function abrirEspaco(id: string, andarId?: string | null): Promise<
   // não salvou: fica onde está (o aviso de erro aparece) para a mudança não se perder
   if (!(await salvarAgora())) return
   // aberto em outra janela: ela vem para a frente e esta fica como está
-  if (pedido !== pedidoDeAbertura || !(await window.mp.janelas.reservar(id))) return
-  const carregado = await window.mp.dados.carregarEspaco(id)
+  if (pedido !== pedidoDeAbertura || !(await window.ork.janelas.reservar(id))) return
+  const carregado = await window.ork.dados.carregarEspaco(id)
   if (!carregado || pedido !== pedidoDeAbertura) {
     // desistiu (outro clique veio depois, ou não carregou): devolve a reserva, se não for o que está à mostra
-    if (estado.espaco?.id !== id) void window.mp.janelas.soltar(id)
+    if (estado.espaco?.id !== id) void window.ork.janelas.soltar(id)
     return
   }
   // o espaço de antes só é devolvido agora, depois de salvo e com o novo já carregado
@@ -395,13 +395,13 @@ export async function abrirEspaco(id: string, andarId?: string | null): Promise<
     ferramenta: 'selecionar',
     vistaAndares: false
   })
-  if (anterior && anterior !== id) void window.mp.janelas.soltar(anterior)
+  if (anterior && anterior !== id) void window.ork.janelas.soltar(anterior)
   if (andarId !== undefined) irParaAndar(andarId)
   salvarJanela()
 }
 
 export async function criarEspaco(nome: string, pasta: string): Promise<void> {
-  const resumo = await window.mp.dados.criarEspaco(nome, pasta)
+  const resumo = await window.ork.dados.criarEspaco(nome, pasta)
   definir({ espacos: [...estado.espacos, resumo] })
   await abrirEspaco(resumo.id)
 }
@@ -415,7 +415,7 @@ export async function renomearEspaco(id: string, nome: string): Promise<void> {
     return
   }
   // aberto em outra janela ou fechado: o processo principal cuida (e avisa todas as janelas)
-  await window.mp.dados.renomearEspaco(id, limpo)
+  await window.ork.dados.renomearEspaco(id, limpo)
 }
 
 /** Apaga o espaço do app. Se era o aberto, abre outro (ou fica vazio). */
@@ -425,7 +425,7 @@ export async function apagarEspaco(id: string): Promise<void> {
     temporizador = null
     await salvando
   }
-  await window.mp.dados.apagarEspaco(id)
+  await window.ork.dados.apagarEspaco(id)
   const espacos = estado.espacos.filter((e) => e.id !== id)
   if (estado.espaco?.id === id) {
     definir({ espaco: null, notas: {}, espacos, selecao: NADA, editando: null })
@@ -441,7 +441,7 @@ let salvandoJanela: Promise<void> = Promise.resolve()
 
 function salvarJanela(): Promise<void> {
   const { aberto, raizes } = estado.explorador
-  salvandoJanela = window.mp.dados
+  salvandoJanela = window.ork.dados
     .salvarEstado({
       versao: 1,
       espacoAtivo: estado.espaco?.id ?? null,
@@ -504,28 +504,28 @@ export function alternarLateral(): void {
 export function definirTema(tema: Tema): void {
   const preferencias = { ...estado.preferencias, tema }
   definir({ preferencias })
-  void window.mp.dados.salvarPreferencias(preferencias)
+  void window.ork.dados.salvarPreferencias(preferencias)
 }
 
 /** Presets de agente (o botão de terminal): ficam nas preferências, valem para todas as janelas. */
 export function alternarLinhasDoCodigo(): void {
   const atual = estado.preferencias.linhasDoCodigo !== false
   definir({ preferencias: { ...estado.preferencias, linhasDoCodigo: !atual } })
-  void window.mp.dados.salvarPreferencias(estado.preferencias)
+  void window.ork.dados.salvarPreferencias(estado.preferencias)
 }
 
 /** As funções (papéis) ficam nas preferências, como os presets: valem em todos os espaços. */
 export function definirFuncoes(funcoes: Funcao[]): void {
   const preferencias = { ...estado.preferencias, funcoes }
   definir({ preferencias })
-  void window.mp.dados.salvarPreferencias(preferencias)
+  void window.ork.dados.salvarPreferencias(preferencias)
 }
 
 /** As partituras (times salvos) moram nas preferências, como as funções: valem em todos os espaços. */
 export function definirPartituras(partituras: Partitura[]): void {
   const preferencias = { ...estado.preferencias, partituras }
   definir({ preferencias })
-  void window.mp.dados.salvarPreferencias(preferencias)
+  void window.ork.dados.salvarPreferencias(preferencias)
 }
 
 /** Guarda como partitura os cartões escolhidos (ou todos os do andar, com `ids` nulo). */
@@ -546,8 +546,8 @@ export function salvarPartitura(nome: string, ids: string[] | null): string | nu
  *
  * **Quem sobe decide se entra no desfazer.** O time que o usuário sobe entra: um Ctrl+Z tira ele inteiro,
  * como qualquer cartão que ele põe no quadro. O time que um agente sobe fica fora, pela regra que já valia
- * para o `mpro abrir`: são sessões vivas, e o desfazer do usuário não mata sessão de agente no meio do
- * trabalho (ver `aplicarInstantaneo`). Quem subiu fecha com `mpro fechar`. Mexer em cartão que já existe
+ * para o `ork abrir`: são sessões vivas, e o desfazer do usuário não mata sessão de agente no meio do
+ * trabalho (ver `aplicarInstantaneo`). Quem subiu fecha com `ork fechar`. Mexer em cartão que já existe
  * (mover, arrumar, nome, anotar) continua entrando no desfazer, mesmo vindo de agente.
  */
 export function subirPartitura(
@@ -571,7 +571,7 @@ export function subirPartitura(
   mudarPlano(() => feito.plano, false)
   definir({ selecao: { ...NADA, nos: feito.ids }, editando: null })
   // o prompt de cada função é entregue pelo processo principal, que sabe quando o agente ficou pronto
-  for (const pedido of feito.pedidos) window.mp.terminal.primeiroPedido(pedido.id, pedido.texto)
+  for (const pedido of feito.pedidos) window.ork.terminal.primeiroPedido(pedido.id, pedido.texto)
   return { ids: feito.ids, texto: feito.texto }
 }
 
@@ -627,7 +627,7 @@ export function alternarPausaDaRotina(id: string): void {
 export async function testarRotina(id: string): Promise<ResultadoDaRotina> {
   const espaco = estado.espaco
   if (!espaco) return 'sem-cartao'
-  return window.mp.rotinas.testar(espaco.id, id)
+  return window.ork.rotinas.testar(espaco.id, id)
 }
 
 /** O processo principal digitou (ou pulou): guarda o que aconteceu e a próxima vez. */
@@ -648,7 +648,7 @@ function sincronizarRotinas(): void {
   const firma = `${e?.id ?? ''}\u0002${lista.map((r) => [r.id, r.terminal, r.texto, r.proxima, r.pausada ? '1' : '', JSON.stringify(r.quando)].join('\u0001')).join('\u0002')}`
   if (firma === firmaRotinas) return
   firmaRotinas = firma
-  if (e) window.mp.rotinas.definir(e.id, lista)
+  if (e) window.ork.rotinas.definir(e.id, lista)
 }
 
 // ---------- bandas (grupos de agentes) e troca de agente ----------
@@ -693,15 +693,15 @@ export function trocarAgenteDoCartao(id: string, preset: PresetAgente, porAgente
   mudarPlano(() => feito.plano, false)
   // o `sincronizar` sai no mesmo instante (dentro de `definir`), então o main já tem o cartão novo quando a
   // troca chega: as mensagens para o processo principal mantêm a ordem em que foram mandadas
-  window.mp.terminal.trocar(feito.id)
-  if (feito.primeiroPedido) window.mp.terminal.primeiroPedido(feito.id, feito.primeiroPedido)
+  window.ork.terminal.trocar(feito.id)
+  if (feito.primeiroPedido) window.ork.terminal.primeiroPedido(feito.id, feito.primeiroPedido)
   return { texto: feito.texto }
 }
 
 export function definirPresets(presets: PresetAgente[]): void {
   const preferencias = { ...estado.preferencias, presets }
   definir({ preferencias })
-  void window.mp.dados.salvarPreferencias(preferencias)
+  void window.ork.dados.salvarPreferencias(preferencias)
 }
 
 // ---------- andares ----------
@@ -725,7 +725,7 @@ export async function criarAndar(nome: string, usarGit: boolean): Promise<void> 
   const e = estado.espaco
   if (!e) return
   if (!(await salvarAgora())) throw new Error('Não consegui salvar o quadro; o andar não foi criado.')
-  const andar = await window.mp.andares.criar(e.id, nome, usarGit)
+  const andar = await window.ork.andares.criar(e.id, nome, usarGit)
   // a câmera do andar novo começa onde o térreo está, para a transição ficar no mesmo lugar
   const novo: Andar = { ...andar, camera: planoDe(estado.espaco!).camera }
   mudarEspaco((esp) => ({ ...esp, andares: [...esp.andares, novo], andarAtivo: novo.id }), false)
@@ -769,7 +769,7 @@ export async function pousarAndar(andarId: string, apagarRamo: boolean, destino:
   const e = estado.espaco
   if (!e) return { ok: false, mensagem: 'nenhum espaço aberto' }
   if (!(await salvarAgora())) return NAO_SALVOU
-  const r = await window.mp.andares.pousar(e.id, andarId, apagarRamo, destino)
+  const r = await window.ork.andares.pousar(e.id, andarId, apagarRamo, destino)
   if (r.ok) {
     retirarAndar(andarId)
     await salvarAgora()
@@ -781,7 +781,7 @@ export async function apagarAndar(andarId: string, apagarRamo: boolean, forcar: 
   const e = estado.espaco
   if (!e) return { ok: false, mensagem: 'nenhum espaço aberto' }
   if (!(await salvarAgora())) return NAO_SALVOU
-  const r = await window.mp.andares.apagar(e.id, andarId, apagarRamo, forcar)
+  const r = await window.ork.andares.apagar(e.id, andarId, apagarRamo, forcar)
   if (r.ok) {
     retirarAndar(andarId)
     await salvarAgora()
@@ -1010,7 +1010,7 @@ export function adicionarNo(novo: NovoNo, x: number, y: number): string {
   switch (novo.tipo) {
     case 'terminal': {
       // com função, o cartão nasce com o nome do papel (é assim que você e os agentes falam dele). O número
-      // só entra quando o nome já está em uso — a mesma regra do `mpro abrir`, para os dois caminhos baterem
+      // só entra quando o nome já está em uso — a mesma regra do `ork abrir`, para os dois caminhos baterem
       const comoChamar = novo.funcao?.nome ?? novo.preset.nome
       const usados = new Set(plano.nos.flatMap((n) => (n.tipo === 'terminal' ? [n.nome.toLowerCase()] : [])))
       let comoNomear = comoChamar
@@ -1064,7 +1064,7 @@ export function adicionarNo(novo: NovoNo, x: number, y: number): string {
       break
   }
   mudarPlano((p) => ({ ...p, nos: [...p.nos, no] }), false)
-  if (novo.tipo === 'terminal' && novo.funcao?.prompt.trim()) window.mp.terminal.primeiroPedido(no.id, novo.funcao.prompt)
+  if (novo.tipo === 'terminal' && novo.funcao?.prompt.trim()) window.ork.terminal.primeiroPedido(no.id, novo.funcao.prompt)
   definir({
     selecao: { ...NADA, nos: [no.id] },
     editando: (novo.tipo === 'postit' || novo.tipo === 'texto') && !novo.texto ? no.id : null,
@@ -1525,7 +1525,7 @@ export function apagarDesenhosPerto(x: number, y: number, raio: number, chaveDoG
 
 // ---------- terminais: os processos moram no processo principal ----------
 
-/** Cartões fechados por um agente (`mpro fechar`): o desfazer do usuário não os traz de volta. */
+/** Cartões fechados por um agente (`ork fechar`): o desfazer do usuário não os traz de volta. */
 const fechadosPorAgente = new Set<string>()
 let firmaTerminais = ''
 /** O pedaço de assinatura de cada cartão, guardado pela identidade do objeto (ver sincronizarTerminais). */
@@ -1584,7 +1584,7 @@ function sincronizarTerminais(): void {
     }
     for (const par of efetivas.get(plano) ?? []) cordas.push(par)
   }
-  window.mp.terminal.sincronizar(e.id, especs, cordas).then(anotarSessoes, () => (firmaTerminais = ''))
+  window.ork.terminal.sincronizar(e.id, especs, cordas).then(anotarSessoes, () => (firmaTerminais = ''))
 }
 
 /** Muda um cartão de terminal em qualquer plano (térreo ou andar), fora do desfazer. */
@@ -1607,7 +1607,7 @@ export const pastaEhVigiavel = (pasta: string): boolean | undefined => vigiavelP
 
 function conferirSeVigiavel(pasta: string): void {
   if (vigiavelPorPasta.has(pasta)) return
-  void window.mp.codigo.vigiavel(pasta).then((pode) => {
+  void window.ork.codigo.vigiavel(pasta).then((pode) => {
     if (vigiavelPorPasta.get(pasta) === pode) return
     vigiavelPorPasta.set(pasta, pode)
     ouvintes.forEach((o) => o()) // o menu do agente mostra o motivo; nada no quadro mudou
@@ -1636,7 +1636,7 @@ function ajustarVigiasDeCodigo(): void {
   for (const pasta of pastas) {
     if (vigiasDeCodigo.has(pasta)) continue
     // arquivo que sumiu não abre cartão: só faz o cartão daquele arquivo reler (ver nos/Codigo.tsx)
-    vigiasDeCodigo.set(pasta, window.mp.codigo.vigiar(pasta, (m) => !m.sumiu && void aoGravaremNaPasta(pasta, m.caminho)))
+    vigiasDeCodigo.set(pasta, window.ork.codigo.vigiar(pasta, (m) => !m.sumiu && void aoGravaremNaPasta(pasta, m.caminho)))
   }
 }
 
@@ -1697,7 +1697,7 @@ async function aoGravaremNaPasta(pasta: string, caminho: string): Promise<void> 
     // decide a situação da sessão — vigiar a pasta não diz qual dos agentes gravou.
     let dono = candidatos.find((n) => cartoes.some((c) => c.terminal === n.id))
     if (!dono) {
-      const situacoes = await window.mp.terminal.contextos(e.id).catch(() => [])
+      const situacoes = await window.ork.terminal.contextos(e.id).catch(() => [])
       const como = new Map(situacoes.map((s) => [s.id, s.situacao]))
       dono =
         candidatos.find((n) => como.get(n.id) === 'trabalhando') ??
@@ -2250,7 +2250,7 @@ function anotarSessoes(descobertas: Record<string, string>): void {
 /** A primeira linha do prompt de uma função, para caber numa lista. */
 const primeiraLinha = (texto: string): string => texto.split(/\r?\n/)[0].slice(0, 80)
 
-/** O agente mexendo nas próprias árvores de código pelo `mpro arvore`. */
+/** O agente mexendo nas próprias árvores de código pelo `ork arvore`. */
 function atenderArvore(pedido: Extract<PedidoDoAgente, { tipo: 'arvore' }>): RespostaAoAgente {
   const terminal = acharNo(pedido.id)
   if (terminal?.tipo !== 'terminal') return { ok: false, erro: 'o seu cartão não está no andar à mostra desta janela' }
@@ -2275,7 +2275,7 @@ function atenderArvore(pedido: Extract<PedidoDoAgente, { tipo: 'arvore' }>): Res
   }
   if (pedido.acao === 'usar') {
     const achada = porNome()
-    if (!achada) return { ok: false, erro: `você não tem a árvore "${nome}"; crie com: mpro arvore nova "${nome}"` }
+    if (!achada) return { ok: false, erro: `você não tem a árvore "${nome}"; crie com: ork arvore nova "${nome}"` }
     usarArvore(terminal.id, achada.id)
     return { ok: true, texto: `Os próximos arquivos vão para a árvore "${achada.nome || 'principal'}".` }
   }
@@ -2294,9 +2294,9 @@ function atenderArvore(pedido: Extract<PedidoDoAgente, { tipo: 'arvore' }>): Res
 }
 
 /**
- * Troca de agente pelo `mpro`. Só nos cartões que o próprio agente abriu: trocar encerra um processo, e
+ * Troca de agente pelo `ork`. Só nos cartões que o próprio agente abriu: trocar encerra um processo, e
  * encerrar trabalho de outro (ou o seu, no meio do comando) não é dele. O preset é o do usuário para aquele
- * agente, como no `mpro abrir`.
+ * agente, como no `ork abrir`.
  */
 function atenderTroca(pedido: Extract<PedidoDoAgente, { tipo: 'trocar' }>): RespostaAoAgente {
   const plano = planoAtual()
@@ -2313,7 +2313,7 @@ function atenderTroca(pedido: Extract<PedidoDoAgente, { tipo: 'trocar' }>): Resp
   return 'erro' in feito ? { ok: false, erro: feito.erro } : { ok: true, texto: feito.texto }
 }
 
-/** Bandas pelo `mpro`: listar as do andar à mostra (com quem está dentro) e criar uma em volta de cartões. */
+/** Bandas pelo `ork`: listar as do andar à mostra (com quem está dentro) e criar uma em volta de cartões. */
 function atenderBanda(pedido: Extract<PedidoDoAgente, { tipo: 'banda' }>): RespostaAoAgente {
   const plano = planoAtual()
   if (!plano) return { ok: false, erro: 'nenhum espaço aberto nesta janela' }
@@ -2335,9 +2335,9 @@ function atenderBanda(pedido: Extract<PedidoDoAgente, { tipo: 'banda' }>): Respo
         ? [
             'Bandas deste andar (quem está dentro da moldura fala com todos os de dentro):',
             ...linhas,
-            'Para pôr um agente num time, mova o cartão para dentro da moldura (`mpro mover "Nome" --x N --y N`).'
+            'Para pôr um agente num time, mova o cartão para dentro da moldura (`ork mover "Nome" --x N --y N`).'
           ].join('\n')
-        : 'Nenhuma banda neste andar. Crie uma com `mpro banda criar "Nome" <cartão>...`.'
+        : 'Nenhuma banda neste andar. Crie uma com `ork banda criar "Nome" <cartão>...`.'
     }
   }
   const achados = pedido.alvos?.length ? acharAlvos(plano, pedido.alvos) : []
@@ -2349,10 +2349,10 @@ function atenderBanda(pedido: Extract<PedidoDoAgente, { tipo: 'banda' }>): Respo
 }
 
 /**
- * Partituras pelo `mpro`: listar, subir um time e guardar o que está no quadro como partitura.
+ * Partituras pelo `ork`: listar, subir um time e guardar o que está no quadro como partitura.
  *
  * Subir entra no desfazer (é o `subirPartitura` que registra); guardar não mexe no quadro, mexe nas
- * preferências. O time sobe à direita do cartão de quem pediu, ligado a ele, como o `mpro abrir`.
+ * preferências. O time sobe à direita do cartão de quem pediu, ligado a ele, como o `ork abrir`.
  */
 function atenderPartitura(pedido: Extract<PedidoDoAgente, { tipo: 'partitura' }>): RespostaAoAgente {
   const plano = planoAtual()
@@ -2363,8 +2363,8 @@ function atenderPartitura(pedido: Extract<PedidoDoAgente, { tipo: 'partitura' }>
     return {
       ok: true,
       texto: linhas.length
-        ? ['Partituras guardadas:', ...linhas, 'Suba uma com `mpro partitura usar "Nome"`.'].join('\n')
-        : 'Nenhuma partitura guardada ainda. Guarde o time que está no quadro com `mpro partitura salvar "Nome"`.'
+        ? ['Partituras guardadas:', ...linhas, 'Suba uma com `ork partitura usar "Nome"`.'].join('\n')
+        : 'Nenhuma partitura guardada ainda. Guarde o time que está no quadro com `ork partitura salvar "Nome"`.'
     }
   }
   const eu = acharNo(pedido.id)
@@ -2398,7 +2398,7 @@ function atenderPartitura(pedido: Extract<PedidoDoAgente, { tipo: 'partitura' }>
 }
 
 /**
- * O agente mexendo no quadro pelo `mpro` (ler, mover, arrumar, nome, ligar, desligar, anotar, juntar).
+ * O agente mexendo no quadro pelo `ork` (ler, mover, arrumar, nome, ligar, desligar, anotar, juntar).
  *
  * Diferente dos outros pedidos de agente, **isto entra no desfazer**: o que um agente arrumar errado o
  * usuário desfaz com Ctrl+Z, como se tivesse arrastado ele mesmo. A decisão toda é da função pura; aqui só
@@ -2422,7 +2422,7 @@ function atenderQuadroDoAgente(pedido: Extract<PedidoDoAgente, { tipo: 'quadro' 
   return { ok: true, texto: feito.texto }
 }
 
-/** Um agente pediu pelo `mpro`: abrir, fechar ou passar a responsabilidade de cartões. */
+/** Um agente pediu pelo `ork`: abrir, fechar ou passar a responsabilidade de cartões. */
 function atenderAgente(pedido: PedidoDoAgente): RespostaAoAgente {
   // Este atendimento precisa continuar síncrono: o resultado puro abaixo parte do espaço lido agora.
   const e = estado.espaco

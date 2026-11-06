@@ -5,7 +5,7 @@ import test from 'node:test'
 import { caminhoRelativo, pastaVigiavel, temCaraDeSegredo, textoDoAnexo, textoDosAnexos, valeSeguir } from './arquivos.ts'
 
 // Caminhos crus (String.raw) porque é assim que o Windows entrega, com barra invertida e espaço no meio.
-const PASTA = String.raw`C:\Users\luisg\ARQUIVOS GERAL\02 PROJETOS\Maestri Proprio\app`
+const PASTA = String.raw`C:\Users\luisg\ARQUIVOS GERAL\02 PROJETOS\Orkester\app`
 const dentro = (resto: string): string => `${PASTA}\u005C${resto}`
 
 test('caminho relativo sai com barra para frente e ignora maiúscula', () => {

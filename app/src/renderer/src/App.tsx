@@ -112,14 +112,14 @@ export function App() {
 
   // com várias janelas, a barra de tarefas e o Alt+Tab mostram qual espaço está em cada uma
   useEffect(() => {
-    document.title = nomeDoEspaco ? `${nomeDoEspaco} — Maestri Próprio` : 'Maestri Próprio'
+    document.title = nomeDoEspaco ? `${nomeDoEspaco} — Orkester` : 'Orkester'
   }, [nomeDoEspaco])
 
   useEffect(() => {
     void iniciar()
     window.addEventListener('keydown', atalhos)
-    window.mp.aoPedirFechar(salvarParaFechar)
-    if (window.mp.autoteste) window.__teste = { loja }
+    window.ork.aoPedirFechar(salvarParaFechar)
+    if (window.ork.autoteste) window.__teste = { loja }
     return () => window.removeEventListener('keydown', atalhos)
   }, [])
 

@@ -1,4 +1,4 @@
-// Contrato entre a janela (renderer) e o processo principal, exposto pelo preload em window.mp.
+// Contrato entre a janela (renderer) e o processo principal, exposto pelo preload em window.ork.
 import type {
   Agente,
   Andar,
@@ -26,9 +26,9 @@ export interface EspecTerminal {
   pasta: string
   /** Conversa do agente para retomar (Claude: escolhida ao criar; Codex: descoberta depois). */
   sessao?: string
-  /** Cartão do agente que abriu este pelo `mpro abrir`. */
+  /** Cartão do agente que abriu este pelo `ork abrir`. */
   criadoPor?: string
-  /** Função (papel) com que o cartão nasceu, para o `mpro quem` dizer quem é quem. */
+  /** Função (papel) com que o cartão nasceu, para o `ork quem` dizer quem é quem. */
   funcao?: string
 }
 
@@ -84,10 +84,10 @@ export interface ResumoContextoTerminal {
   contexto: number | null
 }
 
-/** Quantas sessões um agente pode ter abertas pelo `mpro abrir` ao mesmo tempo. */
+/** Quantas sessões um agente pode ter abertas pelo `ork abrir` ao mesmo tempo. */
 export const MAX_SESSOES_POR_AGENTE = 8
 
-/** Pedidos que um agente faz pelo `mpro` e que mexem no quadro (só a janela dona do espaço pode). */
+/** Pedidos que um agente faz pelo `ork` e que mexem no quadro (só a janela dona do espaço pode). */
 export type PedidoDoAgente =
   | { tipo: 'abrir'; espacoId: string; criador: string; agente: Agente; nome?: string; pasta?: string; funcao?: string }
   /** As funções (papéis) guardadas nas preferências desta janela. */
@@ -349,7 +349,7 @@ export interface ApiJanelas {
   aoAvisar(ouvinte: (aviso: AvisoJanelas) => void): void
 }
 
-export interface ApiMaestri {
+export interface ApiOrkester {
   terminal: ApiTerminal
   dados: ApiDados
   codigo: ApiCodigo

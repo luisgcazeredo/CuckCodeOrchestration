@@ -125,7 +125,7 @@ function PainelContexto() {
     if (!aberto || !espacoId) return
     let vivo = true
     const atualizar = (): void => {
-      void window.mp.terminal.contextos(espacoId).then((lista) => vivo && definirTerminais(lista), () => vivo && definirTerminais([]))
+      void window.ork.terminal.contextos(espacoId).then((lista) => vivo && definirTerminais(lista), () => vivo && definirTerminais([]))
     }
     atualizar()
     const relogio = window.setInterval(atualizar, 5000)

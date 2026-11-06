@@ -110,7 +110,7 @@ const PortalEmbutido = memo(function PortalEmbutido({ no, selecionado }: { no: N
 
 let temChrome: boolean | null = null
 const ouvintesChrome = new Set<() => void>()
-void window.mp.portal.disponivel().then((sim) => {
+void window.ork.portal.disponivel().then((sim) => {
   temChrome = sim
   ouvintesChrome.forEach((o) => o())
 })

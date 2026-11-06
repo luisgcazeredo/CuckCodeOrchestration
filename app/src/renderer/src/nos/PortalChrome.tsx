@@ -56,7 +56,7 @@ export const PortalChrome = memo(function PortalChrome({ no, selecionado }: { no
 
   function enviarTamanho(): void {
     const el = tela.current
-    if (el && pronta.current) window.mp.portal.tamanho(no.id, el.clientWidth, el.clientHeight, escala)
+    if (el && pronta.current) window.ork.portal.tamanho(no.id, el.clientWidth, el.clientHeight, escala)
   }
 
   // liga o cartão a uma aba do Chrome do app e ouve o que vem dela
@@ -65,7 +65,7 @@ export const PortalChrome = memo(function PortalChrome({ no, selecionado }: { no
     pronta.current = false
     setFechada(null)
     setErro('')
-    const sair = window.mp.portal.aoAvisar(no.id, (aviso: AvisoPortal) => {
+    const sair = window.ork.portal.aoAvisar(no.id, (aviso: AvisoPortal) => {
       switch (aviso.tipo) {
         case 'quadro':
           if (imagem.current) imagem.current.src = `data:image/jpeg;base64,${aviso.jpeg}`
@@ -95,10 +95,10 @@ export const PortalChrome = memo(function PortalChrome({ no, selecionado }: { no
     })
     const alvo = alvosPendentes.get(no.id)
     alvosPendentes.delete(no.id)
-    window.mp.portal.abrir(no.id, atual.current.url, alvo).then(
+    window.ork.portal.abrir(no.id, atual.current.url, alvo).then(
       (ok) => {
         // o cartão foi apagado enquanto a aba abria: ela não pode ficar sobrando
-        if (!vivo) return void (ok && !existeNoEspaco(no.id) && window.mp.portal.fechar(no.id))
+        if (!vivo) return void (ok && !existeNoEspaco(no.id) && window.ork.portal.fechar(no.id))
         if (!ok) return setErro('Endereço inválido: o portal só abre páginas http e https.')
         pronta.current = true
         enviarTamanho()
@@ -108,9 +108,9 @@ export const PortalChrome = memo(function PortalChrome({ no, selecionado }: { no
     return () => {
       vivo = false
       sair()
-      window.mp.portal.visivel(no.id, false)
+      window.ork.portal.visivel(no.id, false)
       // o cartão saiu do espaço (apagado): a aba fecha; só trocou de andar: a aba fica esperando
-      setTimeout(() => !existeNoEspaco(no.id) && window.mp.portal.fechar(no.id), 0)
+      setTimeout(() => !existeNoEspaco(no.id) && window.ork.portal.fechar(no.id), 0)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [no.id, tentativa])
@@ -118,11 +118,11 @@ export const PortalChrome = memo(function PortalChrome({ no, selecionado }: { no
   async function responderDialogo(tipo: string, mensagem: string, padrao: string): Promise<void> {
     if (tipo === 'alert') {
       await avisar('A página diz', mensagem)
-      return window.mp.portal.responderDialogo(no.id, true)
+      return window.ork.portal.responderDialogo(no.id, true)
     }
     if (tipo === 'prompt') {
       const r = await perguntarTexto('A página pergunta', mensagem, padrao, 'OK')
-      return window.mp.portal.responderDialogo(no.id, r !== null, r ?? undefined)
+      return window.ork.portal.responderDialogo(no.id, r !== null, r ?? undefined)
     }
     const r = await confirmar({
       titulo: tipo === 'beforeunload' ? 'Sair da página?' : 'A página pergunta',
@@ -132,7 +132,7 @@ export const PortalChrome = memo(function PortalChrome({ no, selecionado }: { no
         { rotulo: 'OK', valor: 'sim', primario: true }
       ]
     })
-    window.mp.portal.responderDialogo(no.id, r.botao === 'sim')
+    window.ork.portal.responderDialogo(no.id, r.botao === 'sim')
   }
 
   // tamanho da página = tamanho do cartão (em pixels do quadro, sem o zoom); a nitidez acompanha o zoom
@@ -154,7 +154,7 @@ export const PortalChrome = memo(function PortalChrome({ no, selecionado }: { no
 
   // fora da tela, a transmissão para
   useEffect(() => {
-    const observador = new IntersectionObserver(([e]) => pronta.current && window.mp.portal.visivel(no.id, e.isIntersecting))
+    const observador = new IntersectionObserver(([e]) => pronta.current && window.ork.portal.visivel(no.id, e.isIntersecting))
     observador.observe(tela.current!)
     return () => observador.disconnect()
   }, [no.id])
@@ -167,7 +167,7 @@ export const PortalChrome = memo(function PortalChrome({ no, selecionado }: { no
       e.preventDefault()
       const p = pontoNaPagina(e)
       const fator = e.deltaMode === 1 ? 16 : 1
-      window.mp.portal.entrada(no.id, { tipo: 'roda', ...p, dx: e.deltaX * fator, dy: e.deltaY * fator, modificadores: modificadores(e) })
+      window.ork.portal.entrada(no.id, { tipo: 'roda', ...p, dx: e.deltaX * fator, dy: e.deltaY * fator, modificadores: modificadores(e) })
     }
     el.addEventListener('wheel', rodar, { passive: false })
     return () => el.removeEventListener('wheel', rodar)
@@ -193,7 +193,7 @@ export const PortalChrome = memo(function PortalChrome({ no, selecionado }: { no
       cliques: evento === 'mouseMoved' ? 0 : Math.max(1, e.detail),
       modificadores: modificadores(e)
     }
-    window.mp.portal.entrada(no.id, entrada)
+    window.ork.portal.entrada(no.id, entrada)
   }
 
   function tecla(e: KeyboardEvent<HTMLDivElement>, solta: boolean): void {
@@ -204,7 +204,7 @@ export const PortalChrome = memo(function PortalChrome({ no, selecionado }: { no
     const ctrlSozinho = (e.ctrlKey && !e.altKey) || e.metaKey
     const texto = e.key === 'Enter' ? '\r' : e.key.length === 1 && !ctrlSozinho ? e.key : undefined
     const comando = ctrlSozinho && !solta ? COMANDOS[e.key.toLowerCase()] : undefined
-    window.mp.portal.entrada(no.id, {
+    window.ork.portal.entrada(no.id, {
       tipo: 'tecla',
       evento: solta ? 'keyUp' : texto ? 'keyDown' : 'rawKeyDown',
       key: e.key,
@@ -217,7 +217,7 @@ export const PortalChrome = memo(function PortalChrome({ no, selecionado }: { no
   }
 
   const parar = { onPointerDown: (e: PointerEvent) => e.stopPropagation() }
-  const navegar = (n: Parameters<typeof window.mp.portal.navegar>[1]): void => window.mp.portal.navegar(no.id, n)
+  const navegar = (n: Parameters<typeof window.ork.portal.navegar>[1]): void => window.ork.portal.navegar(no.id, n)
 
   return (
     <MolduraNo no={no} selecionado={selecionado}>
@@ -257,7 +257,7 @@ export const PortalChrome = memo(function PortalChrome({ no, selecionado }: { no
             className={`botao-mini ${estado.naTela ? 'ativo' : ''}`}
             title={estado.naTela ? 'Trazer a página de volta para o quadro' : 'Abrir esta aba na janela do Chrome (para logar com passkey, usar extensão...)'}
             {...parar}
-            onClick={() => window.mp.portal.alternarJanela(no.id)}
+            onClick={() => window.ork.portal.alternarJanela(no.id)}
           >
             <AppWindow size={12} />
           </button>
@@ -293,7 +293,7 @@ export const PortalChrome = memo(function PortalChrome({ no, selecionado }: { no
         {estado.naTela && (
           <div className="portal-aviso cobrindo">
             <span>A página está na janela do Chrome.</span>
-            <button {...parar} onClick={() => window.mp.portal.alternarJanela(no.id)}>
+            <button {...parar} onClick={() => window.ork.portal.alternarJanela(no.id)}>
               Trazer de volta para o quadro
             </button>
           </div>

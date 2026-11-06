@@ -20,7 +20,7 @@ test('preserva os três formatos legados', () => {
 })
 
 test('uma tela real do Codex não inventa contexto', () => {
-  const codex = 'GPT-5.6-Terra high · ~\\ARQUIVOS GERAL\\02 PROJETOS\\Maestri Proprio\n← for agents · ? for shortcuts                             ⚠ 2 warnings · f2 to view'
+  const codex = 'GPT-5.6-Terra high · ~\\ARQUIVOS GERAL\\02 PROJETOS\\Orkester\n← for agents · ? for shortcuts                             ⚠ 2 warnings · f2 to view'
   assert.equal(extrairContextoRestante(codex), null)
 })
 

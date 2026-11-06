@@ -18,7 +18,7 @@ const autoteste = process.argv.includes('--autoteste')
 if (autoteste) app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 // E o autoteste usa um perfil do Chromium só dele: com o app instalado aberto, os dois disputavam o mesmo
 // perfil e a rodada morria sem dizer nada — ficava um log vazio, que já custou rodadas para entender.
-if (autoteste) app.setPath('userData', join(tmpdir(), 'maestri-proprio-autoteste-chromium'))
+if (autoteste) app.setPath('userData', join(tmpdir(), 'orkester-autoteste-chromium'))
 const ehWeb = (endereco: string): boolean => {
   try {
     return ['https:', 'http:'].includes(new URL(endereco).protocol)
@@ -78,7 +78,7 @@ function criarJanela(espacoInicial: string | null = null): BrowserWindow {
     ...posicao,
     minWidth: 640,
     minHeight: 420,
-    title: 'Maestri Próprio',
+    title: 'Orkester',
     // instalado, o ícone vem do próprio .exe
     icon: app.isPackaged ? undefined : join(__dirname, '../../build/icon.png'),
     backgroundColor: '#1E1E1E',
@@ -132,7 +132,7 @@ function criarJanela(espacoInicial: string | null = null): BrowserWindow {
     if (!(await pedirSalvamento(janela))) {
       const { response } = await dialog.showMessageBox(janela, {
         type: 'warning',
-        title: 'Maestri Próprio',
+        title: 'Orkester',
         message: 'Não consegui salvar as últimas mudanças.',
         detail: 'Se fechar agora, o que mudou desde o último salvamento se perde.',
         buttons: ['Tentar de novo', 'Fechar sem salvar', 'Cancelar'],
@@ -200,7 +200,7 @@ if (!autoteste && !app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     // o portal se apresenta como Chrome comum: com "Electron" no nome, sites como o login do Google recusam
     const portal = session.fromPartition('persist:portal')
-    portal.setUserAgent(portal.getUserAgent().replace(/ (Electron|maestri-proprio|Maestri ?Proprio)\/\S+/gi, ''))
+    portal.setUserAgent(portal.getUserAgent().replace(/ (Electron|Orkester)\/\S+/gi, ''))
     configurarJanelas(criarJanela, idsDosEspacos)
     registrarJanelas()
     registrarDados()

@@ -41,7 +41,7 @@ export async function copiarSelecao(recortar = false): Promise<void> {
   const espaco = lerEstado().espaco
   if (!f || !espaco) return
   try {
-    await window.mp.area.copiar(JSON.stringify(f), espaco.id, textoSimples(f))
+    await window.ork.area.copiar(JSON.stringify(f), espaco.id, textoSimples(f))
   } catch (erro) {
     return avisar('Não deu para copiar', String(erro).replace(/^Error: /, ''))
   }
@@ -55,7 +55,7 @@ export async function colar(onde?: Ponto): Promise<void> {
   const ponto = onde ?? pontoParaColar(planoAtual()!.camera)
   let conteudo
   try {
-    conteudo = await window.mp.area.colar(espaco.id)
+    conteudo = await window.ork.area.colar(espaco.id)
   } catch (erro) {
     return avisar('Não deu para colar', String(erro).replace(/^Error: /, ''))
   }
@@ -68,7 +68,7 @@ export async function colar(onde?: Ponto): Promise<void> {
       const semArquivo = new Set<string>()
       for (const n of f.nos) {
         if (n.tipo !== 'imagem') continue
-        const novo = await window.mp.area.trazerImagem(n.arquivo, espaco.id)
+        const novo = await window.ork.area.trazerImagem(n.arquivo, espaco.id)
         if (novo) n.arquivo = novo
         else semArquivo.add(n.id)
       }

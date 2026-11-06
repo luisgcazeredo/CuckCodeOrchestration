@@ -12,7 +12,7 @@ import { IMAGEM_VALIDA, PASTA_DADOS, pastaImagens } from './dados'
 // aponta para um executável). Sem a assinatura, o conteúdo é tratado como texto comum.
 
 const ID_VALIDO = /^[0-9a-f-]{36}$/
-const MARCA = /data-maestri-proprio="([A-Za-z0-9+/=]+)\.([0-9a-f]{64})"/
+const MARCA = /data-orkester="([A-Za-z0-9+/=]+)\.([0-9a-f]{64})"/
 const LIMITE_FRAGMENTO = 20 * 1024 * 1024
 const LIMITE_IMAGEM = 40 * 1024 * 1024
 const LIMITE_TEXTO = 200_000
@@ -44,13 +44,13 @@ function confere(dados: string, assinatura: string): boolean {
 
 const escaparHtml = (t: string): string => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
-/** `mp-imagem://<espaço>/<arquivo>.png`: a janela mostra as imagens do quadro sem acesso ao disco. */
+/** `ork-imagem://<espaço>/<arquivo>.png`: a janela mostra as imagens do quadro sem acesso ao disco. */
 export function registrarEsquemaImagem(): void {
-  protocol.registerSchemesAsPrivileged([{ scheme: 'mp-imagem', privileges: { standard: true, secure: true, supportFetchAPI: true } }])
+  protocol.registerSchemesAsPrivileged([{ scheme: 'ork-imagem', privileges: { standard: true, secure: true, supportFetchAPI: true } }])
 }
 
 export function servirImagens(): void {
-  protocol.handle('mp-imagem', (pedido) => {
+  protocol.handle('ork-imagem', (pedido) => {
     const url = new URL(pedido.url)
     const espaco = url.hostname
     const arquivo = decodeURIComponent(url.pathname.replace(/^\//, ''))
@@ -97,7 +97,7 @@ export function registrarArea(): void {
     await clipboard.write([
       new ClipboardItem({
         'text/plain': simples,
-        'text/html': `<span data-maestri-proprio="${carga}.${assinar(carga)}"></span><pre>${escaparHtml(simples)}</pre>`
+        'text/html': `<span data-orkester="${carga}.${assinar(carga)}"></span><pre>${escaparHtml(simples)}</pre>`
       })
     ])
   })

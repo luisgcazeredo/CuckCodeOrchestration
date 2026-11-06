@@ -9,7 +9,7 @@ import { itensDoCodigoDoTerminal } from '../ui/menus'
 import { COR_AGENTE, ICONE_AGENTE } from './icones'
 
 /** Fora da tela por este tempo, o cartão para de desenhar (o processo segue rodando). */
-const DESCARREGAR_DEPOIS = window.mp.autoteste ? 1500 : 20_000
+const DESCARREGAR_DEPOIS = window.ork.autoteste ? 1500 : 20_000
 
 function pastaCurta(pasta: string): string {
   const partes = pasta.split(/[\\/]/).filter(Boolean)
@@ -62,7 +62,7 @@ export const PecaTerminal = memo(function PecaTerminal({ no, selecionado, pastaD
         <Icone size={13} color={COR_AGENTE[no.agente]} strokeWidth={2.2} />
         <span className="terminal-nome">{no.nome}</span>
         <span className="terminal-indice">{indice}</span>
-        {no.criadoPor && <span className="terminal-selo" title="Aberto por um agente pelo mpro">agente</span>}
+        {no.criadoPor && <span className="terminal-selo" title="Aberto por um agente pelo ork">agente</span>}
       </header>
       <div className={`terminal-corpo ${ativo ? 'rolavel' : ''}`} ref={corpo} data-sem-arrasto={ativo ? '' : undefined}>
         {montado ? <CorpoXterm id={no.id} ativo={ativo} /> : <div className="terminal-descarregado">fora da tela · o processo continua</div>}

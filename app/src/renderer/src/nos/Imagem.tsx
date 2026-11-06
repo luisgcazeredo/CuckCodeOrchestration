@@ -4,7 +4,7 @@ import type { NoImagem } from '../../../shared/modelo'
 import { usarLoja } from '../estado/loja'
 import { MolduraNo, type Marca } from '../quadro/MolduraNo'
 
-/** Print colado no quadro. O arquivo vem de `imagens/` do espaço pelo esquema `mp-imagem://`. */
+/** Print colado no quadro. O arquivo vem de `imagens/` do espaço pelo esquema `ork-imagem://`. */
 export const Imagem = memo(function Imagem({ no, selecionado }: { no: NoImagem; selecionado: Marca }) {
   const espacoId = usarLoja((e) => e.espaco?.id)
   const [falhou, setFalhou] = useState(false)
@@ -16,7 +16,7 @@ export const Imagem = memo(function Imagem({ no, selecionado }: { no: NoImagem; 
           <span>imagem não encontrada</span>
         </div>
       ) : (
-        <img className="imagem" src={`mp-imagem://${espacoId}/${no.arquivo}`} alt="" draggable={false} onError={() => setFalhou(true)} />
+        <img className="imagem" src={`ork-imagem://${espacoId}/${no.arquivo}`} alt="" draggable={false} onError={() => setFalhou(true)} />
       )}
     </MolduraNo>
   )

@@ -8,7 +8,7 @@ import { CANAIS_ANDARES } from '../shared/api'
 import { PASTA_DADOS, lerEspacoSalvo } from './dados'
 import { exigirDono } from './janelas'
 
-// Andares com git: cada um é um worktree num ramo próprio, guardado em ~/.maestri-proprio/andares/<espaço>/,
+// Andares com git: cada um é um worktree num ramo próprio, guardado em ~/.orkester/andares/<espaço>/,
 // fora das pastas de projeto. O git roda direto (execFile, sem shell), sempre com a pasta lida do disco.
 
 interface Saida {

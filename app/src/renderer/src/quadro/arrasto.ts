@@ -304,7 +304,7 @@ export function comecarArrasto(
  */
 export function cancelarGestos(): void {
   atual?.soltar(true)
-  window.dispatchEvent(new Event('mp:cancelar-gesto'))
+  window.dispatchEvent(new Event('ork:cancelar-gesto'))
 }
 
 /** Há um gesto em andamento (arrastando cartão, desenhando, ligando, segurando espaço). */

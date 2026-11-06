@@ -14,8 +14,8 @@
  * - **Nada é apagado para abrir espaço.** Se o lugar escolhido está ocupado, o arranjo desce até achar um
  *   canto livre.
  * - **Agente e usuário sobem o mesmo time, com um laço de diferença:** subida por agente nasce ligada a ele
- *   (corda) e sob a responsabilidade dele, como o `mpro abrir` — e, como ele, fica fora do desfazer, porque
- *   o Ctrl+Z do usuário não mata sessão de agente no meio do trabalho; quem subiu fecha com `mpro fechar`.
+ *   (corda) e sob a responsabilidade dele, como o `ork abrir` — e, como ele, fica fora do desfazer, porque
+ *   o Ctrl+Z do usuário não mata sessão de agente no meio do trabalho; quem subiu fecha com `ork fechar`.
  *   Subida pelo usuário é cartão do usuário: entra no desfazer e sai inteira com um Ctrl+Z.
  */
 import type { Corda, Funcao, No, NoBanda, NoPostIt, NoTerminal, NoTexto, Partitura, PecaDePartitura, Plano } from '../modelo'
@@ -88,7 +88,7 @@ export function resumoDaPartitura(partitura: Partitura): string {
 
 /**
  * Salva como partitura os cartões escolhidos (ou todos os salváveis do plano, com `ids` nulo). Devolve a
- * queixa em texto quando não dá — é o que a janela e o `mpro` mostram.
+ * queixa em texto quando não dá — é o que a janela e o `ork` mostram.
  */
 export function partituraDe(
   plano: Plano,
@@ -176,7 +176,7 @@ function cantoLivre(plano: Plano, caixa: Caixa): { x: number; y: number } {
 /**
  * Sobe a partitura no plano, com o canto de cima à esquerda em (x, y) — ou mais abaixo, se ali estiver
  * ocupado. Os cartões nascem com id, grupo e conversa novos; os nomes repetidos ganham número, como no
- * `mpro abrir`.
+ * `ork abrir`.
  */
 export function aplicarPartitura(
   plano: Plano,
@@ -284,7 +284,7 @@ export function aplicarPartitura(
     ...(semFuncao.size
       ? [`Função que não existe mais: ${[...semFuncao].map((f) => `"${f}"`).join(', ')} — esses cartões subiram sem primeiro pedido.`]
       : []),
-    ...(dono ? ['Você está ligado a todos eles e pode fechá-los com `mpro fechar`.'] : [])
+    ...(dono ? ['Você está ligado a todos eles e pode fechá-los com `ork fechar`.'] : [])
   ].join('\n')
 
   return {

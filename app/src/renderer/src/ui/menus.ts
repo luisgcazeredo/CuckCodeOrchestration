@@ -141,7 +141,7 @@ const separador: ItemMenu = { separador: true }
 export async function verCodigoDoTerminal(no: NoTerminal): Promise<void> {
   const espaco = lerEstado().espaco
   const pasta = no.pasta || (espaco ? pastaDoPlano(espaco) : '')
-  const recentes = pasta ? await window.mp.codigo.recentes(pasta).catch(() => []) : []
+  const recentes = pasta ? await window.ork.codigo.recentes(pasta).catch(() => []) : []
   // adicionarNo centra no ponto; isto põe o cartão colado à direita do terminal, alinhado pelo topo
   adicionarNo({ tipo: 'codigo', terminal: no.id, caminho: recentes[0]?.caminho }, no.x + no.largura + 40 + 310, no.y + 230)
 }
@@ -299,7 +299,7 @@ function anexarEmAlgumTerminal(caminhos: string[]): ItemMenu {
 export function itensDoItemDoExplorador(item: EntradaPasta, x: number, y: number): ItemMenu[] {
   const comuns: ItemMenu[] = [
     anexarEmAlgumTerminal([item.caminho]),
-    { rotulo: 'Mostrar no Explorer', icone: FolderOpen, acao: () => void window.mp.dados.mostrarNoExplorer(item.caminho) }
+    { rotulo: 'Mostrar no Explorer', icone: FolderOpen, acao: () => void window.ork.dados.mostrarNoExplorer(item.caminho) }
   ]
   if (item.ehPasta) {
     return [
@@ -309,7 +309,7 @@ export function itensDoItemDoExplorador(item: EntradaPasta, x: number, y: number
   }
   return [
     { rotulo: 'Ver o código no quadro', icone: FileCode, acao: () => adicionarNo({ tipo: 'codigo', caminho: item.caminho }, x, y) },
-    { rotulo: 'Abrir no programa do sistema', icone: FileText, acao: () => void window.mp.dados.abrirArquivo(item.caminho) },
+    { rotulo: 'Abrir no programa do sistema', icone: FileText, acao: () => void window.ork.dados.abrirArquivo(item.caminho) },
     { rotulo: 'Pôr o arquivo no quadro', icone: Paperclip, acao: () => adicionarNo({ tipo: 'arquivo', caminho: item.caminho, nome: item.nome }, x, y) },
     ...comuns
   ]
@@ -318,12 +318,12 @@ export function itensDoItemDoExplorador(item: EntradaPasta, x: number, y: number
 // ---------- criar coisas ----------
 
 export async function anexarArquivoEm(x: number, y: number): Promise<void> {
-  const arquivo = await window.mp.dados.escolherArquivo()
+  const arquivo = await window.ork.dados.escolherArquivo()
   if (arquivo) adicionarNo({ tipo: 'arquivo', caminho: arquivo.caminho, nome: arquivo.nome }, x, y)
 }
 
 export async function arvoreEm(x: number, y: number): Promise<void> {
-  const pasta = await window.mp.dados.escolherPasta()
+  const pasta = await window.ork.dados.escolherPasta()
   if (pasta) adicionarNo({ tipo: 'pasta', caminho: pasta }, x, y)
 }
 
@@ -576,12 +576,12 @@ export function itensDoNo(no: No): ItemMenu[] {
       break
     case 'arquivo':
       especificos.push(
-        { rotulo: 'Abrir', icone: FileText, acao: () => void window.mp.dados.abrirArquivo(no.caminho) },
-        { rotulo: 'Mostrar no Explorer', icone: FolderOpen, acao: () => void window.mp.dados.mostrarNoExplorer(no.caminho) }
+        { rotulo: 'Abrir', icone: FileText, acao: () => void window.ork.dados.abrirArquivo(no.caminho) },
+        { rotulo: 'Mostrar no Explorer', icone: FolderOpen, acao: () => void window.ork.dados.mostrarNoExplorer(no.caminho) }
       )
       break
     case 'pasta':
-      especificos.push({ rotulo: 'Mostrar no Explorer', icone: FolderOpen, acao: () => void window.mp.dados.mostrarNoExplorer(no.caminho) })
+      especificos.push({ rotulo: 'Mostrar no Explorer', icone: FolderOpen, acao: () => void window.ork.dados.mostrarNoExplorer(no.caminho) })
       break
     case 'portal':
       especificos.push({ rotulo: 'Abrir no navegador do sistema', icone: ExternalLink, acao: () => window.open(no.url) })
@@ -629,8 +629,8 @@ export function itensDoNo(no: No): ItemMenu[] {
           : []),
         ...(no.caminho
           ? [
-              { rotulo: 'Abrir no programa do sistema', icone: FileText, acao: () => void window.mp.dados.abrirArquivo(no.caminho!) },
-              { rotulo: 'Mostrar no Explorer', icone: FolderOpen, acao: () => void window.mp.dados.mostrarNoExplorer(no.caminho!) }
+              { rotulo: 'Abrir no programa do sistema', icone: FileText, acao: () => void window.ork.dados.abrirArquivo(no.caminho!) },
+              { rotulo: 'Mostrar no Explorer', icone: FolderOpen, acao: () => void window.ork.dados.mostrarNoExplorer(no.caminho!) }
             ]
           : [])
       )
@@ -707,7 +707,7 @@ export function itensDoEspaco(r: ResumoEspaco): ItemMenu[] {
         if (nome) await renomearEspaco(r.id, nome)
       }
     },
-    { rotulo: 'Mostrar pasta no Explorer', icone: FolderOpen, acao: () => void window.mp.dados.mostrarNoExplorer(r.pasta) },
+    { rotulo: 'Mostrar pasta no Explorer', icone: FolderOpen, acao: () => void window.ork.dados.mostrarNoExplorer(r.pasta) },
     ...(fora
       ? []
       : [
@@ -775,7 +775,7 @@ export function itensDoAndar(andar: Andar): ItemMenu[] {
       ]
     },
     ...(andar.git
-      ? [{ rotulo: 'Mostrar pasta do andar no Explorer', icone: FolderOpen, acao: () => void window.mp.dados.mostrarNoExplorer(andar.git!.pasta) }]
+      ? [{ rotulo: 'Mostrar pasta do andar no Explorer', icone: FolderOpen, acao: () => void window.ork.dados.mostrarNoExplorer(andar.git!.pasta) }]
       : []),
     separador,
     ...(andar.git ? [{ rotulo: 'Juntar ao principal…', icone: GitMerge, acao: () => void juntarAndar(andar.id) }] : []),

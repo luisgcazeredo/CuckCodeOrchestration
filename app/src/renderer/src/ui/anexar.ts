@@ -23,12 +23,12 @@ export function anexarAoPrompt(terminalId: string, caminhos: string[]): boolean 
   if (!alvo || !caminhos.length) return false
   const texto = textoDosAnexos(caminhos, alvo.pasta, alvo.agente)
   if (!texto) return false
-  window.mp.terminal.escrever(terminalId, texto)
+  window.ork.terminal.escrever(terminalId, texto)
   return true
 }
 
 export async function anexarArquivosAoPrompt(terminalId: string): Promise<void> {
-  const escolhidos = await window.mp.dados.escolherArquivos()
+  const escolhidos = await window.ork.dados.escolherArquivos()
   anexarAoPrompt(
     terminalId,
     escolhidos.map((a) => a.caminho)
@@ -36,6 +36,6 @@ export async function anexarArquivosAoPrompt(terminalId: string): Promise<void> 
 }
 
 export async function anexarPastaAoPrompt(terminalId: string): Promise<void> {
-  const pasta = await window.mp.dados.escolherPasta()
+  const pasta = await window.ork.dados.escolherPasta()
   if (pasta) anexarAoPrompt(terminalId, [pasta])
 }

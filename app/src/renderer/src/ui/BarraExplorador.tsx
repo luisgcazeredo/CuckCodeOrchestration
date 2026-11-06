@@ -92,7 +92,7 @@ export function BarraExplorador() {
           className="botao-icone"
           title="Abrir uma pasta aqui"
           onClick={async () => {
-            const pasta = await window.mp.dados.escolherPasta()
+            const pasta = await window.ork.dados.escolherPasta()
             if (pasta) await adicionarRaizExplorador(pasta)
           }}
         >

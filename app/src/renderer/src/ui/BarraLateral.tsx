@@ -25,7 +25,7 @@ function NovoEspaco({ aoFechar }: { aoFechar: () => void }) {
       </label>
       <label className="campo">
         <span>Pasta do projeto (onde os terminais abrem)</span>
-        <button className="botao-pasta" onClick={async () => setPasta((await window.mp.dados.escolherPasta()) ?? pasta)}>
+        <button className="botao-pasta" onClick={async () => setPasta((await window.ork.dados.escolherPasta()) ?? pasta)}>
           <FolderOpen size={14} />
           <span>{pasta ?? 'Escolher pasta…'}</span>
         </button>

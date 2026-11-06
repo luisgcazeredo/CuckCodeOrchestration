@@ -34,5 +34,5 @@ test('parser preserva alias e opções tipadas', () => {
 test('a tabela de ajuda vem do registro', () => {
   const tabela = tabelaDeComandos()
   for (const verbo of VERBOS.filter((verbo) => verbo.ajuda)) assert.ok(tabela.includes(verbo.ajuda))
-  assert.match(tabela, /mpro abrir <claude\|codex\|shell>/)
+  assert.match(tabela, /ork abrir <claude\|codex\|shell>/)
 })

@@ -47,7 +47,7 @@ function usarSituacao(andar: Andar | null): SituacaoAndar | null {
     let vivo = true
     const ler = (): void => {
       if (document.hidden) return
-      window.mp.andares.situacao(espacoId, andarId).then(
+      window.ork.andares.situacao(espacoId, andarId).then(
         (s) => vivo && setSituacao(s),
         () => vivo && setSituacao(null)
       )
@@ -316,7 +316,7 @@ export function DialogoNovoAndar() {
     setNome('')
     setGit(null)
     setCriando(false)
-    void window.mp.andares.situacaoGit(espacoId).then((g) => {
+    void window.ork.andares.situacaoGit(espacoId).then((g) => {
       setGit(g)
       setUsarGit(g.repositorio)
     })

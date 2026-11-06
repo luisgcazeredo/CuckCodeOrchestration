@@ -136,12 +136,12 @@ export function Quadro() {
     window.addEventListener('keyup', cima)
     window.addEventListener('blur', soltarTudo)
     // Esc no meio de um desenho, retângulo de seleção ou ligação: descarta
-    window.addEventListener('mp:cancelar-gesto', soltarTudo)
+    window.addEventListener('ork:cancelar-gesto', soltarTudo)
     return () => {
       window.removeEventListener('keydown', baixo)
       window.removeEventListener('keyup', cima)
       window.removeEventListener('blur', soltarTudo)
-      window.removeEventListener('mp:cancelar-gesto', soltarTudo)
+      window.removeEventListener('ork:cancelar-gesto', soltarTudo)
     }
   }, [])
 

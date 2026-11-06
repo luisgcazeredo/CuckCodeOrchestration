@@ -149,7 +149,7 @@ test('sobe num andar vazio: cartões, nomes, cordas, conversa nova e pasta da fu
   assert.match(r.texto, /Subi a partitura "Time": 2 agentes/)
 })
 
-test('nome em uso ganha número, como no `mpro abrir`', () => {
+test('nome em uso ganha número, como no `ork abrir`', () => {
   const r = subida(aplicarPartitura(plano([agente('x', 'Main', -5000, -5000)]), {}, salvar(), 0, 0, ambiente()))
   const nomes = r.plano.nos.flatMap((n) => (n.tipo === 'terminal' ? [n.nome] : []))
   assert.deepEqual(nomes, ['Main', 'Main 2', 'Revisor'])

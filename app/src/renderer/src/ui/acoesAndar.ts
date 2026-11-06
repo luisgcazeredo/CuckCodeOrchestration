@@ -38,7 +38,7 @@ export async function juntarAndar(andarId: string): Promise<void> {
   const { espaco, andar } = acharAndar(andarId)
   if (!espaco || !andar?.git) return
   await salvarAgora()
-  const s = await window.mp.andares.situacao(espaco.id, andarId)
+  const s = await window.ork.andares.situacao(espaco.id, andarId)
   if (!s) return
   if (s.destacado) {
     return avisar(
@@ -98,7 +98,7 @@ export async function apagarAndarComConfirmacao(andarId: string): Promise<void> 
     return
   }
   await salvarAgora()
-  const s = await window.mp.andares.situacao(espaco.id, andarId)
+  const s = await window.ork.andares.situacao(espaco.id, andarId)
   const perdas = s && s.alterados > 0 ? ` ${plural(s.alterados, 'arquivo mudado e fora de commit vai ser perdido', 'arquivos mudados e fora de commit vão ser perdidos')}.` : ''
   const r = await confirmar({
     titulo: `Apagar o andar "${andar.nome}"?`,

@@ -1,5 +1,5 @@
 /**
- * O agente mexendo no quadro pelo `mpro`: ler, mover, arrumar, renomear, ligar, anotar e juntar.
+ * O agente mexendo no quadro pelo `ork`: ler, mover, arrumar, renomear, ligar, anotar e juntar.
  *
  * Tudo aqui é função pura sobre o plano à mostra, para a janela só precisar aplicar o resultado (e para as
  * provas rodarem sem Electron). Três regras valem para todas as ações, e é por elas que dar esse poder ao
@@ -11,7 +11,7 @@
  * - **Só pelo nome**, no andar à mostra. O agente não conhece id de nada, então não alcança o que não vê.
  *
  * A janela registra isso no desfazer: uma bagunça de agente volta inteira com um Ctrl+Z, ao contrário dos
- * outros pedidos do `mpro` (abrir, fechar, passar), que são estado operacional e ficam fora do histórico.
+ * outros pedidos do `ork` (abrir, fechar, passar), que são estado operacional e ficam fora do histórico.
  */
 import type { Corda, Desenho, No, Plano } from '../modelo'
 
@@ -134,7 +134,7 @@ function acharUm(plano: Plano, termo: string): No | string {
       return `"${limpo}" serve para mais de um cartão: ${quais}. Use o número.`
     }
   }
-  return `não achei "${limpo}" no quadro. Veja \`mpro quadro\`.`
+  return `não achei "${limpo}" no quadro. Veja \`ork quadro\`.`
 }
 
 /** Os cartões pedidos, na ordem em que o agente os nomeou, ou a primeira queixa. */
@@ -218,7 +218,7 @@ export function lerQuadro(plano: Plano, pedido: PedidoNoQuadro): string {
     cabecalho,
     ...(linhas.length ? linhas : ['  (quadro vazio)']),
     ...(cordas.length ? ['Cordas:', ...cordas] : []),
-    'Mexa com: mpro mover, arrumar, nome, ligar, desligar, anotar, juntar (sempre pelo nome ou pelo #número).'
+    'Mexa com: ork mover, arrumar, nome, ligar, desligar, anotar, juntar (sempre pelo nome ou pelo #número).'
   ].join('\n')
 }
 
@@ -232,7 +232,7 @@ export function mexerNoQuadro(plano: Plano, pedido: PedidoNoQuadro, amb: Ambient
 
   if (pedido.acao === 'anotar') {
     const texto = (pedido.texto ?? '').trim()
-    if (!texto) return { erro: 'diga o que anotar: mpro anotar "texto"' }
+    if (!texto) return { erro: 'diga o que anotar: ork anotar "texto"' }
     if (texto.length > MAX_TEXTO) return { erro: `a anotação é longa demais (máx. ${MAX_TEXTO} caracteres)` }
     if (plano.nos.length >= MAX_NOS) return { erro: `o quadro está cheio (${MAX_NOS} cartões); fale com o usuário` }
     const eu = plano.nos.find((n) => n.id === pedido.eu)
@@ -258,7 +258,7 @@ export function mexerNoQuadro(plano: Plano, pedido: PedidoNoQuadro, amb: Ambient
   }
 
   if (pedido.acao === 'mover') {
-    if (!alvosPedidos.length) return { erro: 'diga o que mover: mpro mover <cartão>... --x N --y N (ou --dx/--dy)' }
+    if (!alvosPedidos.length) return { erro: 'diga o que mover: ork mover <cartão>... --x N --y N (ou --dx/--dy)' }
     const temDestino = [pedido.x, pedido.y, pedido.dx, pedido.dy].some((v) => typeof v === 'number')
     if (!temDestino) return { erro: 'diga para onde: --x/--y (lugar) ou --dx/--dy (quanto andar)' }
     const alvos = acharAlvos(plano, alvosPedidos)
@@ -323,7 +323,7 @@ export function mexerNoQuadro(plano: Plano, pedido: PedidoNoQuadro, amb: Ambient
 
   if (pedido.acao === 'nome') {
     const novo = umaLinha(pedido.texto ?? '')
-    if (!alvosPedidos.length || !novo) return { erro: 'diga qual e como: mpro nome <cartão> "Nome novo"' }
+    if (!alvosPedidos.length || !novo) return { erro: 'diga qual e como: ork nome <cartão> "Nome novo"' }
     if (novo.length > MAX_NOME) return { erro: `nome comprido demais (máx. ${MAX_NOME} caracteres)` }
     const alvos = acharAlvos(plano, alvosPedidos.slice(0, 1))
     if (typeof alvos === 'string') return { erro: alvos }
@@ -336,12 +336,12 @@ export function mexerNoQuadro(plano: Plano, pedido: PedidoNoQuadro, amb: Ambient
     return {
       plano: { ...plano, nos: plano.nos.map((n) => (n.id === alvo.id ? { ...n, nome: novo } : n)) },
       terminais: [],
-      texto: `"${antigo}" agora se chama "${novo}". Quem falar com ele pelo mpro usa o nome novo.`
+      texto: `"${antigo}" agora se chama "${novo}". Quem falar com ele pelo ork usa o nome novo.`
     }
   }
 
   if (pedido.acao === 'ligar' || pedido.acao === 'desligar') {
-    if (alvosPedidos.length !== 2) return { erro: `diga os dois cartões: mpro ${pedido.acao} <cartão> <cartão>` }
+    if (alvosPedidos.length !== 2) return { erro: `diga os dois cartões: ork ${pedido.acao} <cartão> <cartão>` }
     const alvos = acharAlvos(plano, alvosPedidos)
     if (typeof alvos === 'string') return { erro: alvos }
     if (alvos.length !== 2) return { erro: 'são o mesmo cartão; a corda liga dois agentes diferentes' }
@@ -355,7 +355,7 @@ export function mexerNoQuadro(plano: Plano, pedido: PedidoNoQuadro, amb: Ambient
       return {
         plano: { ...plano, cordas: plano.cordas.filter((c) => c.id !== achada.id) },
         terminais: [],
-        texto: `Desliguei "${rotuloDoNo(a)}" de "${rotuloDoNo(b)}"; eles não falam mais pelo mpro.`
+        texto: `Desliguei "${rotuloDoNo(a)}" de "${rotuloDoNo(b)}"; eles não falam mais pelo ork.`
       }
     }
     if (achada) return { erro: `"${rotuloDoNo(a)}" e "${rotuloDoNo(b)}" já estão ligados` }
@@ -364,11 +364,11 @@ export function mexerNoQuadro(plano: Plano, pedido: PedidoNoQuadro, amb: Ambient
     return {
       plano: { ...plano, cordas: [...plano.cordas, corda] },
       terminais: [],
-      texto: `Liguei "${rotuloDoNo(a)}" a "${rotuloDoNo(b)}"; agora os dois falam pelo mpro.`
+      texto: `Liguei "${rotuloDoNo(a)}" a "${rotuloDoNo(b)}"; agora os dois falam pelo ork.`
     }
   }
 
-  if (!alvosPedidos.length) return { erro: 'diga quais cartões: mpro juntar <cartão> <cartão>... [--soltar]' }
+  if (!alvosPedidos.length) return { erro: 'diga quais cartões: ork juntar <cartão> <cartão>... [--soltar]' }
   const alvos = acharAlvos(plano, alvosPedidos)
   if (typeof alvos === 'string') return { erro: alvos }
   const todos = comOGrupo(plano, alvos)

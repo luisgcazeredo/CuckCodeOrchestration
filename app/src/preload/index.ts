@@ -22,7 +22,7 @@ import {
   type AvisoPortal,
   type AvisoJanelas,
   type MudancaArquivo,
-  type ApiMaestri,
+  type ApiOrkester,
   type PedidoDoAgente
 } from '../shared/api'
 
@@ -103,7 +103,7 @@ const codigo: ApiCodigo = {
 }
 
 // A janela não tem acesso ao Node: só a estas funções, nesta forma.
-const api: ApiMaestri = {
+const api: ApiOrkester = {
   terminal: {
     sincronizar: (espacoId, terminais, cordas) => ipcRenderer.invoke(CANAIS.sincronizar, espacoId, terminais, cordas),
     ligar: (id) => ipcRenderer.invoke(CANAIS.ligar, id),
@@ -149,4 +149,4 @@ const api: ApiMaestri = {
   autoteste: process.argv.includes('--autoteste')
 }
 
-contextBridge.exposeInMainWorld('mp', api)
+contextBridge.exposeInMainWorld('ork', api)

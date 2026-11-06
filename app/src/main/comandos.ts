@@ -1,6 +1,6 @@
 import { ipcMain, webContents } from 'electron'
 import { randomBytes, randomUUID } from 'node:crypto'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type Socket } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
@@ -26,8 +26,8 @@ import {
   type Sessao
 } from './terminais'
 
-// O `mpro`: a linha de comando dos agentes. Cada terminal do app ganha no ambiente o endereço de um pipe local
-// (MP_PIPE) e um crachá próprio (MP_CRACHA), e a pasta com o `mpro` no PATH. O `mpro` (src/cli/mpro.ts) manda uma
+// O `ork`: a linha de comando dos agentes. Cada terminal do app ganha no ambiente o endereço de um pipe local
+// (ORK_PIPE) e um crachá próprio (ORK_CRACHA), e a pasta com o `ork` no PATH. O `ork` (src/cli/ork.ts) manda uma
 // linha JSON e recebe uma de volta. A corda entre dois terminais é a permissão: sem corda, não há conversa.
 // O nome do crachá não tem KEY, TOKEN nem SECRET: o Codex tira essas variáveis do ambiente dos comandos.
 // A corda é regra de convívio, não fronteira de segurança: todos os agentes rodam como o mesmo usuário do Windows e
@@ -36,8 +36,8 @@ import {
 const AUTOTESTE = process.argv.includes('--autoteste')
 const PIPE =
   process.platform === 'win32'
-    ? `\\\\.\\pipe\\maestri-proprio-${randomBytes(12).toString('hex')}`
-    : join(tmpdir(), `maestri-proprio-${randomBytes(12).toString('hex')}.sock`)
+    ? `\\\\.\\pipe\\orkester-${randomBytes(12).toString('hex')}`
+    : join(tmpdir(), `orkester-${randomBytes(12).toString('hex')}.sock`)
 const PASTA_BIN = join(PASTA_DADOS, 'bin')
 const MAX_PEDIDO = 512 * 1024
 const MAX_CONEXOES = 128
@@ -65,11 +65,11 @@ function caminhoDoCli(): string {
   return join(__dirname, 'cli.js').replace(`app.asar${sep}`, `app.asar.unpacked${sep}`)
 }
 
-/** Variáveis que cada terminal ganha para o `mpro` funcionar. */
+/** Variáveis que cada terminal ganha para o `ork` funcionar. */
 export function ambienteDoComando(s: Sessao): { pastaBin: string; variaveis: Record<string, string> } {
   return {
     pastaBin: PASTA_BIN,
-    variaveis: { MP_PIPE: PIPE, MP_CRACHA: s.cracha, MP_TERMINAL: s.espec.nome, MP_NODE: process.execPath, MP_CLI: caminhoDoCli() }
+    variaveis: { ORK_PIPE: PIPE, ORK_CRACHA: s.cracha, ORK_TERMINAL: s.espec.nome, ORK_NODE: process.execPath, ORK_CLI: caminhoDoCli() }
   }
 }
 
@@ -82,39 +82,43 @@ function gravarSeMudou(caminho: string, conteudo: string): void {
   }
 }
 
-/** O `mpro` no PATH dos terminais: um .cmd (PowerShell e cmd) e um script sh (o Git Bash do Claude Code). */
+/** O `ork` no PATH dos terminais: um .cmd (PowerShell e cmd) e um script sh (o Git Bash do Claude Code). */
 function instalarComando(): void {
   mkdirSync(PASTA_BIN, { recursive: true })
   gravarSeMudou(
-    join(PASTA_BIN, 'mpro.cmd'),
+    join(PASTA_BIN, 'ork.cmd'),
     [
       '@echo off',
-      'rem Maestri Proprio: o comando dos agentes (so funciona dentro de um terminal do app)',
-      'if not defined MP_PIPE (echo mpro: so funciona dentro de um terminal do Maestri Proprio 1>&2 & exit /b 2)',
+      'rem Orkester: o comando dos agentes (so funciona dentro de um terminal do app)',
+      'if not defined ORK_PIPE (echo ork: so funciona dentro de um terminal do Orkester 1>&2 & exit /b 2)',
       'setlocal',
       'set ELECTRON_RUN_AS_NODE=1',
-      '"%MP_NODE%" "%MP_CLI%" %*',
+      '"%ORK_NODE%" "%ORK_CLI%" %*',
       'exit /b %ERRORLEVEL%',
       ''
     ].join('\r\n')
   )
   gravarSeMudou(
-    join(PASTA_BIN, 'mpro'),
+    join(PASTA_BIN, 'ork'),
     [
       '#!/bin/sh',
-      '# Maestri Proprio: o comando dos agentes (so funciona dentro de um terminal do app)',
-      'if [ -z "$MP_PIPE" ]; then echo "mpro: so funciona dentro de um terminal do Maestri Proprio" >&2; exit 2; fi',
-      'ELECTRON_RUN_AS_NODE=1 exec "$MP_NODE" "$MP_CLI" "$@"',
+      '# Orkester: o comando dos agentes (so funciona dentro de um terminal do app)',
+      'if [ -z "$ORK_PIPE" ]; then echo "ork: so funciona dentro de um terminal do Orkester" >&2; exit 2; fi',
+      'ELECTRON_RUN_AS_NODE=1 exec "$ORK_NODE" "$ORK_CLI" "$@"',
       ''
     ].join('\n')
   )
+  // o app se chamava Maestri Próprio até 06/11/2026: o comando velho sai do PATH para ninguém chamar os dois
+  for (const antigo of ['mpro.cmd', 'mpro']) rmSync(join(PASTA_BIN, antigo), { force: true })
   // o manual vira skill do Claude Code e do Codex (decisão do Luís, 28/10/2026); fora do app ela manda não usar
   if (AUTOTESTE) return
   for (const pasta of [process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), process.env.CODEX_HOME || join(homedir(), '.codex')]) {
     if (!existsSync(pasta)) continue
-    const destino = join(pasta, 'skills', 'maestri-proprio')
+    const destino = join(pasta, 'skills', 'orkester')
     mkdirSync(destino, { recursive: true })
     gravarSeMudou(join(destino, 'SKILL.md'), SKILL)
+    // e a skill com o nome antigo sai: duas skills ensinando comandos diferentes confundiriam os agentes
+    rmSync(join(pasta, 'skills', 'maestri-proprio'), { recursive: true, force: true })
   }
 }
 
@@ -172,7 +176,7 @@ function pedirAJanela(pedido: PedidoDoAgente): Promise<RespostaAoAgente> {
 type Situacao = 'encerrado' | 'trabalhando' | 'pergunta' | 'livre'
 
 /**
- * Poucas linhas podem deixar passar uma pergunta verdadeira e fazer o mpro digitar em cima dela (foi assim que
+ * Poucas linhas podem deixar passar uma pergunta verdadeira e fazer o ork digitar em cima dela (foi assim que
  * o Codex atualizou sem querer em 28/10); linhas demais tratam uma citação velha como pergunta e travam à toa.
  */
 function ultimasLinhasComTexto(tela: string, quantidade = 6): string {
@@ -221,7 +225,7 @@ function contextoNaTela(s: Sessao, tela: string): LeituraDoContexto {
 }
 
 /**
- * No Claude, `/context` é a única fonte real de contexto. Só o `mpro orcamento` pede essa medição, e apenas se o
+ * No Claude, `/context` é a única fonte real de contexto. Só o `ork orcamento` pede essa medição, e apenas se o
  * terminal estiver livre; `quem` e o painel ficam no último valor bom para não poluir conversas em segundo plano.
  */
 async function medirContextoDoClaude(s: Sessao, telaAntes: string, cancelado: () => boolean): Promise<number | null> {
@@ -299,7 +303,7 @@ async function recusarSeEmPergunta(s: Sessao): Promise<void> {
   if ((await situacao(s)) !== 'pergunta') return
   throw new Error(
     `"${s.espec.nome}" está parado numa pergunta (confiança na pasta, permissão, atualização…) e nada foi digitado. ` +
-      `Responda com \`mpro teclas "${s.espec.nome}" …\` se for seguro, ou pergunte ao usuário. Tela:\n${await telaDe(s, 25)}`
+      `Responda com \`ork teclas "${s.espec.nome}" …\` se for seguro, ou pergunte ao usuário. Tela:\n${await telaDe(s, 25)}`
   )
 }
 
@@ -358,7 +362,7 @@ function ligadosA(eu: Sessao): Sessao[] {
 }
 
 function acharEntre(lista: Sessao[], nome: string | undefined): Sessao {
-  if (!nome) throw new Error('diga com quem: o nome do cartão (veja `mpro quem`)')
+  if (!nome) throw new Error('diga com quem: o nome do cartão (veja `ork quem`)')
   const procurado = nome.trim().toLowerCase()
   const exatos = lista.filter((s) => s.espec.nome.toLowerCase() === procurado || s.id === procurado)
   const candidatos = exatos.length ? exatos : lista.filter((s) => s.espec.nome.toLowerCase().startsWith(procurado))
@@ -377,13 +381,13 @@ async function resultado(s: Sessao, segundos: number, cancelado: () => boolean):
   const terminou = await aguardarFim(s, segundos * 1000, cancelado)
   const tela = await telaDe(s, 60)
   if (terminou && (await situacao(s)) === 'pergunta') {
-    return `"${s.espec.nome}" parou numa pergunta e espera resposta (responda com \`mpro teclas\` se for seguro, ou pergunte ao usuário). Tela:\n${tela}`
+    return `"${s.espec.nome}" parou numa pergunta e espera resposta (responda com \`ork teclas\` se for seguro, ou pergunte ao usuário). Tela:\n${tela}`
   }
   if (terminou) return `"${s.espec.nome}" terminou. Tela:\n${tela}`
-  return `"${s.espec.nome}" ainda está trabalhando depois de ${segundos} s. Use \`mpro esperar "${s.espec.nome}"\` depois. Tela agora:\n${tela}`
+  return `"${s.espec.nome}" ainda está trabalhando depois de ${segundos} s. Use \`ork esperar "${s.espec.nome}"\` depois. Tela agora:\n${tela}`
 }
 
-/** Fecha cartões pelo mesmo pedido que o `mpro fechar`; só roda depois de responder ao terminal que pediu saída. */
+/** Fecha cartões pelo mesmo pedido que o `ork fechar`; só roda depois de responder ao terminal que pediu saída. */
 async function fecharCartoesDepoisDaResposta(sessoes: Sessao[]): Promise<void> {
   for (const s of sessoes) {
     try {
@@ -516,19 +520,19 @@ function agenteDe(texto: string | undefined): Agente | null {
   return null
 }
 
-/** O MSYS do Git Bash troca `/context` por `.../Programs/Git/context` antes de chamar o mpro. */
+/** O MSYS do Git Bash troca `/context` por `.../Programs/Git/context` antes de chamar o ork. */
 function desfazerConversaoDoGitBash(texto: string): string {
   const achou = texto.match(/^(?:[A-Za-z]:)?(?:[\\/][^\\/\r\n]+)*[\\/]Programs[\\/]Git[\\/]([^\\/\s]+)$/i)
   return achou ? `/${achou[1]}` : texto
 }
 
 function espacoPorNome(nome: string | undefined) {
-  if (!nome?.trim()) throw new Error('diga o nome do espaço (veja `mpro espacos`)')
+  if (!nome?.trim()) throw new Error('diga o nome do espaço (veja `ork espacos`)')
   const procurado = nome.trim().toLocaleLowerCase('pt-BR')
   const achados = resumosDosEspacos().filter((e) => e.nome.trim().toLocaleLowerCase('pt-BR') === procurado)
   if (achados.length === 1) return achados[0]
   if (achados.length > 1) throw new Error(`há mais de um espaço chamado "${nome}"; renomeie um deles pelo quadro`)
-  throw new Error(`não existe espaço chamado "${nome}". Veja mpro espacos.`)
+  throw new Error(`não existe espaço chamado "${nome}". Veja ork espacos.`)
 }
 
 interface Pedido {
@@ -584,14 +588,14 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
   janela: async ({ eu, pos, opcoes }) => {
     if (opcoes.novo) {
       const nome = typeof opcoes.novo === 'string' ? opcoes.novo.trim() : ''
-      if (!nome) throw new Error('diga o nome: mpro janela --novo "Nome" [--pasta P]')
+      if (!nome) throw new Error('diga o nome: ork janela --novo "Nome" [--pasta P]')
       const pasta = typeof opcoes.pasta === 'string' ? opcoes.pasta : eu.espec.pasta
       if (!(existsSync(pasta) && statSync(pasta).isDirectory())) throw new Error(`a pasta não existe: ${pasta}`)
       const espaco = criarEspacoDoAgente(nome, pasta)
       await abrirJanelaPronta(espaco.id)
       return { saida: `Criei o espaço "${espaco.nome}" e abri uma janela nele.` }
     }
-    if (opcoes.pasta) throw new Error('`--pasta` só vale com `mpro janela --novo "Nome"`')
+    if (opcoes.pasta) throw new Error('`--pasta` só vale com `ork janela --novo "Nome"`')
     const espaco = espacoPorNome(pos[0])
     const { jaEstavaAberta } = await abrirJanelaPronta(espaco.id)
     return {
@@ -626,11 +630,11 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
 
   abrir: async ({ eu, pos, opcoes, texto, cancelado }) => {
     const agente = agenteDe(pos[0])
-    if (!agente) throw new Error('diga qual agente: mpro abrir claude|codex|shell [--espaco "Nome"] [--nome N] [--pedido "texto"]')
+    if (!agente) throw new Error('diga qual agente: ork abrir claude|codex|shell [--espaco "Nome"] [--nome N] [--pedido "texto"]')
     // as aberturas ainda em andamento contam: vários `abrir` ao mesmo tempo não passam do limite
     const filhos = sessoesCriadasPor(eu.id, { comFolga: true }).length + (abrindo.get(eu.id) ?? 0)
     if (filhos >= MAX_SESSOES_POR_AGENTE) {
-      throw new Error(`você já abriu ${contaSessoes(filhos)} (o limite é ${MAX_SESSOES_POR_AGENTE}); feche uma com \`mpro fechar\``)
+      throw new Error(`você já abriu ${contaSessoes(filhos)} (o limite é ${MAX_SESSOES_POR_AGENTE}); feche uma com \`ork fechar\``)
     }
     const pasta = typeof opcoes.pasta === 'string' ? opcoes.pasta : undefined
     if (pasta && !(existsSync(pasta) && statSync(pasta).isDirectory())) throw new Error(`a pasta não existe: ${pasta}`)
@@ -657,30 +661,30 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
       novo.espacoId === eu.espacoId
         ? `Abri "${novo.espec.nome}" (${agente}), ligado a você.`
         : `Abri "${novo.espec.nome}" (${agente}) no espaço "${espaco.nome}"; você pode falar com ele porque o abriu.`
-    if (!pedidoInicial) return { saida: `${aberto} Mande o primeiro pedido com: mpro pedir "${novo.espec.nome}" "…"` }
+    if (!pedidoInicial) return { saida: `${aberto} Mande o primeiro pedido com: ork pedir "${novo.espec.nome}" "…"` }
     const pronto = await aguardarPronto(novo, 90_000, cancelado)
     if (pronto !== 'pronto') {
       const motivo = {
         confirmar:
-          'Ele parou numa pergunta (confiar na pasta? servidores MCP? atualização?). O pedido NÃO foi enviado: responda com `mpro teclas` se for seguro, ou pergunte ao usuário, e depois use `mpro pedir`.',
-        tempo: 'Ele não ficou pronto em 90 s; o pedido NÃO foi enviado. Veja com `mpro ver` e use `mpro pedir` depois.',
+          'Ele parou numa pergunta (confiar na pasta? servidores MCP? atualização?). O pedido NÃO foi enviado: responda com `ork teclas` se for seguro, ou pergunte ao usuário, e depois use `ork pedir`.',
+        tempo: 'Ele não ficou pronto em 90 s; o pedido NÃO foi enviado. Veja com `ork ver` e use `ork pedir` depois.',
         encerrado: 'O processo terminou antes de ficar pronto; o pedido NÃO foi enviado.'
       }[pronto]
       return { saida: `${aberto}\n${motivo}\nTela agora:\n${await telaDe(novo, 30)}` }
     }
     await digitarPedido(novo, pedidoInicial)
-    if (!opcoes.esperar) return { saida: `${aberto} Pedido enviado. Acompanhe com \`mpro esperar "${novo.espec.nome}"\` ou \`mpro ver\`.` }
+    if (!opcoes.esperar) return { saida: `${aberto} Pedido enviado. Acompanhe com \`ork esperar "${novo.espec.nome}"\` ou \`ork ver\`.` }
     return { saida: `${aberto}\n${await resultado(novo, tempoDe(opcoes), cancelado)}` }
   },
 
   pedir: async ({ eu, pos, opcoes, texto, cancelado }) => {
     const alvo = acharEntre(ligadosA(eu), pos[0])
-    if (!texto.trim()) throw new Error('falta o pedido: mpro pedir <nome> "texto" (ou --arquivo pedido.md)')
+    if (!texto.trim()) throw new Error('falta o pedido: ork pedir <nome> "texto" (ou --arquivo pedido.md)')
     if (!alvo.processo) throw new Error(`"${alvo.espec.nome}" está encerrado`)
     await recusarSeEmPergunta(alvo)
     // num agente, o pedido entra na fila dele; num shell rodando um comando, cairia no meio desse comando
     if (alvo.espec.agente === 'shell' && (await situacao(alvo)) === 'trabalhando') {
-      throw new Error(`"${alvo.espec.nome}" está rodando um comando; espere terminar (\`mpro esperar "${alvo.espec.nome}"\`) e mande de novo`)
+      throw new Error(`"${alvo.espec.nome}" está rodando um comando; espere terminar (\`ork esperar "${alvo.espec.nome}"\`) e mande de novo`)
     }
     registrar(eu, alvo, 'pedir', texto)
     await digitarPedido(alvo, texto)
@@ -702,7 +706,7 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
   teclas: async ({ eu, pos }) => {
     const alvo = acharEntre(ligadosA(eu), pos[0])
     const teclas = pos.slice(1)
-    if (!teclas.length) throw new Error('quais teclas? ex.: mpro teclas <nome> enter (veja `mpro ajuda`)')
+    if (!teclas.length) throw new Error('quais teclas? ex.: ork teclas <nome> enter (veja `ork ajuda`)')
     const sequencias = teclas.map((t) => {
       const s = TECLAS[t.toLowerCase()] ?? (t.length === 1 ? t : null)
       if (s === null) throw new Error(`tecla desconhecida: ${t}`)
@@ -764,13 +768,13 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
 
   /**
    * Troca o agente de um cartão **que ele abriu**: o cartão fica (lugar, nome, cordas, árvore de código) e o
-   * agente muda. Só o que ele abriu, pela mesma razão do `mpro fechar`: trocar encerra o processo, e ninguém
+   * agente muda. Só o que ele abriu, pela mesma razão do `ork fechar`: trocar encerra o processo, e ninguém
    * encerra o trabalho de outro — nem o seu próprio, que mataria o comando no meio.
    */
   trocar: async ({ eu, pos }) => {
     const agente = (pos[1] ?? '').toLowerCase()
     if (agente !== 'claude' && agente !== 'codex' && agente !== 'shell') {
-      throw new Error('diga o agente: mpro trocar <cartão> <claude|codex|shell>')
+      throw new Error('diga o agente: ork trocar <cartão> <claude|codex|shell>')
     }
     await abrirJanelaPronta(eu.espacoId)
     const r = await pedirAJanela({ tipo: 'trocar', espacoId: eu.espacoId, id: eu.id, alvo: pos[0], agente })
@@ -782,9 +786,9 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
   banda: async ({ eu, pos }) => {
     const pedida = (pos[0] ?? 'lista').toLowerCase()
     const acao = pedida === 'lista' ? 'lista' : pedida === 'criar' ? 'criar' : null
-    if (!acao) throw new Error(`não conheço \`mpro banda ${pos[0]}\`. Use: criar, ou nada para listar.`)
+    if (!acao) throw new Error(`não conheço \`ork banda ${pos[0]}\`. Use: criar, ou nada para listar.`)
     const nome = (pos[1] ?? '').trim()
-    if (acao === 'criar' && !nome) throw new Error('diga o nome: mpro banda criar "Nome" <cartão>...')
+    if (acao === 'criar' && !nome) throw new Error('diga o nome: ork banda criar "Nome" <cartão>...')
     await abrirJanelaPronta(eu.espacoId)
     const r = await pedirAJanela({ tipo: 'banda', espacoId: eu.espacoId, id: eu.id, acao, nome, alvos: pos.slice(2).filter(Boolean) })
     if (!r.ok) throw new Error(r.erro)
@@ -799,9 +803,9 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
     const acoes = ['lista', 'usar', 'salvar'] as const
     const pedida = (pos[0] ?? 'lista').toLowerCase()
     const acao = acoes.find((a) => a === pedida)
-    if (!acao) throw new Error(`não conheço \`mpro partitura ${pos[0]}\`. Use: usar, salvar, ou nada para listar.`)
+    if (!acao) throw new Error(`não conheço \`ork partitura ${pos[0]}\`. Use: usar, salvar, ou nada para listar.`)
     const nome = (pos[1] ?? '').trim()
-    if (acao !== 'lista' && !nome) throw new Error(`diga o nome: mpro partitura ${acao} "Nome"`)
+    if (acao !== 'lista' && !nome) throw new Error(`diga o nome: ork partitura ${acao} "Nome"`)
     await abrirJanelaPronta(eu.espacoId)
     const r = await pedirAJanela({
       tipo: 'partitura',
@@ -831,17 +835,17 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
     const acoes = ['lista', 'nova', 'usar', 'mostrar', 'desfazer'] as const
     const pedida = (pos[0] ?? 'lista').toLowerCase()
     const acao = acoes.find((a) => a === pedida)
-    if (!acao) throw new Error(`não conheço \`mpro arvore ${pos[0]}\`. Use: ${acoes.join(', ')}.`)
+    if (!acao) throw new Error(`não conheço \`ork arvore ${pos[0]}\`. Use: ${acoes.join(', ')}.`)
     const resto = pos.slice(1).filter(Boolean)
     const daOpcao = typeof opcoes.arvore === 'string' ? opcoes.arvore.trim() : ''
     const nome = acao === 'mostrar' ? daOpcao : resto.join(' ').trim() || daOpcao
     if ((acao === 'nova' || acao === 'usar' || acao === 'desfazer') && !nome) {
-      throw new Error(`diga o nome: mpro arvore ${acao} "Nome"`)
+      throw new Error(`diga o nome: ork arvore ${acao} "Nome"`)
     }
     // os arquivos vão em caminho absoluto: a janela só mostra o que está numa pasta do quadro
     const arquivos = acao === 'mostrar' ? resto.map((a) => resolve(eu.espec.pasta, a)) : []
     if (acao === 'mostrar') {
-      if (!arquivos.length) throw new Error('diga os arquivos: mpro arvore mostrar <arquivo>... [--arvore "Nome"]')
+      if (!arquivos.length) throw new Error('diga os arquivos: ork arvore mostrar <arquivo>... [--arvore "Nome"]')
       const sumido = arquivos.find((a) => !existsSync(a))
       if (sumido) throw new Error(`esse arquivo não existe: ${sumido}`)
     }
@@ -890,7 +894,7 @@ const HANDLERS: Record<NomeDeVerbo, HandlerDoVerbo> = {
     const minhas = sessoesCriadasPor(eu.id)
     if (minhas.length && !opcoes['com-as-minhas']) {
       throw new Error(
-        `você ainda tem ${contaSessoes(minhas.length)} aberta${minhas.length === 1 ? '' : 's'}; use \`mpro passar <nome>\` primeiro, ou \`mpro sair --com-as-minhas\` para fechar todas junto`
+        `você ainda tem ${contaSessoes(minhas.length)} aberta${minhas.length === 1 ? '' : 's'}; use \`ork passar <nome>\` primeiro, ou \`ork sair --com-as-minhas\` para fechar todas junto`
       )
     }
     const motivo = typeof opcoes.motivo === 'string' ? opcoes.motivo : ''
@@ -920,11 +924,11 @@ async function atender(linha: string, socket: Socket, fechado: () => boolean): P
   try {
     const pedido = JSON.parse(linha) as Pedido
     const eu = sessaoPorCracha(pedido.cracha)
-    if (!eu) throw new Error('este terminal não é do Maestri Próprio (ou o app foi reaberto: feche e abra o terminal)')
+    if (!eu) throw new Error('este terminal não é do Orkester (ou o app foi reaberto: feche e abra o terminal)')
     const resultado = await executar(eu, pedido, fechado)
     resposta = { ok: true, saida: resultado.saida }
     if (resultado.sair) {
-      // O `mpro` está no processo que vai morrer. Esperamos o flush do socket e mais um instante antes de matar
+      // O `ork` está no processo que vai morrer. Esperamos o flush do socket e mais um instante antes de matar
       // o pty, para ele imprimir a confirmação; se a janela falhar, o cliente ainda jamais fica preso no pipe.
       socket.end(`${JSON.stringify(resposta)}\n`, () => setTimeout(() => void fecharCartoesDepoisDaResposta(resultado.sair!), 120))
       return
@@ -999,13 +1003,13 @@ export function registrarComandos(): void {
       const fim = recebido.indexOf('\n')
       if (fim < 0) return
       socket.off('data', aoReceber)
-      // daqui em diante a espera é do comando (`mpro esperar` pode levar até uma hora)
+      // daqui em diante a espera é do comando (`ork esperar` pode levar até uma hora)
       socket.setTimeout(0)
       void atender(recebido.slice(0, fim), socket, () => fechado)
     }
     socket.on('data', aoReceber)
   })
   servidor.maxConnections = MAX_CONEXOES
-  servidor.on('error', (erro) => console.error('mpro: o pipe não abriu', erro))
+  servidor.on('error', (erro) => console.error('ork: o pipe não abriu', erro))
   servidor.listen(PIPE)
 }

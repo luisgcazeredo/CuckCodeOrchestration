@@ -132,7 +132,7 @@ export async function rodarAutoteste(
   const legadoEsperar = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
   const legadoJs = <T>(codigo: string): Promise<T> => legadoTela.executeJavaScript(codigo)
   // no app instalado a pasta do app é somente leitura: os prints vão para a pasta temporária
-  const pastaSaida = app.isPackaged ? join(tmpdir(), 'maestri-proprio-autoteste-prints') : join(app.getAppPath(), 'out')
+  const pastaSaida = app.isPackaged ? join(tmpdir(), 'orkester-autoteste-prints') : join(app.getAppPath(), 'out')
   mkdirSync(pastaSaida, { recursive: true })
   const driver = criarDriver(janela, pastaSaida)
   const { resultados, tela, esperar, js } = driver
@@ -298,12 +298,12 @@ export async function rodarAutoteste(
     )
 
     // árvore de arquivos de uma pasta de teste e um portal, longe do resto
-    const pastaTeste = join(tmpdir(), 'maestri-proprio-autoteste-arvore')
+    const pastaTeste = join(tmpdir(), 'orkester-autoteste-arvore')
     rmSync(pastaTeste, { recursive: true, force: true })
     mkdirSync(join(pastaTeste, 'sub'), { recursive: true })
     for (const nome of ['a.md', 'b.txt']) writeFileSync(join(pastaTeste, nome), nome)
     // atalho de pasta (junction) que aponta para fora: não pode aparecer nem ser listado
-    const fora = join(tmpdir(), 'maestri-proprio-autoteste-fora')
+    const fora = join(tmpdir(), 'orkester-autoteste-fora')
     mkdirSync(fora, { recursive: true })
     writeFileSync(join(fora, 'segredo.txt'), 'não pode vazar')
     symlinkSync(fora, join(pastaTeste, 'atalho-para-fora'), 'junction')
@@ -320,7 +320,7 @@ export async function rodarAutoteste(
       linhas = await js<number>(`document.querySelectorAll('.arvore-linha').length`)
     }
     conferir('árvore de arquivos', linhas === 3, `${linhas} linhas (sub, a.md, b.txt; o atalho para fora não aparece)`)
-    const vazou = await js<string>(`window.mp.dados.listarPasta(${JSON.stringify(pastaTeste)}, ${JSON.stringify(
+    const vazou = await js<string>(`window.ork.dados.listarPasta(${JSON.stringify(pastaTeste)}, ${JSON.stringify(
       join(pastaTeste, 'atalho-para-fora')
     )}).then((l) => 'LISTOU ' + l.map((e) => e.nome).join(','), (e) => 'bloqueado')`)
     conferir('atalho para fora da pasta é bloqueado', vazou === 'bloqueado', vazou)
@@ -699,7 +699,7 @@ export async function rodarAutoteste(
         depois.nos.length === antesDeColar + 1 && textoColado === 'cartão copiado' && colado?.arquivo !== arquivoOriginal,
         `${antesDeColar} → ${depois.nos.length} · "${textoColado}"`
       )
-      // print: a imagem vira cartão e aparece de verdade (esquema mp-imagem e CSP)
+      // print: a imagem vira cartão e aparece de verdade (esquema ork-imagem e CSP)
       const print = (await tela.capturePage({ x: 0, y: 0, width: 240, height: 140 })).toPNG()
       await clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(print)], { type: 'image/png' }) })])
       await tecla('V')
@@ -721,7 +721,7 @@ export async function rodarAutoteste(
       // marca do app com assinatura errada (o que um site poderia tentar): vira texto, nunca cartão
       const falsa = Buffer.from(JSON.stringify({ espacoOrigem: espacoAtual, json: '{"nos":[],"desenhos":[],"cordas":[],"notas":{}}' })).toString('base64')
       await clipboard.write([
-        new ClipboardItem({ 'text/plain': 'marca falsa', 'text/html': `<span data-maestri-proprio="${falsa}.${'0'.repeat(64)}"></span>` })
+        new ClipboardItem({ 'text/plain': 'marca falsa', 'text/html': `<span data-orkester="${falsa}.${'0'.repeat(64)}"></span>` })
       ])
       await tecla('V')
       await esperar(300)
@@ -864,7 +864,7 @@ export async function rodarAutoteste(
       `window.__teste.loja.lerEstado().espacos.find((e) => e.nome === 'Outro espaço')?.id`
     )
     if (!outroEspaco) throw new Error('o espaço "Outro espaço" do teste de colar não existe')
-    await js(`window.mp.janelas.nova('${outroEspaco}')`)
+    await js(`window.ork.janelas.nova('${outroEspaco}')`)
     let segunda: BrowserWindow | undefined
     let segundaPronta = false
     for (let i = 0; i < 100 && !segundaPronta; i++) {
@@ -881,8 +881,8 @@ export async function rodarAutoteste(
     await js(`window.__teste.loja.abrirEspaco('${outroEspaco}')`)
     const continuaNoMeu = (await js<string>('window.__teste.loja.lerEstado().espaco.id')) === meuEspaco
     const sabeDaOutra = await js<boolean>(`window.__teste.loja.lerEstado().emOutrasJanelas.includes('${outroEspaco}')`)
-    const gravacao = await js<string>(`window.mp.dados.carregarEspaco('${outroEspaco}')
-      .then((c) => window.mp.dados.salvarEspaco(c)).then(() => 'GRAVOU', () => 'recusado')`)
+    const gravacao = await js<string>(`window.ork.dados.carregarEspaco('${outroEspaco}')
+      .then((c) => window.ork.dados.salvarEspaco(c)).then(() => 'GRAVOU', () => 'recusado')`)
     conferir(
       'espaço aberto em outra janela fica com ela',
       continuaNoMeu && sabeDaOutra && gravacao === 'recusado',
@@ -922,7 +922,7 @@ export async function rodarAutoteste(
 
     // ---- andar com git: worktree num ramo, commit nele, juntar ao principal ----
     // pasta nova a cada rodada: os objetos do git ficam somente leitura e o Windows não deixa apagar de primeira
-    const repo = join(tmpdir(), `maestri-proprio-autoteste-repo-${Date.now()}`)
+    const repo = join(tmpdir(), `orkester-autoteste-repo-${Date.now()}`)
     mkdirSync(repo, { recursive: true })
     const gitEm = (pasta: string, ...args: string[]): string =>
       execFileSync('git', ['-c', 'user.name=Autoteste', '-c', 'user.email=autoteste@local', ...args], { cwd: pasta, encoding: 'utf8' }).trim()
@@ -975,14 +975,14 @@ export async function rodarAutoteste(
       conferir('apagar andar com git', r.ok && !existsSync(outro.git.pasta) && andaresRestantes === 0, r.mensagem)
     }
 
-    // ---- terminais de verdade e o `mpro` (integração, 28/10/2026) ----
+    // ---- terminais de verdade e o `ork` (integração, 28/10/2026) ----
       },
     },
     {
-      nome: 'mpro',
+      nome: 'ork',
       rodar: async (d) => {
         const { esperar, js, print, centroDe, conferir, teclar, digitar, clicar } = d
-    pastaTerminais = join(tmpdir(), `maestri-proprio-autoteste-terminais-${Date.now()}`)
+    pastaTerminais = join(tmpdir(), `orkester-autoteste-terminais-${Date.now()}`)
     mkdirSync(pastaTerminais, { recursive: true })
     await js(`window.__teste.loja.criarEspaco('Terminais', ${JSON.stringify(pastaTerminais)})`)
     await esperar(300)
@@ -1113,26 +1113,26 @@ export async function rodarAutoteste(
     const voltou = await aguardar(() => telaNoCartao(chefe), /^MP-5/m, 5000)
     conferir('fora da tela o cartão para de desenhar e volta igual', descarregou && /^MP-5/m.test(voltou), `descarregou: ${descarregou}`)
 
-    // o `mpro` dentro do terminal: quem, abrir (com pedido e espera), ver, permissão pela corda, fechar
+    // o `ork` dentro do terminal: quem, abrir (com pedido e espera), ver, permissão pela corda, fechar
       },
     },
     {
-      nome: 'mpro-conexoes',
-      depende: 'mpro',
+      nome: 'ork-conexoes',
+      depende: 'ork',
       rodar: async (d) => {
         const { esperar, js, conferir, aguardar, comando, comandoAte, telaNoApp, ultimas } = d
-    await comando(chefe, 'mpro quem')
+    await comando(chefe, 'ork quem')
     const quem = await aguardar(() => telaNoApp(chefe), 'Você é "PowerShell"')
-    conferir('mpro quem (o comando existe dentro do terminal)', quem.includes('Você é "PowerShell"'), ultimas(quem, 3))
+    conferir('ork quem (o comando existe dentro do terminal)', quem.includes('Você é "PowerShell"'), ultimas(quem, 3))
 
-    await comando(chefe, "mpro abrir shell --nome Ajudante --pedido 'echo AJUDANTE-$(3*3)' --esperar --tempo 40")
+    await comando(chefe, "ork abrir shell --nome Ajudante --pedido 'echo AJUDANTE-$(3*3)' --esperar --tempo 40")
     const abriu = await aguardar(() => telaNoApp(chefe), /terminou\. Tela:[\s\S]*AJUDANTE-9/, 60_000)
     ajudante = await js<{ id: string; criadoPor: string; corda: boolean } | null>(`(() => {
       const p = window.__teste.loja.planoAtual()
       const n = p.nos.find((x) => x.tipo === 'terminal' && x.nome === 'Ajudante'); if (!n) return null
       return { id: n.id, criadoPor: n.criadoPor, corda: p.cordas.some((c) => c.de === '${chefe}' && c.para === n.id) } })()`)
     conferir(
-      'mpro abrir: sessão nova ao lado, ligada, com o pedido feito',
+      'ork abrir: sessão nova ao lado, ligada, com o pedido feito',
       !!ajudante && ajudante.criadoPor === chefe && ajudante.corda && /AJUDANTE-9/.test(abriu),
       ajudante ? `corda: ${ajudante.corda} · ${ultimas(abriu)}` : `cartão não apareceu · ${ultimas(abriu, 4)}`
     )
@@ -1140,12 +1140,12 @@ export async function rodarAutoteste(
     solto = await js<string>(`(() => { const L = window.__teste.loja
       const id = L.adicionarNo({ tipo: 'terminal', preset: ${presetShell} }, 560, 1100); L.atualizarNo(id, { nome: 'Solto' }); return id })()`)
     await aguardar(() => telaNoApp(solto), /PS .*>/)
-    await comando(chefe, 'mpro pedir Solto "echo NAO-DEVIA"')
+    await comando(chefe, 'ork pedir Solto "echo NAO-DEVIA"')
     const recusou = await aguardar(() => telaNoApp(chefe), 'ninguém ligado a você se chama "Solto"', 15_000)
-    await comando(chefe, 'mpro ver Ajudante --linhas 20')
+    await comando(chefe, 'ork ver Ajudante --linhas 20')
     const viu = await aguardar(() => telaNoApp(chefe), /"Ajudante" · livre[\s\S]*AJUDANTE-9/, 15_000)
     conferir(
-      'mpro ver lê a tela do outro; sem corda, recusa',
+      'ork ver lê a tela do outro; sem corda, recusa',
       /"Ajudante" · livre/.test(viu) && recusou.includes('ninguém ligado') && !(await telaNoApp(solto)).includes('NAO-DEVIA'),
       `${ultimas(viu)} · fim do Ajudante: ${JSON.stringify((await telaNoApp(ajudante?.id ?? '')).split('\n').slice(-2))}`
     )
@@ -1158,18 +1158,18 @@ export async function rodarAutoteste(
     await aguardar(() => telaNoApp(dialogo), /PS .*>/)
     await comando(dialogo, "while ($true) { Write-Host 'Enter to confirm - Esc to cancel'; Start-Sleep -Milliseconds 300 }")
     await esperar(1500)
-    await comando(chefe, "mpro pedir Dialogo 'NAO-DIGITAR'; echo FIM-DIALOGO")
+    await comando(chefe, "ork pedir Dialogo 'NAO-DIGITAR'; echo FIM-DIALOGO")
     const naPergunta = await aguardar(() => telaNoApp(chefe), /^FIM-DIALOGO/m, 20_000)
-    await comando(chefe, 'mpro teclas Dialogo ctrl-c')
+    await comando(chefe, 'ork teclas Dialogo ctrl-c')
     // e um PowerShell rodando um comando quieto não está livre: o pedido não cai no meio dele
     await js(`window.__teste.loja.ligar('${chefe}', '${solto}')`)
     await comando(solto, 'Start-Sleep 20')
     await esperar(2000)
-    await comando(chefe, "mpro pedir Solto 'echo NO-MEIO'; echo FIM-OCUPADO")
+    await comando(chefe, "ork pedir Solto 'echo NO-MEIO'; echo FIM-OCUPADO")
     const ocupado = await aguardar(() => telaNoApp(chefe), /^FIM-OCUPADO/m, 20_000)
-    await comando(chefe, 'mpro teclas Solto ctrl-c')
+    await comando(chefe, 'ork teclas Solto ctrl-c')
     conferir(
-      'mpro não digita em pergunta (nem com a tela mexendo) nem em shell ocupado',
+      'ork não digita em pergunta (nem com a tela mexendo) nem em shell ocupado',
       /parado\s+numa\s+pergunta/.test(naPergunta) &&
         !(await telaNoApp(dialogo)).includes('NAO-DIGITAR') &&
         /rodando\s+um\s+comando/.test(ocupado) &&
@@ -1183,19 +1183,19 @@ export async function rodarAutoteste(
     )
     if (gitBash) {
       // o Claude Code roda comandos pelo Git Bash: lá vale o script sh, não o .cmd
-      await comando(chefe, `& '${gitBash}' -c 'mpro quem >/dev/null && echo BASH-MPRO-OK'`)
+      await comando(chefe, `& '${gitBash}' -c 'ork quem >/dev/null && echo BASH-MPRO-OK'`)
       const bash = await aguardar(() => telaNoApp(chefe), /^BASH-MPRO-OK/m, 60_000)
-      conferir('mpro também funciona pelo Git Bash', /^BASH-MPRO-OK/m.test(bash), ultimas(bash))
+      conferir('ork também funciona pelo Git Bash', /^BASH-MPRO-OK/m.test(bash), ultimas(bash))
     }
 
-    await comando(chefe, 'mpro fechar Solto')
-    await aguardar(() => telaNoApp(chefe), /mpro: ninguém ligado a você se chama "Solto"[\s\S]*mpro: ninguém ligado a você se chama "Solto"/, 15_000)
-    await comando(chefe, 'mpro fechar Ajudante')
+    await comando(chefe, 'ork fechar Solto')
+    await aguardar(() => telaNoApp(chefe), /ork: ninguém ligado a você se chama "Solto"[\s\S]*ork: ninguém ligado a você se chama "Solto"/, 15_000)
+    await comando(chefe, 'ork fechar Ajudante')
     await aguardar(() => telaNoApp(chefe), 'Fechei "Ajudante"', 15_000)
     await esperar(300)
     const sobrou = await js<string[]>(`window.__teste.loja.planoAtual().nos.filter((n) => n.tipo === 'terminal').map((n) => n.nome)`)
     conferir(
-      'mpro fechar: só fecha o que ele abriu, e o cartão some',
+      'ork fechar: só fecha o que ele abriu, e o cartão some',
       !sobrou.includes('Ajudante') && sobrou.includes('Solto') && !!ajudante && !sessaoPorId(ajudante.id),
       sobrou.join(', ')
     )
@@ -1217,12 +1217,12 @@ export async function rodarAutoteste(
     )
 
     // o agente também enxerga as funções e abre por elas
-    const listaFuncoes = await comandoAte(chefe, 'mpro funcoes', /Carteiro/, 15_000)
-    const abriuComFuncao = await comandoAte(chefe, 'mpro abrir shell --funcao "Carteiro" --nome Entregador', /Abri "Entregador"/, 30_000)
+    const listaFuncoes = await comandoAte(chefe, 'ork funcoes', /Carteiro/, 15_000)
+    const abriuComFuncao = await comandoAte(chefe, 'ork abrir shell --funcao "Carteiro" --nome Entregador', /Abri "Entregador"/, 30_000)
     const oEntregador = await js<string>(`(() => { const n = window.__teste.loja.planoAtual().nos
       .find((x) => x.tipo === 'terminal' && x.nome === 'Entregador'); return n ? n.funcao ?? '' : 'não nasceu' })()`)
     conferir(
-      'mpro funcoes lista, e mpro abrir --funcao dá o papel ao cartão novo',
+      'ork funcoes lista, e ork abrir --funcao dá o papel ao cartão novo',
       /Carteiro/.test(listaFuncoes) && /Abri "Entregador"/.test(abriuComFuncao) && oEntregador === 'Carteiro',
       `lista:${/Carteiro/.test(listaFuncoes)} · abriu:${/Abri "Entregador"/.test(abriuComFuncao)} · função do novo: ${oEntregador}`
     )
@@ -1234,8 +1234,8 @@ export async function rodarAutoteste(
       // O agente mexendo no quadro (volta 1A): ler, mover, arrumar, nome, ligar, desligar, anotar, juntar.
       // Os cartões deste cenário nascem longe de tudo para não atrapalhar os outros, e o que ele mexe no
       // cartão do chefe (o nome, a corda) ele desfaz antes de sair.
-      nome: 'mpro-quadro',
-      depende: 'mpro-conexoes',
+      nome: 'ork-quadro',
+      depende: 'ork-conexoes',
       rodar: async (d) => {
         const { esperar, js, conferir, aguardar, comando, comandoAte, telaNoApp, ultimas } = d
     // os cartões nascem centrados no ponto, então todo lugar esperado vem do estado, não de número fixo
@@ -1250,31 +1250,31 @@ export async function rodarAutoteste(
         return { x: n.x, y: n.y, altura: n.altura, grupo: n.grupo ?? '' } })()`)
     const antesDeMexer = await lugarDe(notas.a)
 
-    const leitura = await comandoAte(chefe, 'mpro quadro', /cartão\(ões\)/, 15_000)
+    const leitura = await comandoAte(chefe, 'ork quadro', /cartão\(ões\)/, 15_000)
     conferir(
-      'mpro quadro: lista os cartões numerados, com lugar, e marca quem perguntou',
+      'ork quadro: lista os cartões numerados, com lugar, e marca quem perguntou',
       /cartão\(ões\)/.test(leitura) && /← você/.test(leitura) && /Nota A/.test(leitura) && /em \(\d+, \d+\)/.test(leitura),
       ultimas(leitura, 2)
     )
 
     // só lugar absoluto neste cenário: repetir o comando dá no mesmo, então a repetição do comandoAte
     // (que existe porque a entrada sintética se perde) não muda o resultado
-    await comandoAte(chefe, 'mpro mover "Nota A" --x 9000 --y 7000', /Movi "Nota A"/, 15_000)
+    await comandoAte(chefe, 'ork mover "Nota A" --x 9000 --y 7000', /Movi "Nota A"/, 15_000)
     const movida = await lugarDe(notas.a)
     await js('window.__teste.loja.desfazer()')
     await esperar(300)
     const desfeita = await lugarDe(notas.a)
     conferir(
-      'mpro mover leva o cartão para o lugar pedido, e o Ctrl+Z do usuário desfaz',
+      'ork mover leva o cartão para o lugar pedido, e o Ctrl+Z do usuário desfaz',
       movida.x === 9000 && movida.y === 7000 && desfeita.x === antesDeMexer.x && desfeita.y === antesDeMexer.y,
       `movida (${movida.x}, ${movida.y}) · desfeita (${desfeita.x}, ${desfeita.y}) · era (${antesDeMexer.x}, ${antesDeMexer.y})`
     )
 
-    await comandoAte(chefe, 'mpro juntar "Nota A" "Nota B"', /num grupo/, 15_000)
-    await comandoAte(chefe, 'mpro mover "Nota A" --x 5000 --y 5000', /Movi "Nota A", "Nota B"/, 15_000)
+    await comandoAte(chefe, 'ork juntar "Nota A" "Nota B"', /num grupo/, 15_000)
+    await comandoAte(chefe, 'ork mover "Nota A" --x 5000 --y 5000', /Movi "Nota A", "Nota B"/, 15_000)
     const [grupoA, grupoB] = [await lugarDe(notas.a), await lugarDe(notas.b)]
     conferir(
-      'mpro juntar agrupa, e mover um leva o grupo inteiro (sem perder a distância)',
+      'ork juntar agrupa, e mover um leva o grupo inteiro (sem perder a distância)',
       !!grupoA.grupo && grupoA.grupo === grupoB.grupo && grupoA.x === 5000 && grupoA.y === 5000 && grupoB.x - grupoA.x === 600 && grupoB.y === 5000,
       `grupo ${grupoA.grupo ? 'sim' : 'não'} · A em (${grupoA.x}, ${grupoA.y}) · B em (${grupoB.x}, ${grupoB.y})`
     )
@@ -1282,67 +1282,74 @@ export async function rodarAutoteste(
     await js(`window.__teste.loja.atualizarNo('${notas.c}', { travado: true }, false)`)
     await esperar(200)
     const antesDoTravado = await lugarDe(notas.c)
-    const recusa = await comandoAte(chefe, 'mpro mover "Nota C" --x 1 --y 1', /travado/, 15_000)
+    const recusa = await comandoAte(chefe, 'ork mover "Nota C" --x 1 --y 1', /travado/, 15_000)
     const travada = await lugarDe(notas.c)
     conferir(
-      'cartão travado não se mexe por pedido de agente, e o mpro diz por quê',
+      'cartão travado não se mexe por pedido de agente, e o ork diz por quê',
       /travado/.test(recusa) && travada.x === antesDoTravado.x && travada.y === antesDoTravado.y,
       `${ultimas(recusa, 1)} · (${travada.x}, ${travada.y})`
     )
     await js(`window.__teste.loja.atualizarNo('${notas.c}', { travado: false }, false)`)
     await esperar(200)
 
-    await comandoAte(chefe, 'mpro arrumar "Nota A" "Nota B" "Nota C" --colunas 1 --vao 20', /Arrumei \d+ bloco/, 15_000)
+    await comandoAte(chefe, 'ork arrumar "Nota A" "Nota B" "Nota C" --colunas 1 --vao 20', /Arrumei \d+ bloco/, 15_000)
     const arrumadas = [await lugarDe(notas.a), await lugarDe(notas.b), await lugarDe(notas.c)]
     conferir(
       // a ordem dos blocos na coluna é a de cima para baixo do quadro antes de arrumar, então o que se
       // confere é a coluna (mesmo x), a distância do vão e o grupo inteiro de pé
-      'mpro arrumar põe em coluna, trata o grupo como um bloco e não desmancha o grupo',
+      'ork arrumar põe em coluna, trata o grupo como um bloco e não desmancha o grupo',
       arrumadas[0].x === arrumadas[2].x &&
         arrumadas[1].x - arrumadas[0].x === 600 &&
         Math.abs(arrumadas[2].y - arrumadas[0].y) === arrumadas[0].altura + 20,
       arrumadas.map((l) => `(${l.x}, ${l.y})`).join(' ')
     )
 
-    await comando(chefe, 'mpro nome "PowerShell" "Maestro"')
-    await aguardar(() => telaNoApp(chefe), 'agora se chama "Maestro"', 15_000)
-    const batizado = await js<string>(`window.__teste.loja.acharNo('${chefe}').nome`)
-    await comando(chefe, 'mpro nome "Maestro" "PowerShell"')
-    await aguardar(() => telaNoApp(chefe), 'agora se chama "PowerShell"', 15_000)
-    const devolta = await js<string>(`window.__teste.loja.acharNo('${chefe}').nome`)
-    conferir('mpro nome renomeia o cartão de agente nos dois sentidos', batizado === 'Maestro' && devolta === 'PowerShell', `${batizado} → ${devolta}`)
+    // o nome é conferido no estado, não na tela, e o comando é repetido se a tecla se perder: renomear para
+    // um nome que já está em uso é recusado, então repetir é inofensivo (e foi preciso — numa rodada o
+    // segundo `ork nome` se perdeu e a checagem caiu sem nada de errado no app)
+    const renomear = async (de: string, para: string): Promise<string> => {
+      for (let tentativa = 0; tentativa < 3; tentativa++) {
+        await comando(chefe, `ork nome "${de}" "${para}"`)
+        const chegou = await aguardar(async () => js<string>(`window.__teste.loja.acharNo('${chefe}').nome`), para, 8000)
+        if (chegou === para) return chegou
+      }
+      return js<string>(`window.__teste.loja.acharNo('${chefe}').nome`)
+    }
+    const batizado = await renomear('PowerShell', 'Maestro')
+    const devolta = await renomear('Maestro', 'PowerShell')
+    conferir('ork nome renomeia o cartão de agente nos dois sentidos', batizado === 'Maestro' && devolta === 'PowerShell', `${batizado} → ${devolta}`)
 
     const cordasDe = (): Promise<number> => js(`window.__teste.loja.planoAtual().cordas.filter((c) => c.de === '${chefe}' || c.para === '${chefe}').length`)
     // não dá para supor que estes dois estão soltos (outros cenários já desenharam cordas): o teste parte de
     // um estado conhecido e devolve no fim o que achou
     const cordaJaExistia = await js<boolean>(`window.__teste.loja.planoAtual().cordas
       .some((c) => [c.de, c.para].includes('${chefe}') && [c.de, c.para].includes('${solto}'))`)
-    if (cordaJaExistia) await comandoAte(chefe, 'mpro desligar "PowerShell" "Solto"', /Desliguei/, 15_000)
+    if (cordaJaExistia) await comandoAte(chefe, 'ork desligar "PowerShell" "Solto"', /Desliguei/, 15_000)
     // a tela é limpa entre as duas: "Desliguei" do passo acima ficaria no histórico, e a espera do desligar
     // de verdade terminaria antes de o comando rodar (o `comandoAte` volta assim que vê o texto)
     await comando(chefe, 'Clear-Host')
     await esperar(600)
     const antesDaCorda = await cordasDe()
-    await comandoAte(chefe, 'mpro ligar "PowerShell" "Solto"', /Liguei/, 15_000)
+    await comandoAte(chefe, 'ork ligar "PowerShell" "Solto"', /Liguei/, 15_000)
     const comCorda = await cordasDe()
     await comando(chefe, 'Clear-Host')
     await esperar(600)
-    await comandoAte(chefe, 'mpro desligar "PowerShell" "Solto"', /Desliguei/, 15_000)
+    await comandoAte(chefe, 'ork desligar "PowerShell" "Solto"', /Desliguei/, 15_000)
     const semCorda = await cordasDe()
     if (cordaJaExistia) await js(`window.__teste.loja.ligar('${chefe}', '${solto}')`)
     conferir(
-      'mpro ligar desenha a corda entre dois agentes e mpro desligar a tira',
+      'ork ligar desenha a corda entre dois agentes e ork desligar a tira',
       comCorda === antesDaCorda + 1 && semCorda === antesDaCorda,
       `${antesDaCorda} → ${comCorda} → ${semCorda} cordas`
     )
 
-    await comando(chefe, 'mpro anotar "Falta o teste do empurrao"')
+    await comando(chefe, 'ork anotar "Falta o teste do empurrao"')
     await aguardar(() => telaNoApp(chefe), 'Anotei no quadro', 15_000)
     const anotacao = await js<{ achou: boolean; abaixo: boolean }>(`(() => { const L = window.__teste.loja
       const chefe = L.acharNo('${chefe}')
       const nova = L.planoAtual().nos.find((n) => n.tipo === 'texto' && n.texto === 'Falta o teste do empurrao')
       return { achou: !!nova, abaixo: !!nova && nova.y > chefe.y + chefe.altura - 1 && nova.x === chefe.x } })()`)
-    conferir('mpro anotar escreve no quadro, abaixo do cartão de quem anotou', anotacao.achou && anotacao.abaixo, `achou:${anotacao.achou} · abaixo:${anotacao.abaixo}`)
+    conferir('ork anotar escreve no quadro, abaixo do cartão de quem anotou', anotacao.achou && anotacao.abaixo, `achou:${anotacao.achou} · abaixo:${anotacao.abaixo}`)
 
     // o quadro volta ao que era para os cenários seguintes: as notas e a anotação deste teste saem
     await js(`(() => { const L = window.__teste.loja
@@ -1361,8 +1368,8 @@ export async function rodarAutoteste(
     {
       // Partituras (volta 3): guardar um time e subir ele de novo, pelo usuário e pelo agente. Os cartões
       // nascem longe de tudo, e no fim o cenário apaga o que criou e devolve as preferências como achou.
-      nome: 'mpro-partituras',
-      depende: 'mpro-quadro',
+      nome: 'ork-partituras',
+      depende: 'ork-quadro',
       rodar: async (d) => {
         const { esperar, js, conferir, aguardar, comando, comandoAte, telaNoApp, ultimas } = d
 
@@ -1397,10 +1404,10 @@ export async function rodarAutoteste(
       `erro:${guardou.erro || 'nenhum'} · ${guardou.pecas} peças · ${guardou.cordas} corda(s) · funções ${guardou.funcoes.join(', ') || 'nenhuma'} · pasta:${guardou.temPasta}`
     )
 
-    const lista = await comandoAte(chefe, 'mpro partitura', /"Banda"/, 15_000)
-    conferir('mpro partitura lista os times salvos com o que tem dentro', /"Banda"/.test(lista) && /agentes/.test(lista), ultimas(lista, 3))
+    const lista = await comandoAte(chefe, 'ork partitura', /"Banda"/, 15_000)
+    conferir('ork partitura lista os times salvos com o que tem dentro', /"Banda"/.test(lista) && /agentes/.test(lista), ultimas(lista, 3))
 
-    const subiu = await comandoAte(chefe, 'mpro partitura usar "Banda"', /Subi a partitura/, 30_000)
+    const subiu = await comandoAte(chefe, 'ork partitura usar "Banda"', /Subi a partitura/, 30_000)
     await esperar(600)
     const time = await js<{ nomes: string[]; donos: boolean[]; comChefe: boolean[]; entreEles: boolean; baterista: string; funcoes: string[] }>(
       `(() => { const L = window.__teste.loja; const p = L.planoAtual()
@@ -1417,7 +1424,7 @@ export async function rodarAutoteste(
     )
     const chegou = time.baterista ? await aguardar(() => telaNoApp(time.baterista), /PARTITURA-CHEGOU/, 40_000) : ''
     conferir(
-      'mpro partitura usar sobe o time ligado a quem pediu, com as funções e o primeiro pedido de cada papel',
+      'ork partitura usar sobe o time ligado a quem pediu, com as funções e o primeiro pedido de cada papel',
       /Subi a partitura/.test(subiu) &&
         time.nomes.join() === 'Baixista 2,Baterista 2' &&
         time.donos.every(Boolean) &&
@@ -1427,38 +1434,38 @@ export async function rodarAutoteste(
       `${time.nomes.join(', ')} · donos:${time.donos.join(',')} · com o chefe:${time.comChefe.join(',')} · entre eles:${time.entreEles} · prompt:${/PARTITURA-CHEGOU/.test(chegou)}`
     )
 
-    // o time de um agente é sessão viva: o Ctrl+Z do usuário não o mata (a mesma regra do `mpro abrir`),
+    // o time de um agente é sessão viva: o Ctrl+Z do usuário não o mata (a mesma regra do `ork abrir`),
     // e quem subiu é que fecha
     await js('window.__teste.loja.desfazer()')
     await esperar(500)
     const depoisDoZ = await js<number>(
       `window.__teste.loja.planoAtual().nos.filter((n) => n.tipo === 'terminal' && /^(Baterista|Baixista) 2$/.test(n.nome)).length`
     )
-    await comandoAte(chefe, 'mpro fechar "Baterista 2"', /Fechei "Baterista 2"/, 15_000)
-    await comandoAte(chefe, 'mpro fechar "Baixista 2"', /Fechei "Baixista 2"/, 15_000)
+    await comandoAte(chefe, 'ork fechar "Baterista 2"', /Fechei "Baterista 2"/, 15_000)
+    await comandoAte(chefe, 'ork fechar "Baixista 2"', /Fechei "Baixista 2"/, 15_000)
     await esperar(400)
     const depoisDeFechar = await js<number>(
       `window.__teste.loja.planoAtual().nos.filter((n) => n.tipo === 'terminal' && /^(Baterista|Baixista) 2$/.test(n.nome)).length`
     )
     conferir(
-      'o Ctrl+Z não mata o time vivo de um agente, e quem subiu fecha com mpro fechar',
+      'o Ctrl+Z não mata o time vivo de um agente, e quem subiu fecha com ork fechar',
       depoisDoZ === 2 && depoisDeFechar === 0,
-      `${depoisDoZ} vivos depois do Ctrl+Z · ${depoisDeFechar} depois do mpro fechar`
+      `${depoisDoZ} vivos depois do Ctrl+Z · ${depoisDeFechar} depois do ork fechar`
     )
 
-    const salvouAgente = await comandoAte(chefe, 'mpro partitura salvar "Dupla" "Baterista" "Baixista"', /Guardei a partitura/, 15_000)
+    const salvouAgente = await comandoAte(chefe, 'ork partitura salvar "Dupla" "Baterista" "Baixista"', /Guardei a partitura/, 15_000)
     const dupla = await js<number>(
       `(() => { const p = (window.__teste.loja.lerEstado().preferencias.partituras ?? []).find((x) => x.nome === 'Dupla'); return p ? p.pecas.length : 0 })()`
     )
     conferir(
-      'mpro partitura salvar guarda o time pelo nome dos cartões',
+      'ork partitura salvar guarda o time pelo nome dos cartões',
       /Guardei a partitura/.test(salvouAgente) && dupla === 2,
       `${ultimas(salvouAgente, 1)} · ${dupla} peças`
     )
 
-    const naoExiste = await comandoAte(chefe, 'mpro partitura usar "Fanfarra"', /não existe a partitura/, 15_000)
+    const naoExiste = await comandoAte(chefe, 'ork partitura usar "Fanfarra"', /não existe a partitura/, 15_000)
     conferir(
-      'partitura que não existe: o mpro diz quais existem, e não sobe nada',
+      'partitura que não existe: o ork diz quais existem, e não sobe nada',
       /não existe a partitura/.test(naoExiste) && /"Banda"/.test(naoExiste),
       ultimas(naoExiste, 2)
     )
@@ -1508,8 +1515,8 @@ export async function rodarAutoteste(
       // Volta 2: banda (grupo de agentes) e troca de agente no mesmo cartão. A banda é moldura: a prova que
       // importa é a permissão — dois agentes sem corda desenhada se falando porque estão dentro dela, e
       // deixando de se falar quando um sai.
-      nome: 'mpro-banda',
-      depende: 'mpro-partituras',
+      nome: 'ork-banda',
+      depende: 'ork-partituras',
       rodar: async (d) => {
         const { esperar, js, conferir, aguardar, comando, comandoAte, telaNoApp, ultimas } = d
 
@@ -1525,7 +1532,7 @@ export async function rodarAutoteste(
     // sem banda e sem corda, um não alcança o outro: é o ponto de partida da prova. Cada leitura termina com
     // uma marca própria e a tela é limpa entre elas: esperar por "ninguém ligado" casaria com a tentativa
     // anterior, e a espera terminaria antes de o comando da vez rodar
-    await comando(dupla.baixo, 'mpro ver "Bateria"; echo FIM-SEM-BANDA')
+    await comando(dupla.baixo, 'ork ver "Bateria"; echo FIM-SEM-BANDA')
     const semBanda = await aguardar(() => telaNoApp(dupla.baixo), /^FIM-SEM-BANDA/m, 20_000)
     await comando(dupla.baixo, 'Clear-Host')
     await esperar(400)
@@ -1538,7 +1545,7 @@ export async function rodarAutoteste(
         return { erro: '', texto: r.texto, id: banda ? banda.id : '', membros: L.membrosDaBandaAtual(banda ? banda.id : '').map((n) => n.nome) } })()`
     )
     await esperar(600)
-    await comando(dupla.baixo, 'mpro ver "Bateria"; echo FIM-COM-BANDA')
+    await comando(dupla.baixo, 'ork ver "Bateria"; echo FIM-COM-BANDA')
     const comBanda = await aguardar(() => telaNoApp(dupla.baixo), /^FIM-COM-BANDA/m, 20_000)
     conferir(
       'a banda liga quem está dentro dela: dois agentes se falam sem nenhuma corda desenhada',
@@ -1550,9 +1557,9 @@ export async function rodarAutoteste(
       `membros: ${criada.membros.join(', ')} · antes: ${/ninguém/.test(semBanda)} · depois: ${/"Bateria" · (livre|trabalhando|pergunta|encerrado)/.test(comBanda)}`
     )
 
-    const lista = await comandoAte(dupla.baixo, 'mpro banda', /"Ritmo"/, 15_000)
+    const lista = await comandoAte(dupla.baixo, 'ork banda', /"Ritmo"/, 15_000)
     conferir(
-      'mpro banda lista as bandas do andar, quem está dentro e onde está a moldura',
+      'ork banda lista as bandas do andar, quem está dentro e onde está a moldura',
       /"Ritmo"/.test(lista) && /"Baixo"/.test(lista) && /moldura de \(/.test(lista),
       ultimas(lista, 3)
     )
@@ -1560,7 +1567,7 @@ export async function rodarAutoteste(
     // corda desenhada na banda vale para cada um dos de dentro
     await js(`window.__teste.loja.ligar('${criada.id}', '${chefe}')`)
     await esperar(600)
-    await comando(chefe, 'mpro ver "Bateria" --linhas 3; echo FIM-PELA-CORDA')
+    await comando(chefe, 'ork ver "Bateria" --linhas 3; echo FIM-PELA-CORDA')
     const pelaCorda = await aguardar(() => telaNoApp(chefe), /^FIM-PELA-CORDA/m, 20_000)
     conferir(
       'a corda desenhada na banda alcança cada agente de dentro dela',
@@ -1573,7 +1580,7 @@ export async function rodarAutoteste(
     await esperar(800)
     await comando(dupla.baixo, 'Clear-Host')
     await esperar(400)
-    await comando(dupla.baixo, 'mpro ver "Bateria"; echo FIM-FORA')
+    await comando(dupla.baixo, 'ork ver "Bateria"; echo FIM-FORA')
     const foraDaBanda = await aguardar(() => telaNoApp(dupla.baixo), /^FIM-FORA/m, 20_000)
     const membrosDepois = await js<string[]>(`window.__teste.loja.membrosDaBandaAtual('${criada.id}').map((n) => n.nome)`)
     conferir(
@@ -1582,16 +1589,16 @@ export async function rodarAutoteste(
       `membros: ${membrosDepois.join(', ') || 'nenhum'} · recusou: ${/ninguém ligado a você/.test(foraDaBanda)}`
     )
 
-    const criadaPeloAgente = await comandoAte(chefe, 'mpro banda criar "Metais" "Baixo"', /Criei a banda "Metais"/, 15_000)
+    const criadaPeloAgente = await comandoAte(chefe, 'ork banda criar "Metais" "Baixo"', /Criei a banda "Metais"/, 15_000)
     const metais = await js<number>(
       `(() => { const L = window.__teste.loja
         const b = L.planoAtual().nos.find((n) => n.tipo === 'banda' && n.nome === 'Metais')
         return b ? L.membrosDaBandaAtual(b.id).length : 0 })()`
     )
-    conferir('mpro banda criar põe a moldura em volta dos cartões que o agente nomeou', /Criei a banda "Metais"/.test(criadaPeloAgente) && metais === 1, `${metais} dentro`)
+    conferir('ork banda criar põe a moldura em volta dos cartões que o agente nomeou', /Criei a banda "Metais"/.test(criadaPeloAgente) && metais === 1, `${metais} dentro`)
 
     // ---------- trocar o agente no mesmo cartão ----------
-    await comandoAte(chefe, 'mpro abrir claude --nome "Troca"', /Abri "Troca"/, 30_000)
+    await comandoAte(chefe, 'ork abrir claude --nome "Troca"', /Abri "Troca"/, 30_000)
     const antesDaTroca = await js<{ id: string; agente: string; x: number; cordas: number }>(
       `(() => { const L = window.__teste.loja; const p = L.planoAtual()
         const n = p.nos.find((x) => x.tipo === 'terminal' && x.nome === 'Troca')
@@ -1599,7 +1606,7 @@ export async function rodarAutoteste(
     )
     // o pid de antes: a troca tem de reabrir o processo, senão o cartão continuaria rodando o agente antigo
     const pidAntes = sessaoPorId(antesDaTroca.id)?.processo?.pid ?? 0
-    const trocou = await comandoAte(chefe, 'mpro trocar "Troca" shell', /Troquei "Troca"/, 20_000)
+    const trocou = await comandoAte(chefe, 'ork trocar "Troca" shell', /Troquei "Troca"/, 20_000)
     await esperar(1500)
     const pidDepois = sessaoPorId(antesDaTroca.id)?.processo?.pid ?? 0
     const depoisDaTroca = await js<{ agente: string; cordas: number; x: number }>(
@@ -1608,7 +1615,7 @@ export async function rodarAutoteste(
         return { agente: n ? n.agente : 'sumiu', cordas: p.cordas.filter((c) => [c.de, c.para].includes('${antesDaTroca.id}')).length, x: n ? n.x : -1 } })()`
     )
     conferir(
-      'mpro trocar muda o agente do cartão, reabre o processo e mantém id, lugar e cordas',
+      'ork trocar muda o agente do cartão, reabre o processo e mantém id, lugar e cordas',
       /Troquei "Troca"/.test(trocou) &&
         antesDaTroca.agente === 'claude' &&
         depoisDaTroca.agente === 'shell' &&
@@ -1620,8 +1627,8 @@ export async function rodarAutoteste(
       `${antesDaTroca.agente} → ${depoisDaTroca.agente} · cordas ${antesDaTroca.cordas} → ${depoisDaTroca.cordas} · pid ${pidAntes} → ${pidDepois}`
     )
 
-    const recusaDoUsuario = await comandoAte(chefe, 'mpro trocar "Baixo" codex', /não foi aberto por você/, 15_000)
-    const recusaDeSi = await comandoAte(chefe, 'mpro trocar "PowerShell" codex', /não troca o seu próprio cartão|não foi aberto por você/, 15_000)
+    const recusaDoUsuario = await comandoAte(chefe, 'ork trocar "Baixo" codex', /não foi aberto por você/, 15_000)
+    const recusaDeSi = await comandoAte(chefe, 'ork trocar "PowerShell" codex', /não troca o seu próprio cartão|não foi aberto por você/, 15_000)
     const aindaShell = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.id === '${dupla.baixo}').agente`)
     conferir(
       'o agente não troca cartão do usuário nem o seu próprio',
@@ -1630,7 +1637,7 @@ export async function rodarAutoteste(
     )
 
     // devolve o quadro: fecha o cartão trocado e apaga os cartões e as molduras deste cenário
-    await comandoAte(chefe, 'mpro fechar "Troca"', /Fechei "Troca"/, 15_000)
+    await comandoAte(chefe, 'ork fechar "Troca"', /Fechei "Troca"/, 15_000)
     await js(`(() => { const L = window.__teste.loja
       const bandas = L.planoAtual().nos.filter((n) => n.tipo === 'banda' && ['Ritmo', 'Metais'].includes(n.nome)).map((n) => n.id)
       for (const id of ${JSON.stringify([dupla.baixo, dupla.bateria])}.concat(bandas)) {
@@ -1648,7 +1655,7 @@ export async function rodarAutoteste(
       // (empurrando a hora da próxima para trás), que é o mesmo caminho do relógio sem esperar minutos de
       // verdade; no fim, um disparo pelo relógio de verdade, sem empurrão nenhum.
       nome: 'rotinas',
-      depende: 'mpro-banda',
+      depende: 'ork-banda',
       rodar: async (d) => {
         const { esperar, js, conferir, aguardar, comando, telaNoApp } = d
 
@@ -1742,21 +1749,21 @@ export async function rodarAutoteste(
       },
     },
     {
-      nome: 'mpro-espacos',
-      depende: 'mpro-conexoes',
+      nome: 'ork-espacos',
+      depende: 'ork-conexoes',
       rodar: async (d) => {
         const { tela, esperar, js, centroDe, clicar, conferir, aguardar, comando, comandoAte, telaNoApp, ultimas } = d
     // espera por "seu espaço", que só este comando escreve: procurar o nome do espaço casava com o que
-    // outro comando (o `mpro quadro`) tinha deixado na tela, e a espera terminava antes da saída de verdade.
+    // outro comando (o `ork quadro`) tinha deixado na tela, e a espera terminava antes da saída de verdade.
     // Ler não muda nada, então aqui vale repetir: o Enter sintético se perde quando a máquina está carregada.
-    const espacosDoMpro = await comandoAte(chefe, 'mpro espacos', 'seu espaço', 15_000)
+    const espacosDoMpro = await comandoAte(chefe, 'ork espacos', 'seu espaço', 15_000)
     conferir(
-      'mpro espacos lista o espaço do agente e o marca',
+      'ork espacos lista o espaço do agente e o marca',
       /\* "Terminais"[\s\S]*seu espaço/.test(espacosDoMpro),
       ultimas(espacosDoMpro, 5)
     )
 
-    await comando(chefe, 'mpro janela --novo "Frente 2"')
+    await comando(chefe, 'ork janela --novo "Frente 2"')
     await aguardar(() => telaNoApp(chefe), 'Criei o espaço "Frente 2"')
     let frente2Pronta = false
     for (let i = 0; i < 100 && !frente2Pronta; i++) {
@@ -1765,25 +1772,25 @@ export async function rodarAutoteste(
       frente2Pronta = !!frente2 &&
         (await frente2.webContents.executeJavaScript(`window.__teste?.loja.lerEstado().espaco?.nome === 'Frente 2'`).catch(() => false))
     }
-    conferir('mpro janela --novo cria o espaço e abre a janela', frente2Pronta, frente2 ? frente2.webContents.getTitle() : 'sem janela')
+    conferir('ork janela --novo cria o espaço e abre a janela', frente2Pronta, frente2 ? frente2.webContents.getTitle() : 'sem janela')
 
-    await comando(chefe, 'mpro abrir --espaco "Frente 2" shell --nome "Longe"')
+    await comando(chefe, 'ork abrir --espaco "Frente 2" shell --nome "Longe"')
     const abriuLonge = await aguardar(() => telaNoApp(chefe), 'Abri "Longe"')
     const longe = frente2
       ? await frente2.webContents.executeJavaScript(`(() => { const n = window.__teste.loja.planoAtual().nos
           .find((x) => x.tipo === 'terminal' && x.nome === 'Longe'); return n ? { id: n.id, criadoPor: n.criadoPor } : null })()`).catch(() => null)
       : null
-    await comando(chefe, 'mpro ver Longe --linhas 5')
+    await comando(chefe, 'ork ver Longe --linhas 5')
     const viuLonge = await aguardar(() => telaNoApp(chefe), '"Longe"')
     conferir(
-      'mpro abrir --espaco cria longe e o dono ainda consegue ver sem corda',
+      'ork abrir --espaco cria longe e o dono ainda consegue ver sem corda',
       !!longe && longe.criadoPor === chefe && abriuLonge.includes('porque o abriu') && viuLonge.includes('"Longe"'),
       longe ? `criado por: ${longe.criadoPor}` : ultimas(abriuLonge, 4)
     )
 
-    await comando(chefe, 'mpro orcamento')
+    await comando(chefe, 'ork orcamento')
     const orcamento = await aguardar(() => telaNoApp(chefe), /contexto: (\d+% restante|não deu para ler)/i)
-    conferir('mpro orcamento responde mesmo sem contexto na tela', /contexto: (\d+% restante|não deu para ler)/i.test(orcamento), ultimas(orcamento))
+    conferir('ork orcamento responde mesmo sem contexto na tela', /contexto: (\d+% restante|não deu para ler)/i.test(orcamento), ultimas(orcamento))
 
     // painel: só consulta o espelho enquanto aberto; aqui basta haver um terminal conhecido, com estado e contexto.
     const botaoContexto = await centroDe('button[title="Contexto dos terminais"]')
@@ -1811,38 +1818,38 @@ export async function rodarAutoteste(
       },
     },
     {
-      nome: 'mpro-heranca',
-      depende: 'mpro-espacos',
+      nome: 'ork-heranca',
+      depende: 'ork-espacos',
       rodar: async (d) => {
         const { esperar, js, conferir, aguardar, comando, comandoAte, telaNoApp, ultimas } = d
-    await comandoAte(chefe, 'mpro abrir shell --nome "Diálogo antigo"', 'Abri "Diálogo antigo"')
+    await comandoAte(chefe, 'ork abrir shell --nome "Diálogo antigo"', 'Abri "Diálogo antigo"')
     const dialogoAntigo = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Diálogo antigo')?.id ?? ''`)
     await aguardar(() => telaNoApp(dialogoAntigo), /PS .*>/)
     // As linhas em branco imitam a folga visual; as seguras contam como texto e empurram a citação para fora da janela.
     await comando(dialogoAntigo, 'Write-Output "[y/n]"; 1..6 | ForEach-Object { Write-Output ""; Write-Output "linha segura $_" }')
     await aguardar(() => telaNoApp(dialogoAntigo), 'linha segura 6')
     await esperar(1300)
-    const pediuDepoisDoDialogo = await comandoAte(chefe, 'mpro pedir "Diálogo antigo" "echo MP-DIALOGO-ANTIGO"', 'MP-DIALOGO-ANTIGO')
+    const pediuDepoisDoDialogo = await comandoAte(chefe, 'ork pedir "Diálogo antigo" "echo MP-DIALOGO-ANTIGO"', 'MP-DIALOGO-ANTIGO')
     conferir(
-      'diálogo citado fora das últimas seis linhas não bloqueia mpro pedir',
+      'diálogo citado fora das últimas seis linhas não bloqueia ork pedir',
       pediuDepoisDoDialogo.includes('MP-DIALOGO-ANTIGO'),
       ultimas(pediuDepoisDoDialogo, 5)
     )
-    await comandoAte(chefe, 'mpro fechar "Diálogo antigo"', 'Fechei "Diálogo antigo"')
+    await comandoAte(chefe, 'ork fechar "Diálogo antigo"', 'Fechei "Diálogo antigo"')
 
     const heranca = await js<string>(`(() => { const L = window.__teste.loja
       const id = L.adicionarNo({ tipo: 'terminal', preset: ${presetShell} }, 2200, 1280); L.atualizarNo(id, { nome: 'Raiz herança' }); return id })()`)
     await aguardar(() => telaNoApp(heranca), /PS .*>/)
-    await comandoAte(heranca, 'mpro abrir shell --nome "Filho herança"', 'Abri "Filho herança"')
+    await comandoAte(heranca, 'ork abrir shell --nome "Filho herança"', 'Abri "Filho herança"')
     const filhoHeranca = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Filho herança')?.id ?? ''`)
     await aguardar(() => telaNoApp(filhoHeranca), /PS .*>/)
-    await comandoAte(filhoHeranca, 'mpro abrir shell --nome "Neto herança"', 'Abri "Neto herança"')
+    await comandoAte(filhoHeranca, 'ork abrir shell --nome "Neto herança"', 'Abri "Neto herança"')
     const netoHeranca = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Neto herança')?.id ?? ''`)
-    const fechouFilho = await comandoAte(heranca, 'mpro fechar "Filho herança"', 'que ela tinha aberto agora')
-    const viuNeto = await comandoAte(heranca, 'mpro ver "Neto herança"', '"Neto herança"')
-    const fechouNeto = await comandoAte(heranca, 'mpro fechar "Neto herança"', 'Fechei "Neto herança"')
+    const fechouFilho = await comandoAte(heranca, 'ork fechar "Filho herança"', 'que ela tinha aberto agora')
+    const viuNeto = await comandoAte(heranca, 'ork ver "Neto herança"', '"Neto herança"')
+    const fechouNeto = await comandoAte(heranca, 'ork fechar "Neto herança"', 'Fechei "Neto herança"')
     conferir(
-      'mpro fechar herda netos e o novo dono consegue ver e fechar',
+      'ork fechar herda netos e o novo dono consegue ver e fechar',
       !!netoHeranca && fechouFilho.includes('que ela tinha aberto agora') && viuNeto.includes('"Neto herança"') && fechouNeto.includes('Fechei "Neto herança"') && !sessaoPorId(filhoHeranca) && !sessaoPorId(netoHeranca),
       `herança: ${fechouFilho.includes('que ela tinha aberto agora')} · viu: ${viuNeto.includes('"Neto herança"')} · fechou: ${fechouNeto.includes('Fechei "Neto herança"')}`
     )
@@ -1856,28 +1863,28 @@ export async function rodarAutoteste(
       return { antigo, sucessor } })()`)
     await aguardar(() => telaNoApp(aposentadoria.antigo), /PS .*>/)
     await aguardar(() => telaNoApp(aposentadoria.sucessor), /PS .*>/)
-    await comando(aposentadoria.antigo, 'mpro abrir shell --nome Herdado')
+    await comando(aposentadoria.antigo, 'ork abrir shell --nome Herdado')
     await aguardar(() => telaNoApp(aposentadoria.antigo), 'Abri "Herdado"')
     const herdado = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Herdado')?.id ?? ''`)
     // entrada sintética às vezes se perde (o cartão acabou de ganhar um vizinho novo): tenta até o eco aparecer
     let recusouSair = ''
-    for (let tentativa = 0; tentativa < 3 && !recusouSair.includes('mpro passar'); tentativa++) {
-      await comando(aposentadoria.antigo, 'mpro sair')
-      recusouSair = await aguardar(() => telaNoApp(aposentadoria.antigo), 'mpro passar', 8000)
+    for (let tentativa = 0; tentativa < 3 && !recusouSair.includes('ork passar'); tentativa++) {
+      await comando(aposentadoria.antigo, 'ork sair')
+      recusouSair = await aguardar(() => telaNoApp(aposentadoria.antigo), 'ork passar', 8000)
     }
     // comandoAte repete o comando: tecla sintética se perde, e com a máquina carregada (o app de verdade
     // aberto ao lado, por exemplo) essas três linhas eram as primeiras a falhar
-    const passouSessao = await comandoAte(aposentadoria.antigo, 'mpro passar Sucessor', 'Passei 1 sessão para "Sucessor"', 15_000)
-    const antigoNaoFecha = await comandoAte(aposentadoria.antigo, 'mpro fechar Herdado', 'ninguém ligado a você se chama "Herdado"', 15_000)
-    const sucessorFecha = await comandoAte(aposentadoria.sucessor, 'mpro fechar Herdado', 'Fechei "Herdado"', 15_000)
+    const passouSessao = await comandoAte(aposentadoria.antigo, 'ork passar Sucessor', 'Passei 1 sessão para "Sucessor"', 15_000)
+    const antigoNaoFecha = await comandoAte(aposentadoria.antigo, 'ork fechar Herdado', 'ninguém ligado a você se chama "Herdado"', 15_000)
+    const sucessorFecha = await comandoAte(aposentadoria.sucessor, 'ork fechar Herdado', 'Fechei "Herdado"', 15_000)
     conferir(
-      'mpro passar move a propriedade; antigo não fecha e sucessor fecha',
-      !!herdado && recusouSair.includes('mpro passar') && passouSessao.includes('Passei 1') && antigoNaoFecha.includes('ninguém ligado') && sucessorFecha.includes('Fechei'),
-      `herdado:${!!herdado} recusou:${recusouSair.includes('mpro passar')} passou:${passouSessao.includes('Passei 1')} ` +
+      'ork passar move a propriedade; antigo não fecha e sucessor fecha',
+      !!herdado && recusouSair.includes('ork passar') && passouSessao.includes('Passei 1') && antigoNaoFecha.includes('ninguém ligado') && sucessorFecha.includes('Fechei'),
+      `herdado:${!!herdado} recusou:${recusouSair.includes('ork passar')} passou:${passouSessao.includes('Passei 1')} ` +
         `antigoNaoFecha:${antigoNaoFecha.includes('ninguém ligado')} sucessorFecha:${sucessorFecha.includes('Fechei')} · APOS SAIR: ${ultimas(recusouSair, 4)}`
     )
-    const respostaSair = join(tmpdir(), `maestri-proprio-sair-${randomUUID()}.txt`)
-    await comando(aposentadoria.antigo, `mpro sair --motivo "fim do contexto" | Out-File -Encoding utf8 '${respostaSair}'`)
+    const respostaSair = join(tmpdir(), `orkester-sair-${randomUUID()}.txt`)
+    await comando(aposentadoria.antigo, `ork sair --motivo "fim do contexto" | Out-File -Encoding utf8 '${respostaSair}'`)
     for (let i = 0; i < 120 && sessaoPorId(aposentadoria.antigo); i++) await esperar(100)
     const antigoSaiu = !sessaoPorId(aposentadoria.antigo)
     const respostaAntesDeSair = existsSync(respostaSair) ? readFileSync(respostaSair, 'utf8') : ''
@@ -1889,7 +1896,7 @@ export async function rodarAutoteste(
       // fica no %TEMP%; não atrapalha nada
     }
     conferir(
-      'mpro sair responde antes de fechar o próprio cartão',
+      'ork sair responde antes de fechar o próprio cartão',
       // sem o acento: o PowerShell decodifica a saída de programa nativo pela página de código OEM, e
       // `ã` viraria lixo no arquivo (na tela do terminal aparece certo)
       antigoSaiu && /Vou fechar seu cart.{1,3}o./.test(respostaAntesDeSair),
@@ -1901,32 +1908,32 @@ export async function rodarAutoteste(
       const preset = L.lerEstado().preferencias.presets.find((p) => p.agente === 'shell')
       const id = L.adicionarNo({ tipo: 'terminal', preset }, 2900, 300); L.atualizarNo(id, { nome: 'Com as minhas' }); return id })()`)
     await aguardar(() => telaNoApp(sairComAsMinhas), /PS .*>/)
-    await comandoAte(sairComAsMinhas, 'mpro abrir shell --nome Junto', 'Abri "Junto"')
+    await comandoAte(sairComAsMinhas, 'ork abrir shell --nome Junto', 'Abri "Junto"')
     const junto = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Junto')?.id ?? ''`)
     await aguardar(() => telaNoApp(junto), /PS .*>/)
-    await comandoAte(junto, 'mpro abrir shell --nome "Neto junto"', 'Abri "Neto junto"')
+    await comandoAte(junto, 'ork abrir shell --nome "Neto junto"', 'Abri "Neto junto"')
     const netoJunto = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Neto junto')?.id ?? ''`)
-    await comando(sairComAsMinhas, 'mpro sair --com-as-minhas')
+    await comando(sairComAsMinhas, 'ork sair --com-as-minhas')
     for (let i = 0; i < 30 && (sessaoPorId(sairComAsMinhas) || sessaoPorId(junto) || sessaoPorId(netoJunto)); i++) await esperar(100)
     conferir(
-      'mpro sair --com-as-minhas fecha a árvore inteira',
+      'ork sair --com-as-minhas fecha a árvore inteira',
       !sessaoPorId(sairComAsMinhas) && !sessaoPorId(junto) && !sessaoPorId(netoJunto),
       `raiz: ${!!sessaoPorId(sairComAsMinhas)} · filho: ${!!sessaoPorId(junto)} · neto: ${!!sessaoPorId(netoJunto)}`
     )
 
     for (let i = 1; i <= 7; i++) {
       const nome = `Limite ${i}`
-      await comando(chefe, `mpro abrir shell --nome "${nome}"`)
+      await comando(chefe, `ork abrir shell --nome "${nome}"`)
       await aguardar(() => telaNoApp(chefe), `Abri "${nome}"`, 20_000)
     }
-    await comando(chefe, 'mpro abrir --espaco "Frente 2" shell --nome "Nono"')
+    await comando(chefe, 'ork abrir --espaco "Frente 2" shell --nome "Nono"')
     const nono = await aguardar(() => telaNoApp(chefe), 'o limite é 8', 20_000)
-    conferir('mpro mantém o limite de 8 somando os dois espaços', nono.includes('o limite é 8'), ultimas(nono, 3))
+    conferir('ork mantém o limite de 8 somando os dois espaços', nono.includes('o limite é 8'), ultimas(nono, 3))
 
     const limiteEmFolga = await js<string>(`(() => { const L = window.__teste.loja
       const n = L.planoAtual().nos.find((n) => n.tipo === 'terminal' && n.nome === 'Limite 1'); if (!n) return ''
       L.apagar({ tipo: 'no', id: n.id }); return n.id })()`)
-    const recusouNaFolga = await comandoAte(chefe, 'mpro abrir shell --nome "Durante a folga"', 'o limite é 8')
+    const recusouNaFolga = await comandoAte(chefe, 'ork abrir shell --nome "Durante a folga"', 'o limite é 8')
     conferir(
       'limite de 8 inclui cartão apagado durante a folga do Ctrl+Z',
       !!limiteEmFolga && recusouNaFolga.includes('o limite é 8'),
@@ -1956,8 +1963,8 @@ export async function rodarAutoteste(
       },
     },
     {
-      nome: 'mpro-presets',
-      depende: 'mpro-heranca',
+      nome: 'ork-presets',
+      depende: 'ork-heranca',
       rodar: async (d) => {
         const { esperar, js, print, centroDe, tecla, digitar, clicar, conferir } = d
     const clicarEm = async (seletor: string): Promise<boolean> => {
@@ -1994,7 +2001,7 @@ export async function rodarAutoteste(
     await js(`window.__teste.loja.apagar({ tipo: 'no', id: '${noOpus}' })`)
 
     // retomar a conversa: o Claude nasce com o id escolhido e volta com --resume; o Codex volta com `codex resume`
-    const pastaClaudeTeste = join(tmpdir(), `maestri-proprio-autoteste-claude-${Date.now()}`)
+    const pastaClaudeTeste = join(tmpdir(), `orkester-autoteste-claude-${Date.now()}`)
     process.env.CLAUDE_CONFIG_DIR = pastaClaudeTeste
     const conversa = randomUUID()
     const especClaude = { id: randomUUID(), nome: 'C', agente: 'claude' as const, comando: 'claude --model opus', pasta: pastaTerminais, sessao: conversa }
@@ -2032,16 +2039,16 @@ export async function rodarAutoteste(
       erradas.map(([tela]) => `${tela} → ${extrairContextoRestante(tela)}`).join(" | ")
     )
 
-    // opcional (gasta um pouco da conta): `MP_AGENTES_DE_VERDADE=1 npm run autoteste` abre um Claude e um Codex de
-    // verdade pelo `mpro`, na pasta do app; a resposta (uma conta) não aparece no texto do pedido
+    // opcional (gasta um pouco da conta): `ORK_AGENTES_DE_VERDADE=1 npm run autoteste` abre um Claude e um Codex de
+    // verdade pelo `ork`, na pasta do app; a resposta (uma conta) não aparece no texto do pedido
       },
     },
     {
       nome: 'agentes',
-      depende: 'mpro-presets',
+      depende: 'ork-presets',
       rodar: async (d) => {
         const { esperar, js, print, conferir, comando, aguardar, telaNoApp, ultimas } = d
-    if (process.env.MP_AGENTES_DE_VERDADE) {
+    if (process.env.ORK_AGENTES_DE_VERDADE) {
       const pastaApp = app.getAppPath()
       // `confiar`: as teclas que aceitam a pergunta de confiança na pasta, se ela aparecer (no Claude o cursor começa no "não")
       const casos = [
@@ -2054,12 +2061,12 @@ export async function rodarAutoteste(
         await esperar(300)
         await comando(
           chefe,
-          `mpro abrir ${caso.agente} --nome ${caso.nome} --pasta '${pastaApp}' --pedido '${caso.pergunta}' --esperar --tempo 150; echo FIM-ABRIR-${caso.nome}`
+          `ork abrir ${caso.agente} --nome ${caso.nome} --pasta '${pastaApp}' --pedido '${caso.pergunta}' --esperar --tempo 150; echo FIM-ABRIR-${caso.nome}`
         )
         let saida = await aguardar(() => telaNoApp(chefe), new RegExp(`^FIM-ABRIR-${caso.nome}`, 'm'), 200_000)
         const id = await js<string>(`window.__teste.loja.planoAtual().nos.find((n) => n.nome === '${caso.nome}')?.id ?? ''`)
-        // pasta nova para o agente: confiança, servidores MCP do projeto, aviso de atualização… O `mpro` não digita
-        // em cima de pergunta; o teste responde pelo `mpro teclas` (a regra do agente é decidir ou perguntar ao usuário)
+        // pasta nova para o agente: confiança, servidores MCP do projeto, aviso de atualização… O `ork` não digita
+        // em cima de pergunta; o teste responde pelo `ork teclas` (a regra do agente é decidir ou perguntar ao usuário)
         for (let i = 0; i < 4 && !saida.includes(caso.resposta); i++) {
           const naTela = (await telaNoApp(id)).split('\n').slice(-25).join('\n')
           const teclas = /I trust this folder|Trust and continue/i.test(naTela)
@@ -2070,11 +2077,11 @@ export async function rodarAutoteste(
                 ? 'baixo enter'
                 : null
           if (teclas) {
-            await comando(chefe, `mpro teclas ${caso.nome} ${teclas}; echo FIM-T${i}-${caso.nome}`)
+            await comando(chefe, `ork teclas ${caso.nome} ${teclas}; echo FIM-T${i}-${caso.nome}`)
             await aguardar(() => telaNoApp(chefe), new RegExp(`^FIM-T${i}-${caso.nome}`, 'm'), 30_000)
             await esperar(5000)
           }
-          await comando(chefe, `mpro pedir ${caso.nome} '${caso.pergunta}' --tempo 150; echo FIM-P${i}-${caso.nome}`)
+          await comando(chefe, `ork pedir ${caso.nome} '${caso.pergunta}' --tempo 150; echo FIM-P${i}-${caso.nome}`)
           saida = await aguardar(() => telaNoApp(chefe), new RegExp(`^FIM-P${i}-${caso.nome}`, 'm'), 200_000)
         }
         // o Claude grava a conversa com o id que demos; o do Codex é descoberto pelo arquivo dele (a cada 5 s)
@@ -2089,11 +2096,11 @@ export async function rodarAutoteste(
         await esperar(800)
         await print(`agente-${caso.agente}`)
         conferir(
-          `${caso.agente} de verdade: abre pelo mpro, responde e a conversa fica para retomar`,
+          `${caso.agente} de verdade: abre pelo ork, responde e a conversa fica para retomar`,
           saida.includes(caso.resposta) && /--resume|codex resume/.test(retomar),
           `${saida.includes(caso.resposta) ? 'respondeu' : ultimas(saida, 6)} · ${retomar}`
         )
-        await comando(chefe, `mpro fechar ${caso.nome}`)
+        await comando(chefe, `ork fechar ${caso.nome}`)
         await aguardar(() => telaNoApp(chefe), `Fechei "${caso.nome}"`, 15_000)
       }
     }
@@ -2102,7 +2109,7 @@ export async function rodarAutoteste(
     },
     {
       nome: 'codigo-explorador',
-      depende: 'mpro',
+      depende: 'ork',
       rodar: async (d) => {
         const { esperar, js, conferir, comandoAte, aguardar, clicarEm, print, teclar, ultimas, arrastar, centroDe } = d
         // o cenário anterior pode ter deixado outro espaço à mostra; o shell "chefe" mora neste
@@ -2448,10 +2455,10 @@ export async function rodarAutoteste(
         )
         conferir('arquivo apagado: o cartão diz que não encontrou, e não que está fora do quadro', recado.includes('não encontrado'), recado)
         // árvores de código: o agente separa os arquivos por frente de trabalho e fala delas pelo nome
-        const listou = await comandoAte(chefe, 'mpro arvore', /principal/m, 15_000)
-        conferir('mpro arvore lista as árvores do cartão', /"principal"/.test(listou), ultimas(listou, 3))
+        const listou = await comandoAte(chefe, 'ork arvore', /principal/m, 15_000)
+        conferir('ork arvore lista as árvores do cartão', /"principal"/.test(listou), ultimas(listou, 3))
 
-        await comandoAte(chefe, 'mpro arvore nova "Backend"', /^Árvore "Backend" pronta/m, 15_000)
+        await comandoAte(chefe, 'ork arvore nova "Backend"', /^Árvore "Backend" pronta/m, 15_000)
         await gravar('oitavo.ts', 'const oito = 8', 'FIM-GRAVOU8')
         await esperar(1500)
         const comArvore = await js<Array<{ caminho: string; arvore: string }>>(
@@ -2489,7 +2496,7 @@ export async function rodarAutoteste(
         conferir('com duas árvores, nenhum cartão cobre outro', seCobrem === 0, )
 
         // mostrar traz um arquivo que já tinha cartão para a árvore pedida, sem abrir cartão repetido
-        await comandoAte(chefe, 'mpro arvore mostrar sexto.ts --arvore "Backend"', /^Mostrei 1 arquivo/m, 15_000)
+        await comandoAte(chefe, 'ork arvore mostrar sexto.ts --arvore "Backend"', /^Mostrei 1 arquivo/m, 15_000)
         await esperar(800)
         const depoisDeMostrar = await js<Array<{ caminho: string; arvore: string }>>(
           `window.__teste.loja.planoAtual().nos.filter((n) => n.tipo === 'codigo')
@@ -2497,14 +2504,14 @@ export async function rodarAutoteste(
         )
         const doSexto = depoisDeMostrar.filter((c) => c.caminho.endsWith('sexto.ts'))
         conferir(
-          'mpro arvore mostrar leva o arquivo para a árvore, sem cartão repetido',
+          'ork arvore mostrar leva o arquivo para a árvore, sem cartão repetido',
           doSexto.length === 1 && !!doSexto[0].arvore,
           doSexto.map((c) => `${c.caminho} (${c.arvore || 'principal'})`).join(' | ') || 'nenhum cartão'
         )
         // a pasta do usuário não é vigiada (senão vira cartão de tudo que o PC grava); a do projeto é
-        const podeProjeto = await js<boolean>(`window.mp.codigo.vigiavel(${JSON.stringify(pastaTerminais)})`)
+        const podeProjeto = await js<boolean>(`window.ork.codigo.vigiavel(${JSON.stringify(pastaTerminais)})`)
         const podeCasa = await js<boolean>(
-          `window.mp.codigo.vigiavel(${JSON.stringify(process.env.USERPROFILE ?? homedir())})`
+          `window.ork.codigo.vigiavel(${JSON.stringify(process.env.USERPROFILE ?? homedir())})`
         )
         conferir(
           'a pasta do usuário não é vigiada; a do projeto é',
@@ -2550,7 +2557,7 @@ export async function rodarAutoteste(
       }
     },
   ]
-  const filtro = (process.env.MP_CENARIOS ?? '')
+  const filtro = (process.env.ORK_CENARIOS ?? '')
     .split(',')
     .map((nome) => nome.trim().toLocaleLowerCase())
     .filter(Boolean)

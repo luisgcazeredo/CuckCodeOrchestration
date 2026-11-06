@@ -1,7 +1,7 @@
 {
-  "name": "maestri-proprio",
-  "productName": "Maestri Proprio",
-  "version": "0.29.0",
+  "name": "orkester",
+  "productName": "Orkester",
+  "version": "0.30.0",
   "private": true,
   "description": "Quadro infinito para orquestrar agentes de código",
   "author": "Luís Azeredo",
@@ -11,9 +11,10 @@
     "build": "electron-vite build",
     "start": "set \"ELECTRON_RUN_AS_NODE=\" && electron-vite preview",
     "typecheck": "tsc --noEmit",
+    "marca": "node scripts/gerar-marca.mjs ../identidade/orkester-original.png",
     "provas": "node --test \"src/**/*.prova.mts\"",
     "autoteste": "set \"ELECTRON_RUN_AS_NODE=\" && electron-vite build && electron . --autoteste",
-    "icone": "electron scripts/gerar-icone.cjs",
+    "icone": "node scripts/gerar-icone.mjs",
     "empacotar": "set \"ELECTRON_RUN_AS_NODE=\" && electron-vite build && electron-builder --win --x64",
     "instalar": "npm run empacotar && node scripts/instalar.mjs"
   },
@@ -45,9 +46,9 @@
     "electron-winstaller": false
   },
   "build": {
-    "appId": "br.luisao.maestriproprio",
-    "productName": "Maestri Proprio",
-    "executableName": "MaestriProprio",
+    "appId": "br.luisao.orkester",
+    "productName": "Orkester",
+    "executableName": "Orkester",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -76,13 +77,13 @@
     "nsis": {
       "oneClick": true,
       "perMachine": false,
-      "shortcutName": "Maestri Próprio",
-      "uninstallDisplayName": "Maestri Próprio",
+      "shortcutName": "Orkester",
+      "uninstallDisplayName": "Orkester",
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "runAfterFinish": false,
       "deleteAppDataOnUninstall": false,
-      "artifactName": "MaestriProprio-Instalador-${version}.${ext}"
+      "artifactName": "Orkester-Instalador-${version}.${ext}"
     }
   }
 }

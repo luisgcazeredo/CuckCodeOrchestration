@@ -7,7 +7,7 @@
  * moldura entra no time, o que sai sai, sem gesto novo para aprender e sem estado escondido.
  *
  * Tudo aqui é função pura sobre o plano, para a janela só aplicar e as provas rodarem sem Electron. A
- * permissão do `mpro` continua sendo corda: a janela manda para o processo principal as **cordas efetivas**
+ * permissão do `ork` continua sendo corda: a janela manda para o processo principal as **cordas efetivas**
  * (as desenhadas mais as que a banda implica), e o main segue sem saber o que é banda.
  */
 import type { Caixa } from './geometria'

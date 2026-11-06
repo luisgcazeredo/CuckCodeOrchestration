@@ -27,7 +27,7 @@ export function Arvore({ raiz, expandidas, aoAlternar, aoEscolherArquivo, aoMenu
       try {
         // o processo principal só lista pasta que está no quadro ou no estado salvo: grava antes de pedir
         await prepararLeitura()
-        const entradas = await window.mp.dados.listarPasta(raiz, caminho)
+        const entradas = await window.ork.dados.listarPasta(raiz, caminho)
         definirConteudo((c) => ({ ...c, [caminho]: entradas }))
       } catch {
         definirConteudo((c) => ({ ...c, [caminho]: 'erro' }))
@@ -69,7 +69,7 @@ export function Arvore({ raiz, expandidas, aoAlternar, aoEscolherArquivo, aoMenu
           onClick={() => (item.ehPasta ? alternar(item.caminho) : aoEscolherArquivo?.(item.caminho))}
           onDoubleClick={(e) => {
             e.stopPropagation()
-            if (!item.ehPasta) void window.mp.dados.abrirArquivo(item.caminho)
+            if (!item.ehPasta) void window.ork.dados.abrirArquivo(item.caminho)
           }}
           onContextMenu={aoMenu ? (e) => aoMenu(e, item) : undefined}
         >

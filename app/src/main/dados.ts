@@ -33,9 +33,28 @@ import { avisar, avisarTodas, donoDe, esquecerEspaco, exigirDono } from './janel
 
 // Tudo do app mora numa pasta só, em JSON e markdown legíveis. O autoteste usa uma pasta temporária limpa.
 const AUTOTESTE = process.argv.includes('--autoteste')
-const RAIZ = AUTOTESTE ? join(tmpdir(), 'maestri-proprio-autoteste') : process.env.MP_DADOS || join(homedir(), '.maestri-proprio')
+const RAIZ = AUTOTESTE ? join(tmpdir(), 'orkester-autoteste') : process.env.ORK_DADOS || join(homedir(), '.orkester')
 export const PASTA_DADOS = RAIZ
 const PASTA_ESPACOS = join(RAIZ, 'espacos')
+
+/**
+ * O app se chamava Maestri Próprio e guardava tudo em `~/.maestri-proprio` (06/11/2026). Na primeira
+ * abertura com o nome novo, a pasta inteira muda de nome — é um `rename`, então nada é copiado e nada se
+ * perde (quadros, post-its, imagens e o perfil do Chrome do portal). Se as duas existirem, a nova vale e a
+ * velha fica onde está: melhor sobrar pasta do que misturar dois estados.
+ */
+function migrarPastaAntiga(): void {
+  if (AUTOTESTE || process.env.ORK_DADOS) return
+  const antiga = join(homedir(), '.maestri-proprio')
+  if (existsSync(RAIZ) || !existsSync(antiga)) return
+  try {
+    renameSync(antiga, RAIZ)
+    console.log(`dados movidos de ${antiga} para ${RAIZ}`)
+  } catch (erro) {
+    // não deu (pasta em uso, permissão): o app segue com uma pasta nova e vazia, sem perder a antiga
+    console.error('não consegui mover a pasta de dados antiga', erro)
+  }
+}
 
 const ID_VALIDO = /^[0-9a-f-]{36}$/
 const NOTA_VALIDA = /^[\w-]{1,80}\.md$/
@@ -65,7 +84,7 @@ function pastaDoEspaco(id: string): string {
   return join(PASTA_ESPACOS, id)
 }
 
-/** Prints colados no quadro (`mp-imagem://`), um .png por imagem. */
+/** Prints colados no quadro (`ork-imagem://`), um .png por imagem. */
 export function pastaImagens(espacoId: string): string {
   return join(pastaDoEspaco(espacoId), 'imagens')
 }
@@ -158,6 +177,7 @@ function criarEspaco(nome: string, pasta: string): Espaco {
 /** Primeira vez: um espaço com um post-it explicando o básico. */
 function garantirInicio(): void {
   if (AUTOTESTE) rmSync(RAIZ, { recursive: true, force: true })
+  migrarPastaAntiga()
   mkdirSync(PASTA_ESPACOS, { recursive: true })
   if (lerManifesto().length > 0) return
   const espaco = criarEspaco('Workspace', homedir())
@@ -176,7 +196,7 @@ function garantirInicio(): void {
   })
   gravar(
     join(pastaDoEspaco(espaco.id), 'notas', arquivo),
-    '# Bem-vindo\n- [x] abrir o Maestri Próprio\n- [ ] pôr um terminal no quadro\n- [ ] ligar dois agentes'
+    '# Bem-vindo\n- [x] abrir o Orkester\n- [ ] pôr um terminal no quadro\n- [ ] ligar dois agentes'
   )
   gravarJson(join(pastaDoEspaco(espaco.id), 'espaco.json'), espaco)
 }
@@ -296,7 +316,7 @@ function planoValido(p: Plano): boolean {
   )
 }
 
-/** Andar com git só aponta para um worktree nosso (em ~/.maestri-proprio/andares/<espaço>) e para um ramo andar/. */
+/** Andar com git só aponta para um worktree nosso (em ~/.orkester/andares/<espaço>) e para um ramo andar/. */
 function andarValido(a: Andar, espacoId: string): boolean {
   if (typeof a?.id !== 'string' || typeof a.nome !== 'string' || !planoValido(a)) return false
   if (a.git === null) return true

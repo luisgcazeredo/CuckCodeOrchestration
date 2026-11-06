@@ -99,7 +99,7 @@ export interface NoTerminal extends NoBase {
   pasta?: string
   /** Conversa do agente, para retomar ao reabrir (Claude: escolhida ao criar; Codex: descoberta depois). */
   sessao?: string
-  /** Cartão do agente que abriu este pelo `mpro abrir` (só ele pode fechar). */
+  /** Cartão do agente que abriu este pelo `ork abrir` (só ele pode fechar). */
   criadoPor?: string
   /** Nome da função com que este cartão nasceu, para você e as partituras saberem o papel dele. */
   funcao?: string
@@ -227,7 +227,7 @@ export interface EntradaPasta {
 export type No = NoTerminal | NoPostIt | NoTexto | NoArquivo | NoPasta | NoPortal | NoImagem | NoCodigo | NoBanda
 export type TipoNo = No['tipo']
 
-/** Ligação entre dois terminais: é a permissão de um agente falar com o outro pelo `mpro`. */
+/** Ligação entre dois terminais: é a permissão de um agente falar com o outro pelo `ork`. */
 export interface Corda {
   id: string
   de: string

@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { CANAIS_PORTAL, type AvisoPortal, type EntradaPortal, type EstadoPortal, type NavegacaoPortal } from '../shared/api'
 import { PASTA_DADOS } from './dados'
 
-// O Chrome do app: um Chrome de verdade, com perfil próprio em ~/.maestri-proprio/navegador (os logins ficam
+// O Chrome do app: um Chrome de verdade, com perfil próprio em ~/.orkester/navegador (os logins ficam
 // lá, separados do Chrome de uso pessoal), aberto pelo app e com as janelas fora da tela. O app fala com ele
 // por um pipe (nenhuma porta de rede: outro programa do PC não consegue controlá-lo). Cada cartão de portal é
 // uma aba numa janela própria (aba de fundo não desenha), transmitida para o quadro como imagens; mouse e
@@ -140,14 +140,14 @@ const esperar = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, 
 function fecharSobra(): Promise<void> {
   const comando = [
     `Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'"`,
-    `Where-Object { $_.CommandLine -and $_.CommandLine.Contains($env:MP_PERFIL) }`,
+    `Where-Object { $_.CommandLine -and $_.CommandLine.Contains($env:ORK_PERFIL) }`,
     `ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
   ].join(' | ')
   return new Promise((resolver) => {
     execFile(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-Command', comando],
-      { windowsHide: true, timeout: 15000, env: { ...process.env, MP_PERFIL: `--user-data-dir=${PERFIL}` } },
+      { windowsHide: true, timeout: 15000, env: { ...process.env, ORK_PERFIL: `--user-data-dir=${PERFIL}` } },
       () => resolver()
     )
   })

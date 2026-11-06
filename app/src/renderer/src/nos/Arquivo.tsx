@@ -15,7 +15,7 @@ function iconeDe(nome: string): LucideIcon {
 export const Arquivo = memo(function Arquivo({ no, selecionado }: { no: NoArquivo; selecionado: Marca }) {
   const Icone = iconeDe(no.nomeExibido)
   return (
-    <MolduraNo no={no} selecionado={selecionado} aoClicarDuasVezes={() => void window.mp.dados.abrirArquivo(no.caminho)}>
+    <MolduraNo no={no} selecionado={selecionado} aoClicarDuasVezes={() => void window.ork.dados.abrirArquivo(no.caminho)}>
       <div className="arquivo" data-arrasta title={`${no.caminho}\nClique duas vezes para abrir`}>
         <Icone size={40} strokeWidth={1.4} />
         <span className="arquivo-nome">{no.nomeExibido}</span>
