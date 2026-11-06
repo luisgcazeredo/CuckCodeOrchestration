@@ -34,6 +34,7 @@ import { abrirPaleta, Paleta } from './ui/Paleta'
 import { Perguntas } from './ui/Perguntas'
 import { Funcoes } from './ui/Funcoes'
 import { Partituras } from './ui/Partituras'
+import { Rotinas } from './ui/Rotinas'
 import { Presets } from './ui/Presets'
 
 function digitando(): boolean {
@@ -148,6 +149,7 @@ export function App() {
       <Presets />
       <Funcoes />
       <Partituras />
+      <Rotinas />
     </div>
   )
 }

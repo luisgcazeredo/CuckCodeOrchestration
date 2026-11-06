@@ -8,6 +8,7 @@ import {
   CANAIS_CODIGO,
   CANAIS_DADOS,
   CANAIS_JANELAS,
+  CANAIS_ROTINAS,
   CANAL_AVISO,
   CANAIS_PORTAL,
   type ApiAndares,
@@ -16,6 +17,8 @@ import {
   type ApiDados,
   type ApiJanelas,
   type ApiPortal,
+  type ApiRotinas,
+  type AvisoRotina,
   type AvisoPortal,
   type AvisoJanelas,
   type MudancaArquivo,
@@ -33,6 +36,14 @@ function chamadas<T>(canais: Record<string, string>): T {
 const dados = chamadas<ApiDados>(CANAIS_DADOS)
 const andares = chamadas<ApiAndares>(CANAIS_ANDARES)
 const area = chamadas<ApiArea>(CANAIS_AREA)
+const rotinas: ApiRotinas = {
+  definir: (espacoId, lista) => ipcRenderer.send(CANAIS_ROTINAS.definir, espacoId, lista),
+  testar: (espacoId, id) => ipcRenderer.invoke(CANAIS_ROTINAS.testar, espacoId, id),
+  aoAcontecer: (ouvinte) => {
+    ipcRenderer.on(CANAIS_ROTINAS.aviso, (_evento, aviso: AvisoRotina) => ouvinte(aviso))
+  }
+}
+
 const janelas: ApiJanelas = {
   ...chamadas<Omit<ApiJanelas, 'aoAvisar'>>(CANAIS_JANELAS),
   aoAvisar: (ouvinte) => {
@@ -127,6 +138,7 @@ const api: ApiMaestri = {
   andares,
   area,
   janelas,
+  rotinas,
   portal,
   aoPedirFechar: (salvar) => {
     ipcRenderer.on(CANAIS_APP.vaiFechar, async () => {

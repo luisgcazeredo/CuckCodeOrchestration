@@ -6,8 +6,10 @@ import type {
   EspacoCarregado,
   EstadoJanela,
   Preferencias,
+  ResultadoDaRotina,
   ResultadoGit,
   ResumoEspaco,
+  Rotina,
   SituacaoAndar
 } from './modelo'
 import type { PedidoNoQuadro } from './quadro/agente'
@@ -133,6 +135,25 @@ export type RespostaAoAgente = { ok: true; id?: string; nome?: string; texto?: s
 export interface ApiAgentes {
   /** A janela atende os pedidos dos agentes para o espaço que ela mostra. */
   aoPedir(atender: (pedido: PedidoDoAgente) => Promise<RespostaAoAgente> | RespostaAoAgente): void
+}
+
+/** O que o processo principal conta à janela depois de uma rotina vencer. */
+export interface AvisoRotina {
+  id: string
+  espacoId: string
+  resultado: ResultadoDaRotina
+  /** Quando aconteceu (ISO). */
+  em: string
+  /** Quando ela vence de novo (ISO). */
+  proxima: string
+}
+
+export interface ApiRotinas {
+  /** A janela dona do espaço manda as rotinas; é com elas que o processo principal conta o tempo. */
+  definir(espacoId: string, rotinas: Rotina[]): void
+  /** Dispara agora ("testar"), sem mexer no relógio. */
+  testar(espacoId: string, id: string): Promise<ResultadoDaRotina>
+  aoAcontecer(ouvinte: (aviso: AvisoRotina) => void): void
 }
 
 export interface ApiDados {
@@ -335,6 +356,7 @@ export interface ApiMaestri {
   andares: ApiAndares
   area: ApiArea
   janelas: ApiJanelas
+  rotinas: ApiRotinas
   portal: ApiPortal
   agentes: ApiAgentes
   /** Chamado quando a janela vai fechar; `salvar` diz se gravou. Se não gravou, o app pergunta antes de fechar. */
@@ -424,6 +446,12 @@ export const CANAIS_AREA = {
   copiar: 'area:copiar',
   colar: 'area:colar',
   trazerImagem: 'area:trazer-imagem'
+} as const
+
+export const CANAIS_ROTINAS = {
+  definir: 'rotinas:definir',
+  testar: 'rotinas:testar',
+  aviso: 'rotinas:aviso'
 } as const
 
 export const CANAIS_ANDARES = {

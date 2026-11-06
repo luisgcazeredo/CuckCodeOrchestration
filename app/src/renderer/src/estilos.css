@@ -449,6 +449,92 @@ button {
   border-color: var(--destaque);
 }
 
+/* ---------- rotinas ---------- */
+.rotinas {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  max-height: 34vh;
+  overflow: auto;
+}
+
+.rotina-linha {
+  display: grid;
+  grid-template-columns: 1fr 30px 30px 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--pilula-borda);
+  border-radius: 8px;
+  background: var(--pilula-fundo);
+}
+
+.rotina-linha.pausada {
+  opacity: 0.6;
+}
+
+.rotina-dados {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rotina-nome {
+  font-weight: 600;
+}
+
+.rotina-detalhe {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.rotina-nova {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--pilula-borda);
+  border-radius: 8px;
+}
+
+.rotina-campos {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rotina-campo-nome {
+  flex: 1;
+  min-width: 0;
+}
+
+.rotina-texto {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--fonte-interface);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.rotina-minutos {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.rotina-minutos input {
+  width: 70px;
+}
+
+.rotina-nova .preset-novo {
+  margin-bottom: 0;
+}
+
 /* ---------- banda: a moldura de um grupo de agentes ---------- */
 /* O miolo não pega o mouse: clicar no meio da moldura é clicar no quadro, e o laço de seleção continua
    funcionando por cima do time. Quem pega são a barra do nome, a borda e a porta da corda. */

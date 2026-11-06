@@ -5,7 +5,7 @@ import { createServer, type Socket } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { CANAIS, CANAIS_AGENTES, MAX_SESSOES_POR_AGENTE, type PedidoDoAgente, type RespostaAoAgente, type ResumoContextoTerminal } from '../shared/api'
-import type { Agente } from '../shared/modelo'
+import type { Agente, ResultadoDaRotina } from '../shared/modelo'
 import type { PedidoNoQuadro } from '../shared/quadro/agente'
 import { criarEspacoDoAgente, PASTA_DADOS, resumosDosEspacos } from './dados'
 import { abrirJanela, donoDe } from './janelas'
@@ -19,6 +19,7 @@ import {
   escreverNoProcesso,
   esperarSessao,
   sessaoPorCracha,
+  sessaoPorId,
   sessoesCriadasPor,
   sessoesDoEspaco,
   telaDe,
@@ -312,6 +313,21 @@ async function digitarPedido(s: Sessao, texto: string): Promise<void> {
   // o Enter separado da colagem: junto, alguns agentes o tomam como parte do texto
   await esperar(250)
   escreverNoProcesso(s, '\r')
+}
+
+/**
+ * Digita num cartão por conta do app (é o que as rotinas usam). **Só digita se o terminal estiver livre:**
+ * ocupado, parado numa pergunta ou com o processo encerrado, pula a vez e diz por quê. Escrever no meio do
+ * trabalho de um agente — ou em cima de uma pergunta — é exatamente o que uma tarefa do Windows faria.
+ */
+export async function dispararNoTerminal(id: string, texto: string): Promise<ResultadoDaRotina> {
+  const s = sessaoPorId(id)
+  if (!s || s.fim) return 'sem-cartao'
+  const agora = await situacao(s)
+  if (agora !== 'livre') return agora === 'encerrado' ? 'encerrado' : agora === 'pergunta' ? 'pergunta' : 'ocupado'
+  await digitarPedido(s, texto)
+  registrar(s, null, 'rotina', texto)
+  return 'rodou'
 }
 
 function registrar(de: Sessao, para: Sessao | null, comando: string, texto = ''): void {

@@ -33,6 +33,10 @@ mpro partitura                    times salvos: lista, `usar "Nome"` sobe um ao 
 Mexer no quadro **entra no desfazer** do usuário, nunca apaga nada, não toca em cartão travado nem em cartão
 de código, e só alcança o andar à mostra — sempre pelo nome do cartão.
 
+Uma **rotina** digita um pedido num cartão a cada X minutos, todo dia ou toda semana (menu do cartão →
+Rotinas…). O que só o app faz: se o terminal estiver **ocupado**, parado numa pergunta ou encerrado, ela
+**pula a vez** em vez de escrever no meio do trabalho. Correm enquanto o espaço está aberto numa janela.
+
 Uma **banda** é um grupo de agentes desenhado como moldura: quem está dentro dela fala com todos os outros de
 dentro, e a corda desenhada na banda vale para cada um deles. Não há lista de membros — é a moldura que diz
 quem é do time, então arrastar um cartão para dentro ou para fora é entrar e sair. **Trocar o agente** de um

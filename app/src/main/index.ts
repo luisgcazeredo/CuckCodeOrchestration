@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CANAIS_APP } from '../shared/api'
 import { registrarAndares } from './andares'
+import { pararRotinas, registrarRotinas } from './rotinas'
 import { registrarArea, registrarEsquemaImagem, servirImagens } from './area'
 import { registrarCodigo } from './codigo'
 import { registrarComandos } from './comandos'
@@ -210,12 +211,14 @@ if (!autoteste && !app.requestSingleInstanceLock()) {
     registrarTerminais()
     registrarComandos()
     registrarCodigo()
+    registrarRotinas()
     quandoApagarEspaco(encerrarDoEspaco)
     criarJanela()
   })
 }
 
 app.on('window-all-closed', () => {
+  pararRotinas()
   encerrarTodos()
   // o Chrome do app fecha direito antes (sem o aviso de "não foi fechado corretamente" na próxima vez)
   void encerrarNavegador().finally(() => app.quit())

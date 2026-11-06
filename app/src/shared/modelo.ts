@@ -264,6 +264,39 @@ export interface Plano {
   desenhos: Desenho[]
 }
 
+/** Quando uma rotina dispara. `cada` conta do disparo anterior; os outros são hora do dia. */
+export type QuandoDaRotina =
+  | { tipo: 'cada'; minutos: number }
+  | { tipo: 'diario'; hora: number; minuto: number }
+  /** `dia`: 0 = domingo … 6 = sábado. */
+  | { tipo: 'semanal'; dia: number; hora: number; minuto: number }
+
+/** O que aconteceu na última vez que a rotina venceu. */
+export type ResultadoDaRotina = 'rodou' | 'ocupado' | 'pergunta' | 'encerrado' | 'sem-cartao'
+
+/**
+ * Rotina: um pedido (ou comando) digitado num cartão de hora em hora, todo dia ou toda semana. O que só o
+ * app sabe fazer, e é por isso que ela existe aqui em vez de numa tarefa do Windows: **se o terminal estiver
+ * ocupado, numa pergunta ou encerrado, ela pula a vez** em vez de escrever no meio do trabalho de alguém.
+ *
+ * Roda enquanto o espaço está aberto numa janela — é a janela que manda as rotinas ao processo principal, e
+ * é ele que conta o tempo e digita.
+ */
+export interface Rotina {
+  id: string
+  nome: string
+  /** Cartão de terminal onde ela digita. */
+  terminal: string
+  texto: string
+  quando: QuandoDaRotina
+  /** Quando ela vence de novo (ISO). */
+  proxima: string
+  pausada?: boolean
+  /** Quantas vezes já foi digitada de verdade (as puladas não contam). */
+  vezes: number
+  ultima?: { em: string; resultado: ResultadoDaRotina }
+}
+
 export type EstadoAndar = 'trabalhando' | 'travado' | 'revisao' | 'pronto'
 
 /**
@@ -297,6 +330,8 @@ export interface Espaco extends Plano {
   andares: Andar[]
   /** Andar à mostra; null = térreo. */
   andarAtivo: string | null
+  /** Rotinas deste espaço (de qualquer andar). Campo novo: espaço antigo não tem nenhuma. */
+  rotinas?: Rotina[]
 }
 
 export interface ResumoAndar {

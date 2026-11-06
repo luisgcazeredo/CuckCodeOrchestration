@@ -13,6 +13,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   ClipboardPaste,
+  Clock,
   Copy,
   FileCode,
   ExternalLink,
@@ -101,6 +102,7 @@ import {
 } from '../estado/loja'
 import { anexarAoPrompt, anexarArquivosAoPrompt, anexarPastaAoPrompt } from './anexar'
 import { abrirAtalhos } from './Atalhos'
+import { abrirRotinas } from './Rotinas'
 import { colar, copiarSelecao } from './area'
 import { alternarRecolhido } from '../nos/Codigo'
 import { ICONE_AGENTE } from '../nos/icones'
@@ -537,6 +539,7 @@ export function itensDoNo(no: No): ItemMenu[] {
         },
         { rotulo: 'Código que ele escreve', icone: FileCode, submenu: itensDoCodigoDoTerminal(no) },
         itemTrocarAgente(no),
+        { rotulo: 'Rotinas…', icone: Clock, acao: () => abrirRotinas(no.id) },
         itemSalvarPartitura([no.id]),
         {
           rotulo: 'Anexar ao prompt',

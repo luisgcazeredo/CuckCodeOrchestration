@@ -28,6 +28,7 @@ import {
 } from '../shared/modelo'
 import { CANAIS_DADOS } from '../shared/api'
 import { MAX_NOME_DA_PARTITURA, MAX_PARTITURAS, MAX_PECAS, MAX_TEXTO_DA_PECA } from '../shared/quadro/partituras'
+import { MAX_ROTINAS, rotinaValida } from '../shared/rotinas'
 import { avisar, avisarTodas, donoDe, esquecerEspaco, exigirDono } from './janelas'
 
 // Tudo do app mora numa pasta só, em JSON e markdown legíveis. O autoteste usa uma pasta temporária limpa.
@@ -323,6 +324,9 @@ function validarParaSalvar(carregado: EspacoCarregado): EspacoCarregado {
     new Set(espaco.andares.flatMap((a) => (a.git ? [resolve(a.git.pasta).toLowerCase()] : []))).size ===
       espaco.andares.filter((a) => a.git).length &&
     (espaco.andarAtivo === null || espaco.andares.some((a) => a.id === espaco.andarAtivo)) &&
+    // rotinas: o que não serve para o relógio não vai para o disco
+    (espaco.rotinas === undefined ||
+      (Array.isArray(espaco.rotinas) && espaco.rotinas.length <= MAX_ROTINAS && espaco.rotinas.every(rotinaValida))) &&
     typeof notas === 'object' &&
     notas !== null &&
     JSON.stringify(carregado).length < LIMITE_JSON
