@@ -2,9 +2,9 @@
 
 **Um time de agentes de código num quadro infinito — e você desenha quem fala com quem.**
 
-![versão](https://img.shields.io/badge/vers%C3%A3o-0.30.0-4060e8)
+![versão](https://img.shields.io/badge/vers%C3%A3o-0.31.0-4060e8)
 ![plataforma](https://img.shields.io/badge/plataforma-Windows%2011%20x64-4060e8)
-![testes](https://img.shields.io/badge/testes-103%20provas%20·%20142%20checagens-4060e8)
+![testes](https://img.shields.io/badge/testes-117%20provas%20·%20147%20checagens-4060e8)
 
 [English](README.md) · Português
 
@@ -44,6 +44,7 @@ Três ideias seguram o resto:
 | **Bandas** | Grupos desenhados como moldura: quem está dentro fala com todos os de dentro. |
 | **Partituras** | Times inteiros salvos — agentes, funções, recados, cordas, bandas — que sobem de uma vez num espaço novo, em qualquer projeto. |
 | **Rotinas** | Um pedido digitado num cartão a cada X minutos, todo dia ou toda semana. Se o terminal estiver ocupado, parado numa pergunta ou encerrado, a rotina **pula a vez** em vez de escrever no meio do trabalho. |
+| **Várias janelas** | Cada espaço abre na sua janela, e o app reabre as que estavam abertas, onde estavam. |
 | **Andares** | Cópias isoladas do repositório por `git worktree`, para dois times mexerem no mesmo projeto sem se atropelar. |
 | **Árvores de código** | Os arquivos que o agente toca viram cartões ao lado dele, com o diff do git, agrupados por frente de trabalho. |
 | **Leitura de contexto** | Quanto de janela cada agente já gastou, para saber quando limpar ou passar o trabalho adiante. |
@@ -130,7 +131,7 @@ Electron · React · TypeScript · xterm.js · node-pty.
 
 O cálculo do quadro mora em módulos puros (`app/src/shared/`), cobertos por testes que rodam em Node sem abrir o
 app. Em cima deles, o autoteste abre o app de verdade, monta um quadro, mexe com mouse e teclado e confere o
-resultado na tela. Hoje: **103 provas** e **142 checagens** em 12 cenários.
+resultado na tela. Hoje: **117 provas** e **147 checagens** em 13 cenários.
 
 ```text
 app/src/shared/    regras puras do quadro (bandas, partituras, trocar, rotinas, arquivos)
@@ -142,7 +143,7 @@ identidade/        a marca e os scripts que geram o ícone
 
 ## Estado
 
-Versão **0.30.0**, em uso diário no Windows. Quadro, terminais, delegação, funções, bandas, partituras,
+Versão **0.31.0**, em uso diário no Windows. Quadro, terminais, delegação, funções, bandas, partituras,
 rotinas, andares e árvores de código estão prontos. O caminho até a 1.0 segue por operação — o que acontece
 quando um agente trava, acaba o crédito ou o PC reinicia — e por um visual próprio.
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, screen, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, Menu, screen, session, shell, type Rectangle } from 'electron'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CANAIS_APP } from '../shared/api'
@@ -7,13 +7,26 @@ import { pararRotinas, registrarRotinas } from './rotinas'
 import { registrarArea, registrarEsquemaImagem, servirImagens } from './area'
 import { registrarCodigo } from './codigo'
 import { registrarComandos } from './comandos'
-import { idsDosEspacos, quandoApagarEspaco, registrarDados } from './dados'
+import { gravarSessaoDeJanelas, idsDosEspacos, lerSessaoDeJanelas, quandoApagarEspaco, registrarDados } from './dados'
 import { encerrarNavegador, registrarNavegador, soltarAbasDaJanela } from './navegador'
-import { configurarJanelas, lembrarInicial, registrarJanelas, soltarJanela } from './janelas'
+import { acompanharJanela, configurarJanelas, gravarSessaoAgora, lembrarInicial, reabrirJanelas, registrarJanelas, soltarJanela } from './janelas'
+import { janelasParaAbrir } from '../shared/janelas'
 import { encerrarDoEspaco, encerrarTodos, registrarTerminais } from './terminais'
 import { rodarAutoteste } from './autoteste'
+import { rodarMedicao } from './medir'
 
+/**
+ * Endurecimento do executável (fuses, em `package.json` → `build.electronFuses`), decidido em 06/11/2026:
+ * ficam **desligados** o `NODE_OPTIONS` e os argumentos de inspeção, fica **ligada** a criptografia de
+ * cookies e o app só carrega de dentro do `.asar`. O `runAsNode` continua **ligado**, e não é descuido: o
+ * node-pty faz `fork` do próprio executável para listar os consoles do ConPTY, e o Electron liga
+ * `ELECTRON_RUN_AS_NODE` nesse filho — desligar o fuse quebra todo terminal do app. A validação de
+ * integridade do asar também fica fora: o node-pty roda desempacotado (`asarUnpack`) e ela exigiria
+ * assinatura, que este app não tem.
+ */
 const autoteste = process.argv.includes('--autoteste')
+// Medição de memória: sobe sem janela, abre muitos terminais, mede e sai (npm run medir).
+const medindo = process.argv.includes('--medir')
 // No autoteste a janela pode ficar atrás de outras; sem isto o Windows para de desenhá-la e o print sai velho.
 if (autoteste) app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
 // E o autoteste usa um perfil do Chromium só dele: com o app instalado aberto, os dois disputavam o mesmo
@@ -62,19 +75,23 @@ function posicaoAutoteste(largura: number, altura: number): { x?: number; y?: nu
   }
 }
 
-/** Uma janela do app. `espacoInicial`: o espaço que ela mostra ao abrir (null = o último usado). */
-function criarJanela(espacoInicial: string | null = null): BrowserWindow {
+/**
+ * Uma janela do app. `espacoInicial`: o espaço que ela mostra ao abrir (null = o último usado).
+ * `caixa`: onde ela estava na sessão passada; sem ela, a janela nasce deslocada da que está na frente.
+ */
+function criarJanela(espacoInicial: string | null = null, caixa?: Partial<Rectangle> & { maximizada?: boolean }): BrowserWindow {
   // janela nova aparece um pouco deslocada da que está na frente, para não esconder uma atrás da outra
   const frente = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
-  const posicao =
-    frente && !frente.isDestroyed() && !frente.isMaximized()
+  const posicao = caixa
+    ? { x: caixa.x, y: caixa.y }
+    : frente && !frente.isDestroyed() && !frente.isMaximized()
       ? { x: frente.getBounds().x + 36, y: frente.getBounds().y + 36 }
       : autoteste
         ? posicaoAutoteste(1280, 820)
         : {}
   const janela = new BrowserWindow({
-    width: 1280,
-    height: 820,
+    width: caixa?.width ?? 1280,
+    height: caixa?.height ?? 820,
     ...posicao,
     minWidth: 640,
     minHeight: 420,
@@ -96,9 +113,13 @@ function criarJanela(espacoInicial: string | null = null): BrowserWindow {
     }
   })
 
-  janela.once('ready-to-show', () => janela.show())
+  janela.once('ready-to-show', () => {
+    if (caixa?.maximizada) janela.maximize()
+    janela.show()
+  })
   const idConteudo = janela.webContents.id
   lembrarInicial(idConteudo, espacoInicial)
+  acompanharJanela(janela)
   janela.on('closed', () => {
     soltarJanela(idConteudo)
     soltarAbasDaJanela(idConteudo)
@@ -167,6 +188,21 @@ function criarJanela(espacoInicial: string | null = null): BrowserWindow {
   return janela
 }
 
+/**
+ * Abre o que estava aberto da última vez. O autoteste sempre começa com uma janela só, para a rodada
+ * não depender do que ficou do dia anterior.
+ */
+function abrirAsJanelasDaSessao(): void {
+  if (autoteste) {
+    criarJanela()
+    return
+  }
+  const telas = screen.getAllDisplays().map((t) => ({ x: t.workArea.x, y: t.workArea.y, largura: t.workArea.width, altura: t.workArea.height }))
+  const lista = janelasParaAbrir(lerSessaoDeJanelas(), idsDosEspacos(), telas)
+  if (lista.length === 0) criarJanela()
+  else reabrirJanelas(lista)
+}
+
 // Dentro do portal: janelas novas vão para o navegador do sistema; o site não sai de http/https.
 app.on('web-contents-created', (_evento, conteudo) => {
   if (conteudo.getType() !== 'webview') return
@@ -186,7 +222,7 @@ registrarEsquemaImagem()
 Menu.setApplicationMenu(null)
 
 // Um processo só: abrir o atalho de novo traz a janela que já está aberta (mais janelas: Ctrl+Shift+N).
-if (!autoteste && !app.requestSingleInstanceLock()) {
+if (!autoteste && !medindo && !app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => {
@@ -201,7 +237,7 @@ if (!autoteste && !app.requestSingleInstanceLock()) {
     // o portal se apresenta como Chrome comum: com "Electron" no nome, sites como o login do Google recusam
     const portal = session.fromPartition('persist:portal')
     portal.setUserAgent(portal.getUserAgent().replace(/ (Electron|Orkester)\/\S+/gi, ''))
-    configurarJanelas(criarJanela, idsDosEspacos)
+    configurarJanelas(criarJanela, idsDosEspacos, gravarSessaoDeJanelas)
     registrarJanelas()
     registrarDados()
     registrarAndares()
@@ -213,9 +249,15 @@ if (!autoteste && !app.requestSingleInstanceLock()) {
     registrarCodigo()
     registrarRotinas()
     quandoApagarEspaco(encerrarDoEspaco)
-    criarJanela()
+    if (medindo) void rodarMedicao()
+    else abrirAsJanelasDaSessao()
   })
 }
+
+// Sair: a sessão de janelas vai para o disco sem esperar o adiamento de meio segundo.
+app.on('before-quit', () => {
+  if (!autoteste && !medindo) gravarSessaoAgora()
+})
 
 app.on('window-all-closed', () => {
   pararRotinas()

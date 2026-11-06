@@ -27,6 +27,7 @@ import {
   type ResumoEspaco
 } from '../shared/modelo'
 import { CANAIS_DADOS } from '../shared/api'
+import { SESSAO_VAZIA, sessaoValida, type Sessao } from '../shared/janelas'
 import { MAX_NOME_DA_PARTITURA, MAX_PARTITURAS, MAX_PECAS, MAX_TEXTO_DA_PECA } from '../shared/quadro/partituras'
 import { MAX_ROTINAS, rotinaValida } from '../shared/rotinas'
 import { avisar, avisarTodas, donoDe, esquecerEspaco, exigirDono } from './janelas'
@@ -570,4 +571,17 @@ export function registrarDados(): void {
       .sort((a, b) => Number(b.ehPasta) - Number(a.ehPasta) || a.nome.localeCompare(b.nome, 'pt-BR'))
       .slice(0, 1000)
   })
+}
+
+/**
+ * A sessão de janelas (quais estavam abertas e onde) mora num arquivo próprio: ela é do app inteiro,
+ * enquanto `estado.json` é da janela que gravou por último.
+ */
+export function lerSessaoDeJanelas(): Sessao {
+  const lido = lerJson<unknown>(join(RAIZ, 'janelas.json'), SESSAO_VAZIA)
+  return sessaoValida(lido) ? lido : SESSAO_VAZIA
+}
+
+export function gravarSessaoDeJanelas(sessao: Sessao): void {
+  gravarJson(join(RAIZ, 'janelas.json'), sessao)
 }

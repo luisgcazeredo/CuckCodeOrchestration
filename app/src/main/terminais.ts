@@ -1,5 +1,5 @@
 import { ipcMain, webContents, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
@@ -16,7 +16,14 @@ import { donoDe, exigirDono } from './janelas'
 // para o cartão que se liga de novo e a tela que os agentes leem pelo `ork`.
 
 const AUTOTESTE = process.argv.includes('--autoteste')
-const MAX_TERMINAIS = 64
+/**
+ * Teto de processos vivos ao mesmo tempo. Medido em 06/11/2026 com `npm run medir`, neste PC, com shells
+ * e o histórico cheio: 8 terminais = 1,0 GB · 20 = 2,1 GB · 50 = 4,5 GB. O custo é ~84 MB por terminal, e
+ * **a maior parte não é do app**: o PowerShell em si leva ~74 MB, contra ~12 MB do espelho e do resto.
+ * Claude e Codex são processos de Node e pesam mais que um shell, então 32 é o teto com folga numa máquina
+ * de 16 GB. Por isso também não adianta encolher o histórico: ele não é o que pesa.
+ */
+let MAX_TERMINAIS = 32
 const MAX_COLUNAS = 1000
 const MAX_LINHAS = 500
 const MAX_BYTES_POR_ESCRITA = 1024 * 1024
@@ -35,6 +42,8 @@ export interface Sessao {
   serializar: SerializeAddon
   /** Cartões que mostram este terminal. */
   vistas: Set<WebContents>
+  /** Passou do teto: o cartão existe, mas o processo só nasce quando abrir vaga. */
+  esperandoVaga?: boolean
   /** Cartões se ligando: a saída fica guardada até o retrato ficar pronto. */
   chegando: Map<WebContents, string[]>
   ultimaSaida: number
@@ -174,8 +183,39 @@ function criarSessao(espacoId: string, espec: EspecTerminal): Sessao {
     fim: null
   }
   sessoes.set(s.id, s)
-  iniciarProcesso(s)
+  if (processosVivos() >= MAX_TERMINAIS) porNaFila(s)
+  else iniciarProcesso(s)
   return s
+}
+
+// ---------- o teto, sem falhar calado ----------
+
+const processosVivos = (): number => [...sessoes.values()].filter((s) => s.processo).length
+
+/**
+ * Passou do teto: o cartão abre mesmo assim, mas em vez de ficar mudo (o que acontecia antes — o terminal
+ * simplesmente não nascia e ninguém dizia por quê) ele escreve o motivo na própria tela e espera a vaga.
+ */
+function porNaFila(s: Sessao): void {
+  s.esperandoVaga = true
+  const aviso =
+    `\x1b[2m— ${MAX_TERMINAIS} terminais já estão abertos, que é o limite deste app.\r\n` +
+    `  Este aqui começa assim que algum fechar. —\x1b[0m\r\n`
+  s.espelho.write(aviso)
+  avisarVistas(s, CANAIS.dados, aviso)
+}
+
+/** Abriu vaga (alguém fechou): o primeiro da fila começa. */
+function darVagaAosQueEsperam(): void {
+  for (const s of sessoes.values()) {
+    if (processosVivos() >= MAX_TERMINAIS) return
+    if (!s.esperandoVaga) continue
+    s.esperandoVaga = false
+    s.espelho.reset()
+    s.espelho.clear()
+    avisarVistas(s, CANAIS.dados, '\x1b[2J\x1b[H')
+    iniciarProcesso(s)
+  }
 }
 
 function encerrar(id: string): void {
@@ -191,6 +231,7 @@ function encerrar(id: string): void {
     // já tinha saído
   }
   s.espelho.dispose()
+  darVagaAosQueEsperam()
 }
 
 // ---------- conversa do Codex ----------
@@ -319,10 +360,11 @@ export function registrarTerminais(): void {
         if (s.fim) clearTimeout(s.fim)
         s.fim = null
         s.espec = { ...espec, sessao: espec.sessao ?? s.espec.sessao }
-      } else if (sessoes.size < MAX_TERMINAIS) {
+      } else {
         criarSessao(espacoId, espec)
       }
     }
+    darVagaAosQueEsperam()
     for (const s of sessoes.values()) {
       if (s.espacoId === espacoId && !ids.has(s.id) && !s.fim) s.fim = setTimeout(() => encerrar(s.id), FOLGA_AO_APAGAR)
     }
@@ -471,4 +513,40 @@ export function quantosTerminais(): number {
 
 export function encerrarTodos(): void {
   for (const id of [...sessoes.keys()]) encerrar(id)
+}
+
+/**
+ * Só para a medição de memória (`npm run medir`): abre `quantos` shells de verdade, sem janela nenhuma.
+ * Devolve os pids dos processos, para a medição somar a árvore de cada um.
+ */
+export function abrirTerminaisDeMedicao(quantos: number): number[] {
+  const pids: number[] = []
+  for (let i = 0; i < quantos; i++) {
+    const s = criarSessao('medicao', {
+      id: randomUUID(),
+      nome: `Medição ${i + 1}`,
+      agente: 'shell',
+      comando: '',
+      pasta: homedir()
+    })
+    if (s.processo) pids.push(s.processo.pid)
+  }
+  return pids
+}
+
+/** A medição precisa escrever nos terminais todos de uma vez. */
+export function todasAsSessoes(): Sessao[] {
+  return [...sessoes.values()]
+}
+
+/** Só o autoteste mexe no teto: baixá-lo é a única forma de provar a fila sem abrir 32 processos. */
+export function tetoDeTerminaisNoTeste(novo: number): void {
+  if (!AUTOTESTE) return
+  MAX_TERMINAIS = novo
+  darVagaAosQueEsperam()
+}
+
+/** Terminais com processo de verdade rodando agora (o teto conta estes, não cartões). */
+export function terminaisVivos(): number {
+  return processosVivos()
 }

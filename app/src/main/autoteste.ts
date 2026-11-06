@@ -6,9 +6,10 @@ import { createServer } from 'node:http'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { extrairContextoRestante } from './comandos'
-import { PASTA_DADOS } from './dados'
+import { lerSessaoDeJanelas, PASTA_DADOS } from './dados'
+import { janelasParaAbrir } from '../shared/janelas'
 import { encerrarNavegador, janelasNaBarra } from './navegador'
-import { encerrarTodos, linhaDeComando, sessaoPorId, telaDe } from './terminais'
+import { encerrarTodos, linhaDeComando, sessaoPorId, telaDe, terminaisVivos, tetoDeTerminaisNoTeste } from './terminais'
 
 type Resultado = [nome: string, ok: boolean, detalhe: string]
 
@@ -1749,6 +1750,57 @@ export async function rodarAutoteste(
       },
     },
     {
+      nome: 'teto-de-terminais',
+      depende: 'ork',
+      rodar: async (d) => {
+        const { esperar, js, conferir, aguardar, telaNoApp, ultimas } = d
+    // Com o teto fechado no número exato de processos vivos, o próximo cartão tem que esperar vaga — e dizer
+    // isso na própria tela. Antes ele simplesmente não nascia, calado, e o usuário olhava um terminal morto.
+    // Primeiro espera o quadro assentar: cartões apagados nos cenários anteriores ainda estão morrendo
+    // (há uma folga antes de o processo cair), e cada morte abre uma vaga depois que a porta fechou.
+    let estavel = 0
+    let antes = -1
+    for (let i = 0; i < 80 && estavel < 10; i++) {
+      await esperar(300)
+      const agora = terminaisVivos()
+      estavel = agora === antes ? estavel + 1 : 0
+      antes = agora
+    }
+
+    const primeiro = await js<string>(`(() => { const L = window.__teste.loja
+      const id = L.adicionarNo({ tipo: 'terminal', preset: ${presetShell} }, 3600, 1800)
+      L.atualizarNo(id, { nome: 'Na vaga' }, false); return id })()`)
+    for (let i = 0; i < 60 && !sessaoPorId(primeiro)?.processo; i++) await esperar(200)
+    // o teto conta processos vivos, não cartões: cartão esperando ou morrendo não ocupa vaga
+    tetoDeTerminaisNoTeste(terminaisVivos())
+    const segundo = await js<string>(`(() => { const L = window.__teste.loja
+      const id = L.adicionarNo({ tipo: 'terminal', preset: ${presetShell} }, 3600, 2000)
+      L.atualizarNo(id, { nome: 'Na fila' }, false); return id })()`)
+    await esperar(1500)
+
+    const naFila = await aguardar(() => telaNoApp(segundo), /limite deste app/, 15_000)
+    conferir(
+      'passou do teto: o cartão diz na tela que está esperando vaga, em vez de ficar mudo',
+      /limite deste app/.test(naFila) && !sessaoPorId(segundo)?.processo && !!sessaoPorId(primeiro)?.processo,
+      `fila sem processo: ${!sessaoPorId(segundo)?.processo} · tela: ${ultimas(naFila, 2)}`
+    )
+
+    // fecha o que estava na vaga: o da fila tem que começar sozinho
+    await js(`(() => { const L = window.__teste.loja; L.selecionar({ tipo: 'no', id: '${primeiro}' }); L.apagarSelecao(); L.selecionar(null) })()`)
+    await esperar(2500) // a folga do apagar (1,5 s no autoteste) e mais um respiro
+    let comecou = false
+    for (let i = 0; i < 60 && !comecou; i++) {
+      await esperar(200)
+      comecou = !!sessaoPorId(segundo)?.processo
+    }
+    conferir('fechou um, o da fila começa sozinho', comecou, comecou ? 'processo nasceu' : 'continua sem processo')
+
+    tetoDeTerminaisNoTeste(32)
+    await js(`(() => { const L = window.__teste.loja; L.selecionar({ tipo: 'no', id: '${segundo}' }); L.apagarSelecao(); L.selecionar(null) })()`)
+    await esperar(400)
+      },
+    },
+    {
       nome: 'ork-espacos',
       depende: 'ork-conexoes',
       rodar: async (d) => {
@@ -1773,6 +1825,32 @@ export async function rodarAutoteste(
         (await frente2.webContents.executeJavaScript(`window.__teste?.loja.lerEstado().espaco?.nome === 'Frente 2'`).catch(() => false))
     }
     conferir('ork janela --novo cria o espaço e abre a janela', frente2Pronta, frente2 ? frente2.webContents.getTitle() : 'sem janela')
+
+    // Com duas janelas abertas, a sessão em disco tem que descrever as duas: é dela que sai a reabertura
+    // na próxima vez que o app subir. A gravação é adiada meio segundo, então esperamos um pouco mais.
+    await esperar(900)
+    const sessaoNoDisco = lerSessaoDeJanelas()
+    const espacosNaSessao = sessaoNoDisco.janelas.map((j) => j.espacoId)
+    const idsAbertos = await js<string[]>(`[window.__teste.loja.lerEstado().espaco?.id ?? null]`)
+    const idDaFrente2 = frente2
+      ? await frente2.webContents.executeJavaScript(`window.__teste.loja.lerEstado().espaco?.id ?? null`).catch(() => null)
+      : null
+    conferir(
+      'a sessão em disco guarda as duas janelas, cada uma com o seu espaço',
+      sessaoNoDisco.janelas.length === 2 &&
+        espacosNaSessao.includes(idsAbertos[0]) &&
+        espacosNaSessao.includes(idDaFrente2) &&
+        sessaoNoDisco.janelas.every((j) => j.largura > 0 && j.altura > 0),
+      `${sessaoNoDisco.janelas.length} janela(s): ${sessaoNoDisco.janelas.map((j) => `${j.largura}x${j.altura} em ${j.x},${j.y}`).join(' | ')}`
+    )
+
+    const UMA_TELA = [{ x: 0, y: 0, largura: 1920, altura: 1040 }]
+    const reabriria = janelasParaAbrir(sessaoNoDisco, [idsAbertos[0], idDaFrente2].filter((id): id is string => !!id), UMA_TELA)
+    conferir(
+      'essa sessão reabriria as duas janelas, cada uma dentro da tela',
+      reabriria.length === 2 && reabriria.every((j) => j.x >= 0 && j.y >= 0 && j.x + j.largura <= 1920 && j.y + j.altura <= 1040),
+      reabriria.map((j) => `${j.espacoId?.slice(0, 8)} em ${j.x},${j.y} ${j.largura}x${j.altura}`).join(' | ')
+    )
 
     await comando(chefe, 'ork abrir --espaco "Frente 2" shell --nome "Longe"')
     const abriuLonge = await aguardar(() => telaNoApp(chefe), 'Abri "Longe"')
@@ -1948,6 +2026,16 @@ export async function rodarAutoteste(
       await pedirSalvamento(frente2)
       frente2.close()
       for (let i = 0; i < 50 && !frente2.isDestroyed(); i++) await esperar(100)
+
+      // Carência: fechar uma janela não a tira da sessão na hora. É isso que faz "fechar as três janelas
+      // para encerrar o dia" reabrir as três amanhã, em vez de só a última que sobrou.
+      await esperar(900)
+      const logoApos = lerSessaoDeJanelas()
+      conferir(
+        'janela fechada continua na sessão durante a carência',
+        logoApos.janelas.length === 2,
+        `${logoApos.janelas.length} janela(s) logo depois de fechar`
+      )
     }
 
     // apagar o cartão: o processo espera a folga (o Ctrl+Z traz o cartão com ele vivo); depois encerra

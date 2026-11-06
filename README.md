@@ -2,9 +2,9 @@
 
 **Run a team of coding agents on an infinite canvas — and draw who talks to whom.**
 
-![version](https://img.shields.io/badge/version-0.30.0-4060e8)
+![version](https://img.shields.io/badge/version-0.31.0-4060e8)
 ![platform](https://img.shields.io/badge/platform-Windows%2011%20x64-4060e8)
-![tests](https://img.shields.io/badge/tests-103%20unit%20·%20142%20UI%20checks-4060e8)
+![tests](https://img.shields.io/badge/tests-117%20unit%20·%20147%20UI%20checks-4060e8)
 
 English · [Português](README.pt-BR.md)
 
@@ -45,6 +45,7 @@ Three ideas hold the rest together:
 | **Bands** | Groups drawn as a frame: whoever sits inside talks to everyone else inside. |
 | **Scores** | Whole teams saved — agents, roles, briefings, links, bands — raised at once in a new workspace, on any project. |
 | **Routines** | A request typed into a card every X minutes, daily or weekly. If the terminal is busy, waiting on a question or finished, the routine **skips its turn** instead of typing in the middle of the work. |
+| **Several windows** | Each workspace opens in its own window, and the app reopens the ones you had open, where you had them. |
 | **Floors** | Isolated copies of the repository through `git worktree`, so two teams can work on the same project without stepping on each other. |
 | **Code trees** | The files an agent touches become cards beside it, with the git diff, grouped by line of work. |
 | **Context reading** | How much of its window each agent has spent, so you know when to clear it or hand the work over. |
@@ -132,7 +133,7 @@ Electron · React · TypeScript · xterm.js · node-pty.
 
 The canvas logic lives in pure modules (`app/src/shared/`), covered by tests that run in plain Node without
 opening the app. On top of those, the autoteste launches the real app, builds a canvas, drives it with mouse and
-keyboard and checks the result on screen. Today: **103 unit tests** and **142 UI checks** across 12 scenarios.
+keyboard and checks the result on screen. Today: **117 unit tests** and **147 UI checks** across 13 scenarios.
 
 ```text
 app/src/shared/    pure canvas rules (bands, scores, agent swap, routines, files)
@@ -144,7 +145,7 @@ identidade/        the brand and the scripts that generate the icon
 
 ## Status
 
-Version **0.30.0**, in daily use on Windows. Canvas, terminals, delegation, roles, bands, scores, routines,
+Version **0.31.0**, in daily use on Windows. Canvas, terminals, delegation, roles, bands, scores, routines,
 floors and code trees are done. The road to 1.0 continues through operations — what happens when an agent
 hangs, runs out of credit, or the machine reboots — and a visual identity of its own.
 
