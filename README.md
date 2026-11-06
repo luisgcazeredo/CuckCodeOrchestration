@@ -1,159 +1,161 @@
-<img src="identidade/orkester-assinatura.png" alt="Orkester" height="96">
+<img src="identidade/orkester-assinatura.png" alt="Orkester" height="88">
 
-**Um quadro infinito onde cada agente de código é uma peça — e você desenha quem fala com quem.**
+**Run a team of coding agents on an infinite canvas — and draw who talks to whom.**
 
-Claude Code, Codex e PowerShell rodam de verdade dentro dos cartões, lado a lado com post-its, arquivos e
-desenhos. A linha que você traça entre dois cartões é a permissão para um agente falar com o outro.
+![version](https://img.shields.io/badge/version-0.30.0-4060e8)
+![platform](https://img.shields.io/badge/platform-Windows%2011%20x64-4060e8)
+![tests](https://img.shields.io/badge/tests-103%20unit%20·%20142%20UI%20checks-4060e8)
 
-<img src="capturas/quadro.png" alt="o quadro do Orkester: dois terminais ligados por uma corda, post-its e desenhos" width="100%">
+English · [Português](README.pt-BR.md)
 
-## Por que isto existe
+Claude Code, Codex and PowerShell run for real inside the cards, next to sticky notes, files and sketches.
+The line you draw between two cards is the permission for one agent to talk to the other.
 
-Um agente de código dá conta bem de uma tarefa de cada vez. Quando o trabalho cresce, a saída de todo mundo é
-a mesma: abrir mais terminais. Aí o gargalo deixa de ser o agente e passa a ser você — meia dúzia de janelas
-iguais, nenhuma sabe o que a outra está fazendo, e o único jeito de um agente aproveitar o trabalho do outro é
-você copiar e colar entre as duas.
+---
 
-O Orkester troca a pilha de janelas por um quadro. Cada terminal vira uma peça com nome, lugar e função; entre
-duas peças você desenha uma corda, e a partir dela os agentes se falam sozinhos. O arranjo que antes existia só
-na sua cabeça vira uma coisa visível, que se salva e se repete no projeto seguinte.
+## Why this exists
 
-Três ideias seguram o resto:
+A coding agent handles one task at a time, and handles it well. When the work grows, everyone reaches for the
+same answer: open more terminals. At that point the bottleneck stops being the agent and becomes you — half a
+dozen identical windows, none of them aware of the others, and the only way for one agent to build on another's
+work is for you to copy and paste between them.
 
-- **O quadro é o estado.** Posição, nome, grupo e ligação não são enfeite — é por eles que o app decide quem
-  alcança quem. Arrastar um cartão para dentro de um grupo *é* colocá-lo no time.
-- **A corda é a permissão.** Um agente só conversa com quem está ligado a ele. Nada de um agente solto mandando
-  recado para o quadro inteiro.
-- **O agente tem mão.** Dentro de um terminal do app existe o comando **`ork`**: com ele o agente abre sessões
-  novas, delega, lê a tela de quem está ligado a ele, organiza o quadro e monta o próprio time. Fora do app, o
-  comando recusa rodar.
+Orkester replaces the stack of windows with a canvas. Every terminal becomes a card with a name, a place and a
+role; you draw a line between two cards, and from there the agents talk to each other on their own. The
+arrangement that used to live only in your head becomes something you can see, save and reuse on the next
+project.
 
-## O que já dá para fazer
+Three ideas hold the rest together:
 
-- **Terminais de verdade no quadro** — Claude Code, Codex ou PowerShell dentro do cartão, com rolagem, zoom e
-  cópia; continuam vivos ao trocar de espaço e retomam a conversa ao reabrir o app.
-- **Delegação entre agentes** — um agente abre outro já com contexto (`--pedido`, `--arquivo`, `--funcao`),
-  espera a resposta, lê a tela, responde menus e fecha o que abriu.
-- **Funções** — nome + prompt + pasta. O agente nasce sabendo o papel dele em vez de nascer vazio.
-- **Bandas** — grupos desenhados como moldura: quem está dentro fala com todos os de dentro.
-- **Partituras** — times inteiros salvos (agentes, funções, recados, cordas, bandas) que sobem de uma vez num
-  espaço novo, em qualquer projeto.
-- **Rotinas** — um pedido digitado num cartão a cada X minutos, todo dia ou toda semana. Se o terminal estiver
-  ocupado, parado numa pergunta ou encerrado, a rotina **pula a vez** em vez de escrever no meio do trabalho.
-- **Andares** — cópias isoladas do repositório por `git worktree`, para dois times mexerem no mesmo projeto sem
-  se atropelar.
-- **Árvores de código** — os arquivos que o agente toca viram cartões ao lado dele, com o diff do git,
-  agrupados por frente de trabalho.
-- **Leitura de contexto** — quanto de janela cada agente já gastou, para decidir quando limpar ou passar o
-  trabalho adiante.
-- **O resto do quadro** — espaços de trabalho, post-its em `.md`, textos, anexos, navegador embutido, desenho
-  à mão livre, desfazer de tudo, temas claro e escuro.
+- **The canvas is the state.** Position, name, group and link are not decoration — they are how the app decides
+  who can reach whom. Dragging a card inside a group *is* adding it to the team.
+- **The link is the permission.** An agent only talks to the agents it is wired to. No loose agent broadcasting
+  to the whole board.
+- **The agent has hands.** Inside any terminal on the canvas there is the **`ork`** command: with it an agent
+  opens new sessions, delegates, reads the screen of whoever it is linked to, rearranges the canvas and
+  assembles its own team. Outside the app, the command refuses to run.
 
-## Instalar
+## Features
 
-Precisa de **Node 24** e **Windows 11 x64**.
+| | |
+|---|---|
+| **Real terminals** | Claude Code, Codex or PowerShell inside a card, with scrollback, zoom and copy. They survive workspace switches and resume the conversation when the app reopens. |
+| **Delegation** | An agent opens another one already carrying context (`--funcao`, `--pedido`, `--arquivo`), waits for the answer, reads the screen, replies to menus and closes what it opened. |
+| **Roles** | Name + prompt + folder. An agent is born knowing its part instead of being born empty. |
+| **Bands** | Groups drawn as a frame: whoever sits inside talks to everyone else inside. |
+| **Scores** | Whole teams saved — agents, roles, briefings, links, bands — raised at once in a new workspace, on any project. |
+| **Routines** | A request typed into a card every X minutes, daily or weekly. If the terminal is busy, waiting on a question or finished, the routine **skips its turn** instead of typing in the middle of the work. |
+| **Floors** | Isolated copies of the repository through `git worktree`, so two teams can work on the same project without stepping on each other. |
+| **Code trees** | The files an agent touches become cards beside it, with the git diff, grouped by line of work. |
+| **Context reading** | How much of its window each agent has spent, so you know when to clear it or hand the work over. |
+| **The rest of the canvas** | Workspaces, sticky notes stored as `.md`, text, attachments, an embedded browser, freehand drawing, undo for everything, light and dark themes. |
+
+## Install
+
+Requires **Node 24** and **Windows 11 x64**.
 
 ```powershell
 git clone https://github.com/luisgcazeredo/orkester.git
 cd orkester/app
 npm install
-npm run instalar   # gera o instalador e instala o app neste PC
+npm run instalar   # builds the installer and installs the app on this machine
 ```
 
-O app abre pelo atalho **Orkester** (área de trabalho e menu Iniciar). Os dados ficam em
-`%USERPROFILE%\.orkester` — JSON do quadro e post-its em `.md`, legíveis fora do app — e não são apagados ao
-desinstalar.
+The app opens from the **Orkester** shortcut (desktop and Start menu). Data lives in
+`%USERPROFILE%\.orkester` — the canvas as JSON and sticky notes as `.md`, readable outside the app — and
+survives uninstalling.
 
-Para desenvolver:
+For development:
 
 ```powershell
-npm run dev        # app com recarga automática
-npm run provas     # testes dos módulos puros
-npm run autoteste  # monta um quadro, usa mouse e teclado, confere tudo e fecha (0 = passou)
+npm run dev        # app with hot reload
+npm run provas     # unit tests for the pure modules
+npm run autoteste  # drives the real app with mouse and keyboard, checks everything, exits (0 = passed)
 ```
 
-## O comando `ork`
+## The `ork` command
 
-Roda dentro de um terminal do app. A corda entre dois cartões é a permissão; os cartões se chamam pelo nome.
+Runs inside a terminal on the canvas. The link between two cards is the permission; cards are addressed by
+name.
 
 ```text
-# quem sou eu, onde estou
-ork quem                          você, quem está ligado a você e o último contexto conhecido
-ork orcamento                     quanto de janela o agente já gastou
-ork espacos | janela              lista os espaços · abre um numa janela (--novo cria)
+# where am I
+ork quem                          you, who you are linked to, and the last known context
+ork orcamento                     how much of its window the agent has spent
+ork espacos | janela              list workspaces · open one in a window (--novo creates it)
 
-# trabalhar com outros agentes
-ork abrir claude|codex|shell      sessão nova ao lado, já ligada (--funcao, --pedido, --arquivo, --esperar)
-ork pedir <nome> "…"              manda um pedido e espera terminar (devolve a tela)
-ork esperar | ver <nome>          espera terminar · lê a tela sem mandar nada
-ork teclas <nome> enter|esc|…     responde menus e perguntas
-ork limpar | fechar <nome>        zera o contexto · fecha uma sessão que você abriu
-ork passar <nome> | ork sair      entrega as sessões que você abriu · fecha o próprio cartão
+# working with other agents
+ork abrir claude|codex|shell      a new session beside you, already linked
+                                  (--funcao, --pedido, --arquivo, --esperar)
+ork pedir <name> "…"              send a request and wait for it to finish (returns the screen)
+ork esperar | ver <name>          wait for it to finish · read the screen without sending anything
+ork teclas <name> enter|esc|…     answer menus and prompts
+ork limpar | fechar <name>        clear the context · close a session you opened
+ork passar <name> | ork sair      hand over the sessions you opened · close your own card
 
-# montar o time
-ork funcoes                       os papéis guardados, para usar em `ork abrir --funcao`
-ork banda | banda criar "Nome"    grupos: quem está dentro da moldura fala com todos os de dentro
-ork trocar <cartão> <agente>      troca o agente de um cartão que ele abriu (o cartão fica, o agente muda)
-ork partitura                     times salvos: `usar "Nome"` sobe um ao lado, `salvar "Nome"` guarda
-
-# mexer no quadro
-ork quadro                        cada cartão com número, nome, lugar e tamanho, e as cordas
-ork mover | arrumar               põe cartões num lugar (--x/--y, --dx/--dy) · arruma em grade (--colunas)
-ork nome | ligar | desligar       renomeia um cartão · desenha ou tira a corda entre dois agentes
-ork anotar "…" | juntar           escreve um texto no quadro · agrupa cartões (--soltar desfaz)
-ork arvore nova|usar|mostrar      as árvores de código do cartão, uma por frente de trabalho
+# building the team
+ork funcoes                       the saved roles, for use with `ork abrir --funcao`
+ork banda | banda criar "Name"    groups: whoever is inside the frame talks to everyone inside
+ork trocar <card> <agent>         swap the agent on a card you opened (the card stays, the agent changes)
+ork partitura                     saved teams: `usar "Name"` raises one beside you, `salvar "Name"` stores it
+ 
+# working the canvas
+ork quadro                        every card with number, name, place and size, and the links
+ork mover | arrumar               place cards (--x/--y, --dx/--dy) · lay them out in a grid (--colunas)
+ork nome | ligar | desligar       rename a card · draw or remove the link between two agents
+ork anotar "…" | juntar           write a note on the canvas · group cards (--soltar undoes it)
+ork arvore nova|usar|mostrar      the card's code trees, one per line of work
 ```
 
-Tudo o que o agente faz no quadro **entra no desfazer** do usuário, nunca apaga nada, não toca em cartão
-travado nem em cartão de código, e só alcança o andar à mostra.
+Everything an agent does to the canvas **goes into the user's undo stack**, never deletes anything, never
+touches a locked card or a code card, and only reaches the floor currently on screen.
 
-O app grava o manual completo como skill `orkester` em `~/.claude/skills` e `~/.codex/skills`, então o agente
-aprende o comando sozinho na primeira vez que precisa dele.
+The app writes the full manual as an `orkester` skill into `~/.claude/skills` and `~/.codex/skills`, so the
+agent learns the command by itself the first time it needs it.
 
-## Três ideias que valem explicar
+## Three ideas worth explaining
 
-**Banda.** Um grupo desenhado como moldura. Não existe lista de membros — é a moldura que diz quem é do time,
-então arrastar um cartão para dentro ou para fora é entrar e sair. A corda ligada à banda vale para cada um dos
-que estão dentro.
+**Band.** A group drawn as a frame. There is no membership list — the frame is what says who belongs, so
+dragging a card in or out *is* joining and leaving. A link attached to the band applies to every agent inside
+it.
 
-**Partitura.** Um time salvo. A pasta *não* é salva de propósito: cada cartão abre na pasta do espaço onde a
-partitura subiu, então o mesmo time serve em qualquer projeto. O prompt de cada papel vem da função de hoje,
-nunca de uma cópia velha guardada junto.
+**Score.** A saved team. The folder is deliberately *not* saved: every card opens in the folder of the
+workspace where the score was raised, so the same team works on any project. Each part's prompt comes from
+today's role definition, never from a stale copy stored alongside it.
 
-**Rotina.** O que só o app consegue fazer é saber a situação do terminal antes de digitar. Uma rotina que
-escreve no meio de uma resposta estraga o trabalho; por isso ela confere e pula a vez.
+**Routine.** What only the app can do is know the state of the terminal before typing. A routine that writes in
+the middle of an answer ruins the work, so it checks first and skips its turn.
 
-## Por dentro
+## Under the hood
 
 Electron · React · TypeScript · xterm.js · node-pty.
 
-O cálculo do quadro mora em módulos puros (`app/src/shared/`), cobertos por testes que rodam em Node sem abrir o
-app. Em cima deles, o autoteste abre o app de verdade, monta um quadro, mexe com mouse e teclado e confere o
-resultado na tela. Hoje: **103 provas** e **142 checagens** em 12 cenários.
+The canvas logic lives in pure modules (`app/src/shared/`), covered by tests that run in plain Node without
+opening the app. On top of those, the autoteste launches the real app, builds a canvas, drives it with mouse and
+keyboard and checks the result on screen. Today: **103 unit tests** and **142 UI checks** across 12 scenarios.
 
 ```text
-app/src/shared/    regras puras do quadro (bandas, partituras, trocar, rotinas, arquivos)
-app/src/main/      processo principal: terminais, verbos do `ork`, dados em disco, autoteste
-app/src/renderer/  o quadro em React
-app/src/cli/       o comando `ork` que o agente chama
-identidade/        a marca e os scripts que geram o ícone
-capturas/          telas usadas aqui
+app/src/shared/    pure canvas rules (bands, scores, agent swap, routines, files)
+app/src/main/      main process: terminals, `ork` verbs, data on disk, autoteste
+app/src/renderer/  the canvas, in React
+app/src/cli/       the `ork` command the agent calls
+identidade/        the brand and the scripts that generate the icon
 ```
 
-## Estado
+## Status
 
-Versão **0.30.0**, em uso diário no Windows. Quadro, terminais, delegação, funções, bandas, partituras,
-rotinas, andares e árvores de código estão prontos; o caminho até a 1.0 segue por operação (o que acontece
-quando um agente trava, acaba o crédito ou o PC reinicia) e visual próprio.
+Version **0.30.0**, in daily use on Windows. Canvas, terminals, delegation, roles, bands, scores, routines,
+floors and code trees are done. The road to 1.0 continues through operations — what happens when an agent
+hangs, runs out of credit, or the machine reboots — and a visual identity of its own.
 
-## Marca
+## Brand
 
-<img src="identidade/orkester-simbolo.png" alt="símbolo do Orkester" height="72">
+<img src="identidade/orkester-simbolo.png" alt="Orkester symbol" height="64">
 
-Três peças orbitando um núcleo: três agentes em volta do mesmo trabalho. As versões com e sem a palavra, as
-cores e os comandos que refazem o ícone estão em [`identidade/`](identidade/README.md).
+Three pieces orbiting a core: three agents around the same work. The versions with and without the wordmark,
+the colors and the commands that regenerate the icon live in [`identidade/`](identidade/README.md).
 
 ---
 
-Projeto pessoal de [@luisgcazeredo](https://github.com/luisgcazeredo), feito para o uso dele. O código está
-aberto para quem quiser ler ou aproveitar; não há promessa de suporte nem de compatibilidade entre versões.
+A personal project by [@luisgcazeredo](https://github.com/luisgcazeredo), built for his own use. The code is
+open to read and to borrow from; there is no promise of support or of compatibility between versions.
